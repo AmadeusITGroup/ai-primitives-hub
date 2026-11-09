@@ -62,6 +62,9 @@ import {
   SourceAddCommand,
 } from '../../src/commands/source';
 import {
+  StatusCommand,
+} from '../../src/commands/status';
+import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
@@ -544,6 +547,24 @@ describe('install command (local --from mode)', () => {
   });
 
   describe('--source resolved through the hub', () => {
+    const SHARED_HUB_URL = 'https://hubs.example/hub-config.yml';
+    const hubYaml = (name: string): string => [
+      'version: 1.0.0',
+      'metadata:',
+      `  name: ${name}`,
+      '  description: Hub with a GitHub source',
+      '  maintainer: test',
+      "  updatedAt: '2026-01-01T00:00:00Z'",
+      'sources:',
+      '  - id: sample-collections',
+      '    name: Sample Collections',
+      '    type: github',
+      '    url: https://github.com/acme-org/sample-skills',
+      '    enabled: true',
+      '    priority: 0',
+      'profiles: []',
+      ''
+    ].join('\n');
     const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'sample-skills', version: '1.8.1' })]
       .map(([filePath, bytes]) => ({ path: filePath, bytes })));
     const http: HttpClient = {
@@ -561,6 +582,9 @@ describe('install command (local --from mode)', () => {
         }
         if (request.url === 'https://api.github.com/assets/sample') {
           return { statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} };
+        }
+        if (request.url === SHARED_HUB_URL) {
+          return { statusCode: 200, body: new TextEncoder().encode(hubYaml('Shared Hub')), finalUrl: request.url, headers: {} };
         }
         throw new Error(`Unexpected request: ${request.url}`);
       }
@@ -580,7 +604,7 @@ describe('install command (local --from mode)', () => {
         ctx,
         http,
         tokens: { getToken: async () => undefined },
-        commandClasses: [...COMMAND_CLASSES, HubAddCommand, HubUseCommand],
+        commandClasses: [...COMMAND_CLASSES, HubAddCommand, HubUseCommand, StatusCommand],
         commands: [],
         name: 'test',
         version: 'test'
@@ -621,6 +645,52 @@ describe('install command (local --from mode)', () => {
       expect(result.exitCode, result.stdout).toBe(0);
       await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
         .resolves.toContain('Hello Prompt');
+    });
+
+    const installIntoRepository = async (): Promise<void> => {
+      await initGitRoot(workspace);
+      expect((await runWithHub(['target', 'add', 'repo-vscode', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
+      const result = await runWithHub([
+        'install', 'acme-org-sample-skills-sample-skills', '--source', 'sample-collections', '--target', 'repo-vscode', '-o', 'json'
+      ]);
+      expect(result.exitCode, result.stdout).toBe(0);
+    };
+
+    it('records the shared hub of the source in the repository record, and status shows it', async () => {
+      expect((await runWithHub(['hub', 'add', '--type', 'url', '--location', SHARED_HUB_URL, '--id', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runWithHub(['hub', 'use', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+
+      await installIntoRepository();
+
+      const record = await readRecord(workspace);
+      expect(Object.values(record.sources)).toEqual([{ type: 'github', url: 'https://github.com/acme-org/sample-skills', hubId: 'shared-hub' }]);
+      expect(record.hubs).toEqual({ 'shared-hub': { name: 'Shared Hub', type: 'url', location: SHARED_HUB_URL } });
+      const status = parseJson<{ entries: { bundleId: string; hubId?: string }[] }>((await runWithHub(['status', '-o', 'json'])).stdout);
+      expect(status.data.entries).toEqual([expect.objectContaining({ bundleId: 'sample-skills', tool: 'vscode', hubId: 'shared-hub' })]);
+      expect((await runWithHub(['status'])).stdout).toContain('(vscode)  hub shared-hub');
+    });
+
+    it('keeps the shared hub when the record is replayed', async () => {
+      expect((await runWithHub(['hub', 'add', '--type', 'url', '--location', SHARED_HUB_URL, '--id', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runWithHub(['hub', 'use', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      await installIntoRepository();
+      const recorded = await readFile(recordPathIn(workspace), 'utf8');
+
+      const replay = await runWithHub(['install', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(parseJson<{ replayed: unknown[] }>(replay.stdout).data.replayed).toHaveLength(1);
+      const record = await readRecord(workspace);
+      expect(Object.values(record.sources).map((source) => source.hubId)).toEqual(['shared-hub']);
+      expect(record.hubs).toEqual(JSON.parse(recorded).hubs);
+    });
+
+    it('does not record a hub that is only a local path', async () => {
+      await installIntoRepository();
+
+      const record = await readRecord(workspace);
+      expect(Object.values(record.sources).map((source) => source.hubId)).toEqual([undefined]);
+      expect(record.hubs).toBeUndefined();
     });
 
     it('installs <id> --source <hub-id> using that hub\'s source', async () => {
