@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 import {
   generateMarkdown,
+  listCollectionFiles,
   resolveCollectionReadmePath,
   validateAllCollections,
   validateCollectionFile,
@@ -34,6 +35,82 @@ const writeCollection = (content: string): string => {
   return collectionFile;
 };
 
+describe('listCollectionFiles', () => {
+  it('returns the collection files sorted regardless of creation order', () => {
+    for (const name of ['zeta', 'alpha', 'mid']) {
+      fs.writeFileSync(path.join(tempDir, 'collections', `${name}.collection.yml`), `id: ${name}\n`);
+    }
+    fs.writeFileSync(path.join(tempDir, 'collections', 'notes.md'), '# not a collection\n');
+
+    expect(listCollectionFiles(tempDir)).toEqual([
+      path.join('collections', 'alpha.collection.yml'),
+      path.join('collections', 'mid.collection.yml'),
+      path.join('collections', 'zeta.collection.yml')
+    ]);
+  });
+});
+
+describe('collection schema warnings', () => {
+  it('reports core tag warnings before the readme warning', () => {
+    const collectionPath = writeCollection(`id: foo
+name: Foo
+description: Foo collection
+tags:
+  - ${'t'.repeat(31)}
+items: []
+`);
+
+    const result = validateCollectionFile(tempDir, collectionPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([
+      'collections/foo.collection.yml: tags[0] is longer than 30 characters',
+      'collections/foo.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.'
+    ]);
+  });
+
+  it('reports an unknown root property as a warning', () => {
+    const collectionPath = writeCollection(`id: foo
+name: Foo
+description: Foo collection
+mcpServers: {}
+items: []
+`);
+
+    const result = validateCollectionFile(tempDir, collectionPath);
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toEqual([
+      'collections/foo.collection.yml: unknown root property \'mcpServers\' is not in the collection schema; '
+      + 'remove it or rename it to one of: id, name, description, items, mcp, readme, version, author, tags, display',
+      'collections/foo.collection.yml: Collection has no readme. Consider adding a readme to help users understand this collection.'
+    ]);
+  });
+
+  it('reports a cyclic YAML alias as an error and still validates the other collections', () => {
+    const cyclic = path.join('collections', 'cyclic.collection.yml');
+    fs.writeFileSync(path.join(tempDir, cyclic), `id: cyclic
+name: Cyclic
+description: Cyclic collection
+items: []
+mcp:
+  items:
+    srv:
+      command: node
+      type: &loop [*loop]
+`);
+    const other = writeCollection('id: foo\nname: Foo\ndescription: Foo collection\nitems: [{ path: missing.prompt.md, kind: prompt }]\n');
+
+    const result = validateAllCollections(tempDir, [cyclic, other]);
+
+    expect(result.errors).toEqual([
+      'collections/cyclic.collection.yml: mcp.items.srv: Invalid type \'[object Array]\'. Must be one of: stdio, http, sse',
+      'collections/foo.collection.yml: items[0] referenced file not found: missing.prompt.md'
+    ]);
+  });
+});
+
 describe('collection README handling', () => {
   it('resolves a normalized nested README path', () => {
     expect(resolveCollectionReadmePath({ readme: { path: 'docs\\collection-overview.md' } })).toBe('docs/collection-overview.md');
@@ -44,6 +121,7 @@ describe('collection README handling', () => {
     fs.writeFileSync(path.join(tempDir, 'docs', 'collection-overview.md'), '# Overview\n');
     const collectionPath = writeCollection(`id: foo
 name: Foo
+description: Foo collection
 readme:
   path: docs/collection-overview.md
 items:
@@ -60,6 +138,7 @@ items:
   it('rejects a declared README that does not exist', () => {
     const collectionPath = writeCollection(`id: foo
 name: Foo
+description: Foo collection
 readme:
   path: docs/missing.md
 items: []
@@ -74,6 +153,7 @@ items: []
   it('collects an invalid README path without aborting validation of other collections', () => {
     const invalidCollection = writeCollection(`id: foo
 name: Foo
+description: Foo collection
 readme:
   path: ../README.md
 items: []
@@ -81,6 +161,7 @@ items: []
     const validCollection = path.join('collections', 'bar.collection.yml');
     fs.writeFileSync(path.join(tempDir, validCollection), `id: bar
 name: Bar
+description: Bar collection
 items: []
 `);
 
@@ -95,6 +176,7 @@ items: []
   it('warns when no README is declared and includes it in markdown output', () => {
     const collectionPath = writeCollection(`id: foo
 name: Foo
+description: Foo collection
 items: []
 `);
 
@@ -126,6 +208,7 @@ describe('plugin items', () => {
   const pluginCollection = (itemPath: string, kind = 'plugin', file = 'foo'): string => {
     const content = `id: ${file}
 name: ${file}
+description: ${file} collection
 readme:
   path: README.md
 items:
@@ -258,6 +341,7 @@ describe('kind/route mismatch', () => {
     fs.writeFileSync(path.join(tempDir, 'README.md'), '# Foo\n');
     return writeCollection(`id: foo
 name: Foo
+description: Foo collection
 readme:
   path: README.md
 items:

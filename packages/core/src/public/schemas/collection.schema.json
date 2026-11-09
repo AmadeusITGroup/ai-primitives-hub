@@ -16,6 +16,7 @@
       "description": "Unique identifier for the collection (lowercase letters, numbers, and hyphens only)",
       "pattern": "^[a-z0-9-]+$",
       "minLength": 1,
+      "maxLength": 100,
       "examples": [
         "my-prompts",
         "python-helpers",

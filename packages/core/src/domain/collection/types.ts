@@ -28,7 +28,8 @@ export type CompressionFormat = 'zip' | 'tar.gz' | 'tar.bz2' | 'tar.xz' | 'none'
 export interface CollectionItem {
   path: string;
   kind: string;
-  name?: string;
+  /** Display name (the collection schema's `title` field). */
+  title?: string;
   description?: string;
   tags?: string[];
 }
@@ -73,6 +74,14 @@ export interface CollectionFieldValidationResult {
 export interface ObjectValidationResult {
   ok: boolean;
   errors: string[];
+}
+
+/**
+ * Result of validating a parsed collection object against the published
+ * collection schema. `ok` means no errors; warnings never fail validation.
+ */
+export interface CollectionObjectValidationResult extends ObjectValidationResult {
+  warnings: string[];
 }
 
 /**

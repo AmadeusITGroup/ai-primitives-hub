@@ -40,7 +40,8 @@ function findWorkspaceRoot(startDir: string): string {
   }
 }
 
-const workspaceRoot = findWorkspaceRoot(__dirname);
+/** Root of this pnpm workspace checkout (the directory holding pnpm-workspace.yaml). */
+export const workspaceRoot = findWorkspaceRoot(__dirname);
 
 type CommandError = Error & {
   stdout?: Buffer | string;

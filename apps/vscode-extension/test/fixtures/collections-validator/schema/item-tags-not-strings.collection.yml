@@ -1,0 +1,8 @@
+id: item-tags-not-strings
+name: Item Tags Not Strings Collection
+description: This collection has an item whose tags are not strings
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+    tags:
+      - 1

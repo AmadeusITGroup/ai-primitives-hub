@@ -1,0 +1,8 @@
+id: mcp-unknown-property
+name: MCP Unknown Property Collection
+description: This collection has an mcp property the schema does not define
+mcp:
+  servers: {}
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

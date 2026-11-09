@@ -1,0 +1,7 @@
+id: author-not-string
+name: Author Not String Collection
+description: This collection has an author that is not a string
+author: 42
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

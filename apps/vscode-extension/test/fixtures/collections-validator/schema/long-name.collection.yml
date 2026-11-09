@@ -1,0 +1,6 @@
+id: long-name
+name: Long Name Collection Long Name Collection Long Name Collection Long Name Collection Long Name Collect
+description: This collection has a name longer than 100 characters
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

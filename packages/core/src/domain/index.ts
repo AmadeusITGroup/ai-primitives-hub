@@ -8,6 +8,7 @@ export * from './bundle/version';
 export * from './bundle/identity-matcher';
 export * from './collection/types';
 export * from './collection/validate';
+export * from './collection/collection-schema-rules';
 export * from './collection/diagnostics';
 export * from './collection/contribution';
 export * from './collection/manifest-validator';
