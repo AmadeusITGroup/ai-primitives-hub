@@ -349,7 +349,11 @@ export class RegistryManager {
     this.recordAdapter = new ExtensionRecordAdapter({
       sources: {
         listSources: () => this.storage.getSources(),
-        getActiveHubId: async () => (await this.hubManager?.getActiveHubId()) ?? null
+        getActiveHubId: async () => (await this.hubManager?.getActiveHubId()) ?? null,
+        getHub: async (hubId) => {
+          const hub = await this.hubManager?.getHub(hubId);
+          return hub ? { name: hub.config.metadata.name, reference: hub.reference } : null;
+        }
       },
       userRecordPath: this.storage.getPaths().userRecord,
       profileStore: {
