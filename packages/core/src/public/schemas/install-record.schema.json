@@ -64,7 +64,10 @@
     },
     "hubs": {
       "type": "object",
-      "description": "Hub configuration, carried through unchanged"
+      "description": "Map of hub IDs, named by a source's hubId, to the hub's import reference; never holds credentials",
+      "additionalProperties": {
+        "$ref": "#/definitions/hub"
+      }
     },
     "profiles": {
       "type": "object",
@@ -195,6 +198,35 @@
         "credentialRef": {
           "type": "string",
           "minLength": 1
+        },
+        "hubId": {
+          "type": "string",
+          "description": "Key in hubs of the shared hub the source came from",
+          "minLength": 1
+        }
+      }
+    },
+    "hub": {
+      "type": "object",
+      "description": "A shared hub's import reference; entries carried over by migration may have other fields",
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ref": {
+          "type": "string"
+        },
+        "configFile": {
+          "type": "string"
         }
       }
     }
