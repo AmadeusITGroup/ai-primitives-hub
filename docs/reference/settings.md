@@ -124,6 +124,28 @@ Markdown documents. See [Security Scanning](../user-guide/security-scanning.md).
 }
 ```
 
+## Experimental Target Management
+
+### `promptregistry.experimental.runtimeTargetManagement`
+
+| Type | Default | Scope |
+|------|---------|-------|
+| boolean | `false` | application |
+
+**Experimental.** Enables target management: a
+`promptregistry.runtimeTarget*` command set and a `Target: <harness>`
+status-bar selector. The selector records the harness only. While enabled,
+Marketplace install, update and uninstall use the selected harness and ask
+for Repository or User scope at install time; Repository - Local Only is not
+offered. Installed counts follow the selected harness. User-scope writes reach
+real harness directories; prefer a synthetic sandbox workspace and repository
+scope for feedback. Existing legacy installs are not adopted. See
+[Target Management](../contributor-guide/target-management.md).
+
+Find it with `@ext:AmadeusITGroup.prompt-registry @tag:experimental` in
+Settings. Changes apply without a reload. Explicit user configuration,
+including `false`, takes precedence over the developer environment fallback.
+
 ## See Also
 
 - [Command Reference](./commands.md) — All available commands

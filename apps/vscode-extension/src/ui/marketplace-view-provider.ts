@@ -13,7 +13,9 @@ import {
   resolveScoredBundleSearchKeys,
 } from '@ai-primitives-hub/app';
 import {
+  type InstalledManifest,
   isContributableCollectionSource,
+  readInstalledManifest,
 } from '@ai-primitives-hub/core';
 import {
   extractGitHubSlugFromRemoteUrl,
@@ -33,10 +35,6 @@ import {
 import {
   SetupStateManager,
 } from '../services/setup-state-manager';
-import {
-  isRemoteServerConfig,
-  isStdioServerConfig,
-} from '../types/mcp';
 import {
   Bundle,
   InstalledBundle,
@@ -77,8 +75,11 @@ interface WebviewMessage {
   type: 'ready' | 'refresh' | 'search' | 'install' | 'update' | 'uninstall' | 'openDetails' | 'openPromptFile' | 'installVersion'
     | 'getVersions' | 'toggleAutoUpdate' | 'openSourceRepository' | 'contributeCollection' | 'completeSetup' | 'openExternalLink';
   bundleId?: string;
-  filePath?: string;
+  installationId?: string;
+  scope?: 'user' | 'repository';
+  commitMode?: 'commit' | 'local-only';
   version?: string;
+  filePath?: string;
   enabled?: boolean;
   sourceId?: string;
   url?: string;
@@ -98,6 +99,7 @@ interface BundlesLoadedMessage {
   setupState: string;
   sourcesCount: number;
   hasConfiguredHub?: boolean;
+  inventoryWarning?: string;
 }
 
 interface PrimitiveSearchDiagnostics {
@@ -118,6 +120,9 @@ interface MarketplaceBundleIdentity {
 
 export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'promptregistry.marketplace';
+
+  private deliveredBundlesMessage: BundlesLoadedMessage | undefined;
+  private readonly deliveredWaiters: ((message: BundlesLoadedMessage) => void)[] = [];
 
   private _view?: vscode.WebviewView;
   private webviewReady = false;
@@ -191,6 +196,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       }),
       this.registryManager.onBundlesUninstalled((bundleIds) => {
         this.handleBundleEvent('uninstalled', `${bundleIds.length} bundles`, () => this.loadBundles());
+      }),
+      this.registryManager.onDidChangeInstallations(() => {
+        void this.loadBundles();
       }),
       this.registryManager.onSourceAdded((source) => {
         this.handleSourceCompositionChanged(`Source added: ${source.id}`);
@@ -273,15 +281,36 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     this.sourceSyncThrottle.trigger();
   }
 
+  /**
+   * Row that decides the card state: the oldest installation, so an update is offered while any row is behind.
+   * @param rows
+   */
+  private oldestInstallation(rows: InstalledBundle[]): InstalledBundle | undefined {
+    if (rows.length <= 1) {
+      return rows[0];
+    }
+    return rows.reduce((oldest, row) => {
+      try {
+        return VersionManager.isUpdateAvailable(row.version, oldest.version) ? row : oldest;
+      } catch {
+        return oldest;
+      }
+    });
+  }
+
   private async deliverBundles(): Promise<void> {
     if (!this._view || !this.webviewReady || !this.latestBundlesMessage) {
       return;
     }
 
-    const delivered = await this._view.webview.postMessage(this.latestBundlesMessage);
+    const message = this.latestBundlesMessage;
+    const delivered = await this._view.webview.postMessage(message);
     if (!delivered) {
       this.logger.warn('Marketplace webview was not ready to receive bundle data');
+      return;
     }
+    this.deliveredBundlesMessage = message;
+    this.deliveredWaiters.splice(0).forEach((resolve) => resolve(message));
   }
 
   /**
@@ -450,11 +479,21 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     try {
       // Search for all bundles using cache only (non-blocking)
       // This ensures fast initial load - network fetches happen via syncSource which fires onSourceSynced
-      const [bundles, installedBundles, sources] = await Promise.all([
+      const [bundles, sources] = await Promise.all([
         this.registryManager.searchBundles({ cacheOnly: true }),
-        this.registryManager.listInstalledBundles(),
         this.registryManager.listSources()
       ]);
+      let installedBundles: InstalledBundle[] = [];
+      let inventoryWarning: string | undefined;
+      try {
+        installedBundles = await this.registryManager.listInstalledBundles();
+      } catch (error) {
+        this.logger.error('Failed to read installed collection state; continuing with catalog results', error as Error);
+        inventoryWarning = 'Installed collections could not be loaded because their lockfile is unreadable. '
+          + 'Catalog results are available, but install, update and uninstall are disabled. Use Migrate Lockfile '
+          + 'for a released v2 repository lockfile; otherwise preserve the file and contact support. '
+          + 'Do not edit the lockfile version or schema by hand.';
+      }
       const autoUpdateService = this.registryManager.autoUpdateService;
 
       // Preload auto-update preferences once per refresh
@@ -470,9 +509,16 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       const enhancedBundles = bundles.map((bundle) => {
         // Find matching installed bundle using identity matching
         const source = sources.find((s) => s.id === bundle.sourceId);
-        const installed = installedBundles.find((ib) =>
+        const matches = installedBundles.filter((ib) =>
           this.matchesBundleIdentity(ib.bundleId, bundle.id, source?.type || 'local')
         );
+        const installed = this.oldestInstallation(matches);
+        const installations = this.registryManager.isRuntimeTargetManagementEnabled()
+          ? matches.map((m) => ({
+            installationId: m.installationId, scope: m.scope, version: m.version,
+            targetType: m.targetType, commitMode: m.commitMode
+          }))
+          : undefined;
 
         // Use manifest from installed bundle if available
         const contentBreakdown = this.getContentBreakdown(bundle, installed?.manifest);
@@ -482,7 +528,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         const hubName = isCurated && source?.hubId ? source.metadata?.description || source.name : undefined;
 
         // Determine button state based on installation status and version
-        const buttonState = this.determineButtonState(bundle, installed);
+        const buttonState = inventoryWarning === undefined ? this.determineButtonState(bundle, installed) : 'unavailable';
 
         // Get available versions if this is a consolidated bundle
         let availableVersions: { version: string }[] | undefined;
@@ -503,6 +549,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           ...bundle,
           installed: !!installed,
           installedVersion: installed?.version,
+          inventoryUnavailable: inventoryWarning !== undefined,
+          ...(installations === undefined ? {} : { installations }),
           buttonState,
           isCurated,
           hubName,
@@ -512,6 +560,27 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
           contributable
         };
       });
+
+      if (this.registryManager.isRuntimeTargetManagementEnabled()) {
+        // Installations whose source is unknown here (for example after a lockfile migration) stay visible and removable.
+        const shown = new Set(enhancedBundles.flatMap((b) => ((b as { installations?: { installationId: string }[] }).installations ?? []).map((i) => i.installationId)));
+        const orphans = installedBundles.filter((row) => row.installationId !== undefined && !shown.has(row.installationId));
+        for (const [bundleId, rows] of Map.groupBy(orphans, (row) => `${row.sourceId ?? ''}\u0000${row.bundleId}`)) {
+          const first = rows[0];
+          const oldest = this.oldestInstallation(rows) ?? first;
+          enhancedBundles.push({
+            id: first.bundleId, manifestId: first.manifestId, name: (first.manifest as { name?: string } | undefined)?.name ?? first.manifestId ?? first.bundleId,
+            version: oldest.version, description: 'Installed; its source is not configured in this window.',
+            author: '', sourceId: first.sourceId ?? '', environments: [], tags: [], lastUpdated: first.installedAt, size: '',
+            dependencies: [], license: '', manifestUrl: '', downloadUrl: '',
+            installed: true, installedVersion: oldest.version, buttonState: 'uninstall', isCurated: false,
+            installations: rows.map((m) => ({ installationId: m.installationId, scope: m.scope, version: m.version, targetType: m.targetType })),
+            contentBreakdown: this.getContentBreakdown({ id: first.bundleId } as Bundle, first.manifest),
+            autoUpdateEnabled: false, contributable: false
+          } as never);
+          void bundleId;
+        }
+      }
 
       // Extract dynamic filter options
       const availableTags = extractAllTags(bundles);
@@ -534,7 +603,8 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         },
         setupState,
         sourcesCount: sources.length,
-        hasConfiguredHub
+        hasConfiguredHub,
+        ...(inventoryWarning === undefined ? {} : { inventoryWarning })
       };
       await this.deliverBundles();
 
@@ -601,13 +671,14 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param bundle
    * @param manifest
    */
-  private getContentBreakdown(bundle: Bundle, manifest?: any): ContentBreakdown {
+  private getContentBreakdown(bundle: Bundle, manifest?: InstalledManifest): ContentBreakdown {
     const bundleData = bundle as any;
-    const mcpCount = manifest?.mcpServers ? Object.keys(manifest.mcpServers).length : this.countMcpServers(bundleData);
+    const manifestView = readInstalledManifest(manifest);
+    const mcpCount = manifestView.mcpServers ? Object.keys(manifestView.mcpServers).length : this.countMcpServers(bundleData);
 
     // First: Use manifest if provided (from installed bundle)
-    if (manifest?.prompts && Array.isArray(manifest.prompts)) {
-      return this.countPromptsByType(manifest.prompts, mcpCount);
+    if (manifestView.prompts !== undefined) {
+      return this.countPromptsByType(manifestView.prompts, mcpCount);
     }
 
     // Second: Try to parse from bundle data (some sources embed this)
@@ -696,19 +767,21 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       }
       case 'install': {
         if (message.bundleId) {
-          await this.handleInstall(message.bundleId);
+          await this.handleInstall(message.bundleId, {
+            scope: message.scope, version: message.version, commitMode: message.commitMode
+          });
         }
         break;
       }
       case 'update': {
         if (message.bundleId) {
-          await this.handleUpdate(message.bundleId);
+          await this.handleUpdate(message.bundleId, message.installationId, message.version);
         }
         break;
       }
       case 'uninstall': {
         if (message.bundleId) {
-          await this.handleUninstall(message.bundleId);
+          await this.handleUninstall(message.bundleId, message.installationId);
         }
         break;
       }
@@ -1038,8 +1111,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       if (
         typeof filePath !== 'string'
         || !filePath
-        || !Array.isArray(installed.manifest.prompts)
-        || !installed.manifest.prompts.some((prompt) => prompt.file === filePath)
+        || !(readInstalledManifest(installed.manifest).prompts ?? []).some((prompt) => prompt.file === filePath)
       ) {
         vscode.window.showErrorMessage('Invalid prompt file path');
         return;
@@ -1068,23 +1140,47 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Show scope selection dialog and return result
+   * @param bundleName
    * @returns Scope selection result or undefined if cancelled
    */
-  private async promptForScope(): Promise<import('../utils/scope-selection-ui').ScopeSelectionResult | undefined> {
+  private async promptForScope(bundleName?: string): Promise<import('../utils/scope-selection-ui').ScopeSelectionResult | undefined> {
     const { showScopeSelectionDialog } = await import('../utils/scope-selection-ui');
+    if (this.registryManager.isRuntimeTargetManagementEnabled()) {
+      const targetType = await this.registryManager.getSelectedRuntimeTarget();
+      if (targetType === undefined) {
+        const pick = await vscode.window.showWarningMessage('No target harness selected.', 'Select Target');
+        if (pick === 'Select Target') {
+          await vscode.commands.executeCommand('promptregistry.runtimeTargetSelect');
+        }
+        return undefined;
+      }
+      return showScopeSelectionDialog(bundleName, { targetType });
+    }
     return showScopeSelectionDialog();
   }
 
   /**
    * Install a bundle
    * @param bundleId
+   * @param explicit
+   * @param explicit.scope
+   * @param explicit.version
+   * @param explicit.commitMode
    */
-  private async handleInstall(bundleId: string): Promise<void> {
+  private async handleInstall(
+    bundleId: string,
+    explicit?: { scope?: 'user' | 'repository'; version?: string; commitMode?: 'commit' | 'local-only' }
+  ): Promise<void> {
+    if (this.registryManager.isRuntimeTargetManagementEnabled() && await this.registryManager.isBlockedByLegacyLockfile()) {
+      return;
+    }
     try {
       this.logger.info(`Installing bundle from marketplace: ${bundleId}`);
 
       // Show scope selection dialog
-      const scopeResult = await this.promptForScope();
+      const scopeResult = explicit?.scope === undefined
+        ? await this.promptForScope()
+        : { scope: explicit.scope, commitMode: explicit.commitMode };
 
       if (!scopeResult) {
         // User cancelled the dialog
@@ -1100,7 +1196,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       }, async () => {
         await this.registryManager.installBundle(bundleId, {
           scope: scopeResult.scope,
-          version: 'latest',
+          version: explicit?.version ?? 'latest',
           commitMode: scopeResult.commitMode
         });
       });
@@ -1113,22 +1209,70 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * Resolve the installation a row action targets: the exact row by id, the only
+   * row, or the user's pick when several rows match. Returns undefined when the
+   * bundle is not installed and null when the user cancelled.
+   * @param bundleId
+   * @param installationId
+   * @param action
+   */
+  private async resolveInstallation(bundleId: string, installationId: string | undefined, action: string): Promise<InstalledBundle | undefined | null> {
+    const { bundle, installed, source } = await this.findInstalledBundleByMarketplaceId(bundleId);
+    if (installationId !== undefined) {
+      const all = await this.registryManager.listInstalledBundles();
+      const exact = all.find((r) => r.installationId === installationId);
+      if (exact === undefined) {
+        throw new Error(`Installation '${installationId}' no longer exists`);
+      }
+      return exact;
+    }
+    if (!this.registryManager.isRuntimeTargetManagementEnabled()) {
+      if (installed === undefined && action === 'uninstall') {
+        throw new Error(`Bundle '${bundleId}' is not installed`);
+      }
+      return installed;
+    }
+    const rows = (await this.registryManager.listInstalledBundles())
+      .filter((ib) => this.matchesBundleIdentity(ib.bundleId, bundle.id, source?.type || 'local'));
+    if (rows.length === 0) {
+      if (action === 'uninstall') {
+        throw new Error(`Bundle '${bundleId}' is not installed`);
+      }
+      return undefined;
+    }
+    if (rows.length === 1) {
+      return rows[0];
+    }
+    const pick = await vscode.window.showQuickPick(
+      rows.map((r) => ({ label: `${r.scope} · v${r.version}`, description: r.targetRoot ?? r.installPath, row: r })),
+      { placeHolder: `Which installation do you want to ${action}?` }
+    );
+    return pick === undefined ? null : pick.row;
+  }
+
+  /**
    * Uninstall a bundle
    * @param bundleId
+   * @param installationId
    */
-  private async handleUninstall(bundleId: string): Promise<void> {
+  private async handleUninstall(bundleId: string, installationId?: string): Promise<void> {
+    if (this.registryManager.isRuntimeTargetManagementEnabled() && await this.registryManager.isBlockedByLegacyLockfile()) {
+      return;
+    }
     try {
       this.logger.info(`Uninstalling bundle from marketplace: ${bundleId}`);
 
-      // Find the actual installed bundle using identity matching
-      const { installed } = await this.findInstalledBundleByMarketplaceId(bundleId);
-
-      if (!installed) {
+      // Find the actual installed bundle using identity matching (exact row when an installation id is given)
+      const installed = await this.resolveInstallation(bundleId, installationId, 'uninstall');
+      if (installed === null) {
+        return;
+      }
+      if (installed === undefined) {
         throw new Error(`Bundle '${bundleId}' is not installed`);
       }
 
       // Use the stored bundle ID from the installation record
-      await this.registryManager.uninstallBundle(installed.bundleId, installed.scope || 'user');
+      await this.registryManager.uninstallBundle(installed.bundleId, installed.scope || 'user', false, installed.installationId);
 
       vscode.window.showInformationMessage(`✅ Bundle uninstalled successfully!`);
     } catch (error) {
@@ -1147,13 +1291,21 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * If uninstall fails, the update is aborted.
    * If install fails after successful uninstall, the bundle will be left uninstalled.
    * @param bundleId
+   * @param installationId
+   * @param version
    */
-  private async handleUpdate(bundleId: string): Promise<void> {
+  private async handleUpdate(bundleId: string, installationId?: string, version?: string): Promise<void> {
+    if (this.registryManager.isRuntimeTargetManagementEnabled() && await this.registryManager.isBlockedByLegacyLockfile()) {
+      return;
+    }
     try {
       this.logger.info(`Updating bundle from marketplace: ${bundleId}`);
 
-      // Get current installation info to preserve scope
-      const { installed } = await this.findInstalledBundleByMarketplaceId(bundleId);
+      // Get current installation info to preserve scope (exact row when an installation id is given)
+      const installed = await this.resolveInstallation(bundleId, installationId, 'update');
+      if (installed === null) {
+        return;
+      }
 
       if (!installed) {
         // Bundle not installed, just install it
@@ -1169,7 +1321,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
         cancellable: false
       }, async (progress) => {
         progress.report({ message: 'Updating bundle...' });
-        await this.registryManager.updateBundle(installed.bundleId);
+        await this.registryManager.updateBundle(installed.bundleId, version, installed.installationId);
       });
 
       vscode.window.showInformationMessage(`✅ Bundle updated successfully!`);
@@ -1466,46 +1618,56 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param installed
    */
   private generateMcpServersSection(installed: InstalledBundle | undefined): string {
-    if (!installed?.manifest?.mcpServers || Object.keys(installed.manifest.mcpServers).length === 0) {
+    const mcpServers = readInstalledManifest(installed?.manifest).mcpServers;
+    if (!mcpServers || Object.keys(mcpServers).length === 0) {
       return '';
     }
 
-    const serverCount = Object.keys(installed.manifest.mcpServers).length;
-    const serversHtml = Object.entries(installed.manifest.mcpServers).map(([serverName, config]) => {
-      const isRemote = isRemoteServerConfig(config);
-      const isStdio = isStdioServerConfig(config);
+    const serverCount = Object.keys(mcpServers).length;
+    const serversHtml = Object.entries(mcpServers).map(([serverName, config]) => {
+      if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+        return '';
+      }
+      const cfg = config as Record<string, unknown>;
+      const command = typeof cfg.command === 'string' ? cfg.command : undefined;
+      const url = typeof cfg.url === 'string' ? cfg.url : undefined;
+      const type = typeof cfg.type === 'string' ? cfg.type : undefined;
+      const args = Array.isArray(cfg.args) ? (cfg.args as unknown[]).filter((a): a is string => typeof a === 'string') : [];
+      const env = typeof cfg.env === 'object' && cfg.env !== null && !Array.isArray(cfg.env) ? cfg.env : undefined;
+      const headers = typeof cfg.headers === 'object' && cfg.headers !== null && !Array.isArray(cfg.headers) ? cfg.headers : undefined;
+      const description = typeof cfg.description === 'string' ? cfg.description : undefined;
+      const isRemote = url !== undefined && (type === 'http' || type === 'sse' || command === undefined);
+      const isStdio = command !== undefined && !isRemote;
 
       let serverContent = '';
       if (isStdio) {
-        const stdioConfig = config;
         serverContent = `
                     <div class="mcp-server-command">
-                        <strong>Command:</strong> ${this.escapeHtml(stdioConfig.command)}
-                        ${stdioConfig.args && stdioConfig.args.length > 0 ? ` ${stdioConfig.args.map((a) => this.escapeHtml(a)).join(' ')}` : ''}
+                        <strong>Command:</strong> ${this.escapeHtml(command ?? '')}
+                        ${args.length > 0 ? ` ${args.map((a) => this.escapeHtml(a)).join(' ')}` : ''}
                     </div>
-                    ${stdioConfig.env && Object.keys(stdioConfig.env).length > 0
+                    ${env && Object.keys(env).length > 0
                       ? `
                     <div class="mcp-env-vars">
                         <strong style="font-size: 12px;">Environment Variables:</strong>
-                        ${Object.entries(stdioConfig.env).map(([key, value]) => `
+                        ${Object.entries(env).map(([key, value]) => `
                             <div class="mcp-env-var">• <code>${this.escapeHtml(key)}</code> = <code>${this.escapeHtml(String(value))}</code></div>
                         `).join('')}
                     </div>`
                       : ''}`;
       } else if (isRemote) {
-        const remoteConfig = config;
         serverContent = `
                     <div class="mcp-server-command">
-                        <strong>Type:</strong> ${this.escapeHtml((remoteConfig.type || 'http').toUpperCase())}
+                        <strong>Type:</strong> ${this.escapeHtml((type || 'http').toUpperCase())}
                     </div>
                     <div class="mcp-server-command">
-                        <strong>URL:</strong> <code>${this.escapeHtml(remoteConfig.url)}</code>
+                        <strong>URL:</strong> <code>${this.escapeHtml(url ?? '')}</code>
                     </div>
-                    ${remoteConfig.headers && Object.keys(remoteConfig.headers).length > 0
+                    ${headers && Object.keys(headers).length > 0
                       ? `
                     <div class="mcp-env-vars">
                         <strong style="font-size: 12px;">Headers:</strong>
-                        ${Object.entries(remoteConfig.headers).map(([key, value]) => `
+                        ${Object.entries(headers).map(([key, value]) => `
                             <div class="mcp-env-var">• <code>${this.escapeHtml(key)}</code>: <code>${this.escapeHtml(String(value).substring(0, 20))}${
                               String(value).length > 20 ? '...' : ''}</code></div>
                         `).join('')}
@@ -1517,9 +1679,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
             <div class="mcp-server-card">
                 <div class="mcp-server-header">
                     <span>${isRemote ? '🌐' : '⚡'} ${this.escapeHtml(serverName)}</span>
-                    ${config.disabled ? '<span class="mcp-status-badge mcp-status-disabled">Disabled</span>' : '<span class="mcp-status-badge mcp-status-enabled">Enabled</span>'}
+                    ${cfg.disabled === true ? '<span class="mcp-status-badge mcp-status-disabled">Disabled</span>' : '<span class="mcp-status-badge mcp-status-enabled">Enabled</span>'}
                 </div>
-                ${config.description ? `<div style="color: var(--vscode-descriptionForeground); font-size: 12px; margin-bottom: 8px;">${this.escapeHtml(config.description)}</div>` : ''}
+                ${description ? `<div style="color: var(--vscode-descriptionForeground); font-size: 12px; margin-bottom: 8px;">${this.escapeHtml(description)}</div>` : ''}
                 ${serverContent}
             </div>`;
     }).join('');
@@ -1539,12 +1701,14 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
    * @param installed
    */
   private generatePromptsSection(installed: InstalledBundle | undefined): string {
-    if (!installed?.manifest?.prompts) {
+    const prompts = installed?.manifest ? readInstalledManifest(installed.manifest).prompts : undefined;
+    if (!prompts) {
       return '';
     }
 
-    const promptsHtml = installed.manifest.prompts.map((p) => `
-            <div class="info-row prompt-item" data-action="openPromptFile" data-bundle-id="${this.escapeHtml(installed.bundleId)}" data-file-path="${this.escapeHtml(p.file)}" style="cursor: pointer;">
+    const promptsHtml = prompts.map((p) => `
+            <div class="info-row prompt-item" data-action="openPromptFile" data-bundle-id="${this.escapeHtml(installed?.bundleId ?? '')}"
+                data-file-path="${this.escapeHtml(p.file)}" style="cursor: pointer;">
                 <div class="info-label">${this.escapeHtml(p.id)}:</div>
                 <div class="info-value">
                     ${this.escapeHtml(p.name)}
@@ -1621,6 +1785,37 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
       .replace('{{scriptUri}}', scriptUri.toString());
 
     return htmlTemplate;
+  }
+
+  /**
+   * Test-mode observation: the last `bundlesLoaded` actually delivered to the webview.
+   * Waits (bounded) for a delivery when none happened yet.
+   * @param timeoutMs
+   */
+  public async deliveredSnapshot(timeoutMs = 10_000): Promise<BundlesLoadedMessage> {
+    if (this.deliveredBundlesMessage !== undefined) {
+      return this.deliveredBundlesMessage;
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('no bundlesLoaded message was delivered to the Marketplace webview')), timeoutMs);
+      this.deliveredWaiters.push((message) => {
+        clearTimeout(timer);
+        resolve(message);
+      });
+    });
+  }
+
+  /**
+   * Test-mode entry: run the webview message handler and resolve when the action finishes.
+   * @param message
+   */
+  public handleWebviewMessage(message: WebviewMessage): Promise<void> {
+    return this.handleMessage(message);
+  }
+
+  /** Reload bundles (selection/installation changes) and redeliver. */
+  public refreshInstallations(): void {
+    void this.loadBundles();
   }
 
   public resolveWebviewView(

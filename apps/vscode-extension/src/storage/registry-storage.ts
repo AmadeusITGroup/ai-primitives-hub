@@ -23,8 +23,8 @@ import {
   RegistrySource,
 } from '../types/registry';
 import {
-  VsCodeAppStorage,
-} from './vscode-app-storage';
+  createExtensionStorage,
+} from './extension-storage';
 
 const readFile = promisify(fs.readFile);
 const writeFile = promisify(fs.writeFile);
@@ -84,14 +84,11 @@ export class RegistryStorage {
   /**
    * Create a RegistryStorage.
    * @param context - VS Code extension context.
-   * @param storage - Storage-root/state port (ADR-0005). Defaults to
-   *   `VsCodeAppStorage`, backed by `context.globalStorageUri`/
-   *   `context.globalState` — the extension's existing, unchanged
-   *   on-disk layout. Injectable for tests and for any future
-   *   non-VS-Code caller (e.g. `infra`'s `XdgAppStorage`).
+   * @param storage - Storage-root/state port (ADR-0005). Defaults to the shared
+   *   XDG layout (`createExtensionStorage`); injectable for tests.
    */
   constructor(private readonly context: vscode.ExtensionContext, storage?: AppStorage) {
-    this.appStorage = storage ?? new VsCodeAppStorage(context);
+    this.appStorage = storage ?? createExtensionStorage();
     this.paths = this.appStorage.getPaths();
   }
 
@@ -101,6 +98,7 @@ export class RegistryStorage {
   private async ensureDirectories(): Promise<void> {
     const dirs = [
       this.paths.root,
+      path.dirname(this.paths.config),
       this.paths.cache,
       this.paths.sourcesCache,
       this.paths.bundlesCache,
@@ -302,6 +300,11 @@ export class RegistryStorage {
   /**
    * Get all sources
    */
+  /** Drop the in-memory config so the next read sees changes made by another process or a migration. */
+  public invalidateConfigCache(): void {
+    this.configCache = undefined;
+  }
+
   public async getSources(): Promise<RegistrySource[]> {
     const config = await this.loadConfig();
     return config.sources;

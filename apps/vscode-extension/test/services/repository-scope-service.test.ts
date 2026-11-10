@@ -340,6 +340,25 @@ suite('RepositoryScopeService', () => {
   });
 
   suite('syncBundle - Git Exclude Management', () => {
+    test('tracks target-aware local lock and projection exclusions and removes stale output entries', async () => {
+      createGitDirectory();
+      const output = path.join(workspaceRoot, '.kiro', 'steering', 'local.prompt.md');
+      fs.mkdirSync(path.dirname(output), { recursive: true });
+      fs.writeFileSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json'), '{}');
+
+      await service.updateRuntimeLocalOnlyGitExclude([output], [], true);
+      assert.ok(readGitExclude()?.includes('.kiro/steering/local.prompt.md'));
+      assert.ok(readGitExclude()?.includes('prompt-registry.local.lock.json'));
+
+      await service.updateRuntimeLocalOnlyGitExclude([], [output], false);
+      assert.ok(!readGitExclude()?.includes('.kiro/steering/local.prompt.md'));
+      assert.ok(readGitExclude()?.includes('prompt-registry.local.lock.json'), 'existing local lock remains ignored');
+
+      fs.unlinkSync(path.join(workspaceRoot, 'prompt-registry.local.lock.json'));
+      await service.updateRuntimeLocalOnlyGitExclude([], [], false);
+      assert.ok(!readGitExclude()?.includes('prompt-registry.local.lock.json'));
+    });
+
     test('should NOT modify git exclude for commit mode', async () => {
       createGitDirectory();
 

@@ -83,7 +83,11 @@ import {
   RegistryError,
   resolveTarget,
   resolveTargetName,
+  targetManagementEnabled,
 } from '../framework';
+import {
+  runManagedUpdate,
+} from './target-managed';
 
 /**
  * Return true when `candidate` is a strictly higher semver than `installed`.
@@ -215,12 +219,28 @@ export class UpdateCommand extends BaseUpdateCommand {
   public noHubSync = Option.Boolean('--no-hub-sync', false);
   public scope = Option.String('--scope');
   public commitMode = Option.String('--commit-mode');
+  public from = Option.String('--from');
+  public installationId = Option.String('--installation-id');
+  public workspaceRoot = Option.String('--workspace-root');
+  public applyPlan = Option.String('--apply-plan');
+  public bundleName = Option.String({ required: false });
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
     const http = this.commandContext.http ?? new NodeHttpClient();
     const tokens = this.commandContext.tokens ?? defaultTokenProvider(ctx.env);
     const fmt: OutputFormat = (this.output ?? 'text') as OutputFormat;
+
+    if (this.lockfile === undefined && (this.from !== undefined || this.installationId !== undefined) && await targetManagementEnabled(ctx)) {
+      return runManagedUpdate(ctx, {
+        output: fmt,
+        scope: this.scope,
+        target: this.target,
+        dryRun: this.dryRun === true,
+        ...(this.applyPlan === undefined ? {} : { applyPlan: this.applyPlan }),
+        ...(this.workspaceRoot === undefined ? {} : { workspaceRoot: this.workspaceRoot })
+      }, { from: this.from, bundle: this.bundleName, installationId: this.installationId });
+    }
 
     const opts: UpdateOptions = {
       output: fmt,

@@ -590,6 +590,70 @@
         "title": "Collection: Open Pull Request in Browser",
         "category": "AI Primitives Hub",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "promptregistry.configureTargetManagement",
+        "title": "Configure Target Management"
+      },
+      {
+        "command": "promptregistry.runtimeTargetSelect",
+        "title": "Select Target Harness",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetInstalled",
+        "title": "Show Installed Collections",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetAvailable",
+        "title": "Show Available Collections",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetImportInstalled",
+        "title": "Import Installed Collection",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetInstall",
+        "title": "Install Collection",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetUpdate",
+        "title": "Update Collection",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetProject",
+        "title": "Project Collections onto Target",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetUninstall",
+        "title": "Uninstall Collection",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetVerify",
+        "title": "Verify Installed Files",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetLockfile",
+        "title": "Show Lockfile",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.runtimeTargetRefresh",
+        "title": "Refresh Target Status",
+        "enablement": "promptregistry.targetManagementEnabled"
+      },
+      {
+        "command": "promptregistry.migrateLockfile",
+        "title": "Migrate Lockfile to Multi-Target Format",
+        "enablement": "promptregistry.targetManagementEnabled"
       }
     ],
     "customEditors": [
@@ -1034,7 +1098,13 @@
         },
         "promptregistry.security.minimumSeverity": {
           "type": "string",
-          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+          "enum": [
+            "CRITICAL",
+            "HIGH",
+            "MEDIUM",
+            "LOW",
+            "INFO"
+          ],
           "default": "INFO",
           "description": "Minimum security finding severity to show."
         },
@@ -1091,6 +1161,15 @@
           "minimum": 60000,
           "maximum": 3600000,
           "description": "Cache time-to-live for update check results in milliseconds (default: 5 minutes, min: 1 minute, max: 1 hour)"
+        },
+        "promptregistry.experimental.runtimeTargetManagement": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "tags": [
+            "experimental"
+          ],
+          "markdownDescription": "Enable target management: Marketplace install, update and uninstall use the selected target harness, and the scope is chosen per install. Experimental feature."
         }
       }
     }
@@ -1105,9 +1184,9 @@
     "copy-skill-references": "cd ../.. && cpy docs/README.md apps/vscode-extension/resources/skills/prompt-registry-helper/references/docs-index.md && cpy \"docs/**\" \"!docs/README.md\" \"!docs/contributor-guide\" \"!docs/contributor-guide/**\" \"!docs/reference/adapter-api.md\" \"!docs/AGENTS.md\" apps/vscode-extension/resources/skills/prompt-registry-helper/references",
     "copy-schemas": "node scripts/package-helpers.js expand-schemas",
     "copy-ternlight-wasm": "node scripts/package-helpers.js copy-ternlight-wasm",
-  "compile": "webpack --mode production && pnpm run copy-webview && pnpm run copy-fonts && pnpm run copy-skill-references && pnpm run copy-schemas && pnpm run copy-ternlight-wasm",
+    "compile": "webpack --mode production && pnpm run copy-webview && pnpm run copy-fonts && pnpm run copy-skill-references && pnpm run copy-schemas && pnpm run copy-ternlight-wasm",
     "watch": "webpack --mode development --watch",
-  "package": "webpack --mode production --devtool hidden-source-map && pnpm run copy-webview && pnpm run copy-fonts && pnpm run copy-ternlight-wasm",
+    "package": "webpack --mode production --devtool hidden-source-map && pnpm run copy-webview && pnpm run copy-fonts && pnpm run copy-ternlight-wasm",
     "package:vsix": "vsce package --no-dependencies",
     "compile-tests": "tsc -p tsconfig.test.json && node scripts/copy-test-fixtures.js",
     "watch-tests": "tsc -p tsconfig.test.json -w",
@@ -1132,9 +1211,9 @@
     "package:prepare": "node scripts/package-helpers.js prod && pnpm run compile",
     "package:cleanup": "node scripts/package-helpers.js dev",
     "package:full": "pnpm run package:prepare && pnpm run package:vsix && pnpm run package:cleanup",
-    "package:production": "pnpm run package:prepare && pnpm run package:vsix && pnpm run package:cleanup && echo \"📦 Production package created with optimized size\"",
-    "dev:setup": "pnpm run ignore:dev && echo \"🔧 Development mode activated - Copilot friendly\"",
-    "dev:package-test": "pnpm run package:prepare && echo \"📋 Switched to production mode - check file exclusions\" && pnpm run ignore:status",
+    "package:production": "pnpm run package:prepare && pnpm run package:vsix && pnpm run package:cleanup && echo \"\ud83d\udce6 Production package created with optimized size\"",
+    "dev:setup": "pnpm run ignore:dev && echo \"\ud83d\udd27 Development mode activated - Copilot friendly\"",
+    "dev:package-test": "pnpm run package:prepare && echo \"\ud83d\udccb Switched to production mode - check file exclusions\" && pnpm run ignore:status",
     "version:update": "./scripts/update-version.sh",
     "version:bump:major": "npm version major --no-git-tag-version && pnpm run version:update",
     "version:bump:minor": "npm version minor --no-git-tag-version && pnpm run version:update",

@@ -47,7 +47,19 @@ export class BundleInstallationCommands {
       const bundle = await this.registryManager.getBundleDetails(bundleId);
 
       // Ask for installation scope using the new combined dialog
-      const scopeSelection = await showScopeSelectionDialog(bundle.name);
+      const scopeSelection = this.registryManager.isRuntimeTargetManagementEnabled()
+        ? await (async () => {
+          const targetType = await this.registryManager.getSelectedRuntimeTarget();
+          if (targetType === undefined) {
+            const pick = await vscode.window.showWarningMessage('No target harness selected.', 'Select Target');
+            if (pick === 'Select Target') {
+              await vscode.commands.executeCommand('promptregistry.runtimeTargetSelect');
+            }
+            return undefined;
+          }
+          return showScopeSelectionDialog(bundle.name, { targetType });
+        })()
+        : await showScopeSelectionDialog(bundle.name);
 
       if (!scopeSelection) {
         return;
@@ -193,8 +205,14 @@ export class BundleInstallationCommands {
   /**
    * Uninstall a bundle
    * @param bundleId
+   * @param scope
+   * @param installationId
    */
-  public async uninstallBundle(bundleId?: string): Promise<void> {
+  public async uninstallBundle(
+    bundleId?: string,
+    scope?: import('../types/registry').InstallationScope,
+    installationId?: string
+  ): Promise<void> {
     try {
       // If no bundleId, let user select
       if (!bundleId) {
@@ -266,7 +284,7 @@ export class BundleInstallationCommands {
           cancellable: false
         },
         async () => {
-          await this.registryManager.uninstallBundle(bundleId!);
+          await this.registryManager.uninstallBundle(bundleId!, scope ?? 'user', false, installationId);
         }
       );
 

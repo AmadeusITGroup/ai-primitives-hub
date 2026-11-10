@@ -41,6 +41,9 @@ import type {
   RegistryManager,
 } from '../services/registry-manager';
 import {
+  extensionStateDir,
+} from '../storage/extension-storage';
+import {
   CollectionCustomEditorProvider,
   type CollectionVisualEditorFocusTarget,
 } from '../ui/collection-custom-editor';
@@ -93,7 +96,7 @@ export class CollectionEditorCommands {
       tokenProvider: this.promptingTokenProvider
     });
     const gitAdapter = new GitWorkspaceAdapter(processExecutor, this.promptingTokenProvider);
-    const sessionStorePath = path.join(context.globalStorageUri.fsPath, 'collection-contribution-sessions.json');
+    const sessionStorePath = path.join(extensionStateDir(), 'collection-contribution-sessions.json');
 
     this.workflowService = new CollectionContributionWorkflowService({
       fs: this.fsAdapter,

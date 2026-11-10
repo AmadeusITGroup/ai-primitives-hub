@@ -614,10 +614,6 @@ export class RepositoryScopeService implements IScopeService {
     }
   }
 
-  /**
-   * Add paths to .git/info/exclude under the AI Primitives Hub section
-   * @param paths - Relative paths to add
-   */
   private async addToGitExclude(paths: string[]): Promise<void> {
     if (!this.hasGitDirectory()) {
       this.logger.warn('[RepositoryScopeService] No .git directory found, skipping git exclude');
@@ -1034,5 +1030,35 @@ export class RepositoryScopeService implements IScopeService {
     } catch (error) {
       this.logger.error(`[RepositoryScopeService] Failed to switch commit mode for ${bundleId}`, error as Error);
     }
+  }
+
+  /**
+   * Synchronize target-managed local-only projections with Git's local exclude file.
+   * @param addedPaths Absolute paths newly written by the target session.
+   * @param removedPaths Absolute paths removed by the target session.
+   * @param hasLocalOnlyInstallations Whether any local-only repository receipts remain.
+   */
+  public async updateRuntimeLocalOnlyGitExclude(
+    addedPaths: string[],
+    removedPaths: string[],
+    hasLocalOnlyInstallations: boolean
+  ): Promise<void> {
+    const relative = (file: string): string | undefined => {
+      const value = path.relative(this.workspaceRoot, file);
+      return value && !value.startsWith('..') && !path.isAbsolute(value)
+        ? value.replace(/\\/g, '/')
+        : undefined;
+    };
+    const localLockfile = 'prompt-registry.local.lock.json';
+    const add = addedPaths.map((file) => relative(file)).filter((item): item is string => item !== undefined);
+    const remove = removedPaths.map((file) => relative(file)).filter((item): item is string => item !== undefined);
+    const lockfileExists = fs.existsSync(path.join(this.workspaceRoot, localLockfile));
+    if (hasLocalOnlyInstallations || lockfileExists) {
+      add.push(localLockfile);
+    } else {
+      remove.push(localLockfile);
+    }
+    await this.removeFromGitExclude(remove);
+    await this.addToGitExclude(add);
   }
 }

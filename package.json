@@ -18,7 +18,9 @@
     "test:unit": "pnpm -C apps/vscode-extension run test:unit",
     "build:live:replica-consumers": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile",
     "test:live:replica-consumers": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile && node apps/vscode-extension/test/run-live-hub-consumer-tests.js",
-    "package:vsix": "pnpm -C apps/vscode-extension run package:vsix"
+    "package:vsix": "pnpm -C apps/vscode-extension run package:vsix",
+    "build:acceptance:targets": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile",
+    "test:acceptance:targets": "pnpm run build:acceptance:targets && node apps/vscode-extension/test/run-target-acceptance.js"
   },
   "devDependencies": {
     "@o3r/eslint-config": "^15.0.0",

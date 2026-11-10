@@ -110,6 +110,31 @@ Use synthetic credentials only, and cover positive cases, near misses,
 redaction, limits, worker isolation, cancellation, and report writes.
 See [Security Scanner Maintenance](./security-scanner-maintenance.md).
 
+## Shared XDG Storage Interoperability
+
+The extension stores everything under the shared XDG layout used by the CLI
+([ADR-0011](./architecture/adr/0011-shared-xdg-application-storage.md)); there is no storage mode switch. `createHubStorage(env)` composes `HubStorage` over `resolveUserConfigPaths(env)`:
+
+- hub configs and sidecars under `{XDG_CONFIG_HOME}/ai-primitives-hub/hubs/`
+- the active-hub pointer at `{XDG_CONFIG_HOME}/ai-primitives-hub/active-hub.json`
+- favorites shared through `{...}/hubs/favorites.json`
+
+The hub facade is stateless, so raw `HubStorage.loadHub` reads observe hub definition changes made by the CLI (`hub add`, `hub sync`) without `forceReload`, and active-pointer reads observe `hub use`.
+
+The focused interoperability suite shells the real CLI bin against synthetic XDG roots and asserts both directions (CLI to extension, extension to CLI) plus shared favorites and the shared primitive-index cache. It requires built packages:
+
+```bash
+pnpm -C packages -r build
+pnpm -C apps/vscode-extension run compile-tests
+cd apps/vscode-extension
+LOG_LEVEL=ERROR pnpm exec mocha --ui tdd --require ./test/mocha.setup.js --require ./test/unit.setup.js \
+  test-dist/test/storage/xdg-hub-interoperability.test.js --timeout 10000
+```
+
+Every unit test runs with its own synthetic `HOME` and `XDG_*` roots (a root hook in `test/mocha.setup.js`), so no test reads or writes real user directories. The interoperability suite additionally builds its sandbox under `os.tmpdir()`; set `HUB_TEST_SANDBOX_ROOT` to redirect it and `HUB_TEST_PRESERVE_SANDBOX=1` to keep the generated files for audit.
+
+The IDE `globalStorageUri` is read only by legacy-storage detection and migration (`LegacyStorageMigration`), and by `McpConfigLocator` to find the host IDE's own `User` directory. Unit coverage for the migrator lives in `packages/app/test/storage-migration/`.
+
 ## What These Suites Do Not Cover
 
 Everything above is automated. The paths a person still has to walk by hand — installing the published extension on a clean machine, authenticating against real GitHub, confirming Copilot and Kiro actually recognize what was installed, publishing a collection through a real runner, upgrading from the previous major — are covered manually.

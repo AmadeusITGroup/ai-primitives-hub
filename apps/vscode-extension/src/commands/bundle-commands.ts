@@ -39,7 +39,10 @@ export class BundleCommands {
   private readonly browsingCommands: BundleBrowsingCommands;
   private readonly logger: Logger;
 
+  private readonly registryManager: RegistryManager;
+
   constructor(registryManager: RegistryManager) {
+    this.registryManager = registryManager;
     this.installationCommands = new BundleInstallationCommands(registryManager);
 
     const bundleNameResolver = async (bundleId: string) => await registryManager.getBundleName(bundleId);
@@ -70,9 +73,15 @@ export class BundleCommands {
   /**
    * Uninstall a bundle
    * @param bundleId
+   * @param scope
+   * @param installationId
    */
-  public async uninstallBundle(bundleId?: string): Promise<void> {
-    return await this.installationCommands.uninstallBundle(bundleId);
+  public async uninstallBundle(
+    bundleId?: string,
+    scope?: import('../types/registry').InstallationScope,
+    installationId?: string
+  ): Promise<void> {
+    return await this.installationCommands.uninstallBundle(bundleId, scope, installationId);
   }
 
   // ===== Update Commands =====
@@ -80,12 +89,13 @@ export class BundleCommands {
   /**
    * Update a bundle
    * @param bundleId
+   * @param installationId
    */
-  public async updateBundle(bundleId?: string): Promise<void> {
+  public async updateBundle(bundleId?: string, installationId?: string): Promise<void> {
     if (!bundleId) {
       return await this.updateCommands.checkAllUpdates();
     }
-    return await this.updateCommands.updateBundle(bundleId);
+    return await this.updateCommands.updateBundle(bundleId, installationId);
   }
 
   /**
@@ -172,6 +182,11 @@ export class BundleCommands {
 
     if (!workspaceRoot) {
       vscode.window.showWarningMessage('No workspace open. Please open a workspace to clean up stale repository bundles.');
+      return;
+    }
+
+    if (this.registryManager.isRuntimeTargetManagementEnabled()) {
+      vscode.window.showInformationMessage('Installations are managed by target management; stale legacy entries do not apply.');
       return;
     }
 

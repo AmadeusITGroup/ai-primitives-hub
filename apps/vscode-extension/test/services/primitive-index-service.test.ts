@@ -148,7 +148,7 @@ suite('PrimitiveIndexService', () => {
 
     assert.strictEqual(
       service.getIndexPath(),
-      path.join(tempDir, 'extension-storage', 'cache', 'primitive-index.json')
+      path.join(process.env.XDG_CACHE_HOME!, 'ai-primitives-hub', 'primitive-index.json')
     );
   });
 

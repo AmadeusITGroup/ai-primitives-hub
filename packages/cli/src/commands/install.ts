@@ -46,6 +46,7 @@ import type {
   HttpClient,
   HubSourceSpec,
   RegistrySource,
+  RuntimePayloadInput,
   Target,
   TokenProvider,
 } from '@ai-primitives-hub/core';
@@ -103,8 +104,12 @@ import {
   resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
+  targetManagementEnabled,
   validateInputs,
 } from '../framework';
+import {
+  runManagedInstall,
+} from './target-managed';
 
 /**
  * Extract repo slug from a GitHub URL.
@@ -418,6 +423,9 @@ export class InstallCommand extends BaseInstallCommand {
   public verbose = Option.Boolean('--verbose', false);
   public skipUnsupported = Option.Boolean('--skip-unsupported', false);
   public allowTarget = Option.String('--allow-target');
+  public sourceId = Option.String('--source-id');
+  public applyPlan = Option.String('--apply-plan');
+  public workspaceRoot = Option.String('--workspace-root');
   public bundle = Option.String({ required: false }); // Optional positional argument
 
   public async execute(): Promise<number> {
@@ -443,6 +451,19 @@ export class InstallCommand extends BaseInstallCommand {
       verbose: this.verbose,
       skipUnsupported: this.skipUnsupported
     };
+
+    if (this.lockfile === undefined && !this.interactive && (this.from !== undefined || (this.bundle !== undefined && this.source !== undefined))
+      && await targetManagementEnabled(ctx)) {
+      return runManagedInstall(ctx, {
+        output: fmt,
+        scope: this.scope,
+        target: this.target,
+        dryRun: this.dryRun === true,
+        ...(this.sourceId === undefined ? {} : { sourceId: this.sourceId }),
+        ...(this.applyPlan === undefined ? {} : { applyPlan: this.applyPlan }),
+        ...(this.workspaceRoot === undefined ? {} : { workspaceRoot: this.workspaceRoot })
+      }, { from: this.from, acquire: () => acquireRemoteForTarget(opts, ctx) });
+    }
 
     await detectInstallContext(opts, ctx);
 
@@ -655,6 +676,47 @@ async function lookupHubSource(
     }
     throw err;
   }
+}
+
+/**
+ * Acquire a remote bundle for target-managed installs through the same
+ * resolution, download and extraction used by the legacy remote install.
+ * @param opts Install options.
+ * @param ctx CLI context.
+ */
+async function acquireRemoteForTarget(opts: InstallOptions, ctx: Context): Promise<RuntimePayloadInput> {
+  const resolved = await resolveRemoteSourceOption(opts, ctx);
+  const spec = parseBundleSpec(resolved.bundle as string);
+  const repoSlug = resolved.source ?? spec.sourceId;
+  if (repoSlug === undefined || repoSlug.length === 0) {
+    throw new Error('install: a remote install needs --source <id|owner/repo> (or `install owner/repo:<bundleId>`)');
+  }
+  const source: RegistrySource = resolved.sourceConfig ?? {
+    id: repoSlug, name: repoSlug, type: 'github', url: `https://github.com/${repoSlug}`, enabled: true, priority: 0
+  };
+  const entry = { version: spec.bundleVersion ?? 'latest', sourceId: source.id } as LockfileBundleEntry;
+  const files = await fetchFilesForSource(
+    { type: source.type, url: source.url },
+    spec.bundleId,
+    entry,
+    resolved.http ?? new NodeHttpClient(),
+    resolved.tokens ?? defaultTokenProvider(ctx.env),
+    ctx,
+    false
+  );
+  if (files === null) {
+    throw new RegistryError({ code: 'BUNDLE.NOT_FOUND', message: `install: ${spec.bundleId} not found at ${repoSlug}` });
+  }
+  const manifest = validateManifest(files, {
+    ...(spec.bundleVersion === undefined || spec.bundleVersion === 'latest' ? {} : { expectedVersion: spec.bundleVersion })
+  });
+  return {
+    files,
+    manifest,
+    sourceId: source.id,
+    registryRef: { bundleId: spec.bundleId, sourceType: source.type },
+    source: { type: source.type, url: source.url }
+  };
 }
 
 /**

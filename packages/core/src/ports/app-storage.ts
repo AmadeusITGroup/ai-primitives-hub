@@ -42,6 +42,12 @@ export interface AppStoragePaths {
   profiles: string;
   /** Log output. */
   logs: string;
+  /**
+   * Directory for state that must survive restarts but is not user data
+   * (target selection, mutation lock). Optional: hosts without an XDG state
+   * location omit it, and consumers that need it fail with an actionable error.
+   */
+  state?: string;
 }
 
 /**

@@ -29,16 +29,21 @@ import type {
   BundleSpec,
   ExtractedFiles,
   Installable,
+  RuntimeInstallation,
   Target,
   TargetType,
   TargetWriter,
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  XdgAppStorage,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
+import {
+  extensionDataDir,
+} from '../storage/extension-storage';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
@@ -364,9 +369,9 @@ export class BundleInstaller {
 
       // Use global storage for bundle cache, same as user scope
       // This prevents polluting the repository with internal extension files
-      storageRoot = this.context.globalStorageUri.fsPath;
+      storageRoot = extensionDataDir();
     } else if (scope === 'user') {
-      storageRoot = this.context.globalStorageUri.fsPath;
+      storageRoot = extensionDataDir();
     } else {
       const workspaceStorage = this.context.storageUri?.fsPath;
       if (!workspaceStorage) {
@@ -448,15 +453,6 @@ export class BundleInstaller {
   }
 
   /**
-   * Install MCP servers from manifest
-   * @param bundleId
-   * @param bundleVersion
-   * @param installPath
-   * @param manifest
-   * @param scope
-   * @param commitMode
-   */
-  /**
    * Surface an MCP installation failure to the user.
    *
    * Bundle installation deliberately continues when MCP setup fails, but the failure
@@ -506,6 +502,18 @@ export class BundleInstaller {
     }
   }
 
+  /**
+   * Merge MCP servers from a bundle into the host configuration.
+   * @param bundleId Bundle identifier recorded by the MCP tracker.
+   * @param bundleVersion Bundle version.
+   * @param installPath Extracted bundle files used by `${bundlePath}`.
+   * @param manifest Deployment manifest containing server definitions.
+   * @param scope Target installation scope.
+   * @param commitMode Repository tracking mode.
+   * @param naming Stable MCP server key inputs.
+   * @param manager MCP config manager selected for the target harness.
+   * @param workspaceRootOverride Repository root selected by target management.
+   */
   private async installMcpServers(
     bundleId: string,
     bundleVersion: string,
@@ -514,7 +522,9 @@ export class BundleInstaller {
     scope: InstallationScope,
     commitMode?: RepositoryCommitMode,
     // What the server keys are built from: `ai-primitives-hub:<owner>:<repo>:<manifestId>:<server>`.
-    naming: McpServerNaming = {}
+    naming: McpServerNaming = {},
+    manager: McpServerManager = this.mcpManager,
+    workspaceRootOverride?: string
   ): Promise<void> {
     if (!manifest.mcpServers || Object.keys(manifest.mcpServers).length === 0) {
       this.logger.debug(`No MCP servers to install for bundle ${bundleId}`);
@@ -526,19 +536,20 @@ export class BundleInstaller {
     try {
       // Handle repository scope with workspace-specific installation
       if (scope === 'repository') {
-        const workspaceRoot = getWorkspaceRoot();
+        const workspaceRoot = workspaceRootOverride ?? getWorkspaceRoot();
         if (!workspaceRoot) {
           this.logger.warn(`Cannot install MCP servers for repository scope: no workspace root`);
           return;
         }
 
-        const workspaceInstallationResult = await this.mcpManager.installServersToWorkspace(
+        const workspaceInstallationResult = await manager.installServersToWorkspace(
           bundleId,
           bundleVersion,
           workspaceRoot,
           manifest.mcpServers,
           {
             commitMode: commitMode ?? 'commit',
+            bundlePath: installPath,
             overwrite: false,
             skipOnConflict: false,
             createBackup: true,
@@ -558,7 +569,7 @@ export class BundleInstaller {
       }
 
       // Handle user/workspace scope with existing logic
-      const result = await this.mcpManager.installServers(
+      const result = await manager.installServers(
         bundleId,
         bundleVersion,
         installPath,
@@ -650,6 +661,70 @@ export class BundleInstaller {
     );
 
     return result === 'Overwrite';
+  }
+
+  /**
+   * Install the MCP servers attached to a target-managed receipt.
+   * @param installation - Installed row carrying target, scope and manifest.
+   * @param action
+   */
+  public async installRuntimeMcpServers(
+    installation: RuntimeInstallation,
+    action: 'install' | 'update' = 'install'
+  ): Promise<void> {
+    const manifest = installation.manifest as unknown as DeploymentManifest;
+    const bundleId = installation.registryRef?.bundleId ?? installation.manifestId;
+    if (!manifest.mcpServers || Object.keys(manifest.mcpServers).length === 0) {
+      if (action === 'update') {
+        await this.uninstallRuntimeMcpServers(installation);
+      }
+      return;
+    }
+    const payloadRoot = path.join(
+      new XdgAppStorage().getPaths().root,
+      'payloads',
+      installation.payloadId,
+      'files'
+    );
+    const sourceRepository = installation.source?.url;
+    const manifestRepository = (manifest as unknown as Record<string, unknown>).repository;
+    const naming: McpServerNaming = {
+      manifestId: installation.manifestId,
+      ...(typeof manifestRepository === 'string' ? { manifestRepository } : {}),
+      ...(sourceRepository === undefined ? {} : { sourceRepository })
+    };
+    await this.installMcpServers(
+      bundleId,
+      installation.version,
+      payloadRoot,
+      manifest,
+      installation.instance.scope,
+      installation.commitMode,
+      naming,
+      new McpServerManager(installation.instance.type),
+      installation.contextRoot
+    );
+  }
+
+  /**
+   * Remove MCP servers owned by the target-managed installation.
+   * @param installation - Installed row carrying target, scope and manifest identity.
+   */
+  public async uninstallRuntimeMcpServers(installation: RuntimeInstallation): Promise<void> {
+    const bundleId = installation.registryRef?.bundleId ?? installation.manifestId;
+    const manager = new McpServerManager(installation.instance.type);
+    try {
+      const result = installation.instance.scope === 'repository'
+        ? (installation.contextRoot === undefined
+          ? undefined
+          : await manager.uninstallServersFromWorkspace(bundleId, installation.contextRoot))
+        : await manager.uninstallServers(bundleId, 'user');
+      if (result === undefined || !result.success) {
+        this.logger.warn(`MCP server cleanup for "${bundleId}" needs attention: ${result?.errors?.join(' ') ?? 'repository context is unavailable'}`);
+      }
+    } catch (error) {
+      this.logger.warn(`MCP server cleanup for "${bundleId}" failed: ${(error as Error).message}`);
+    }
   }
 
   /**

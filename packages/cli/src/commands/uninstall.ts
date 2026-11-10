@@ -57,8 +57,12 @@ import {
   RegistryError,
   resolveTarget,
   resolveTargetName,
+  targetManagementEnabled,
   validateInputs,
 } from '../framework';
+import {
+  runManagedUninstall,
+} from './target-managed';
 
 /**
  * Uninstall command options.
@@ -163,6 +167,10 @@ export class UninstallCommand extends BaseUninstallCommand {
   public dryRun = Option.Boolean('--dry-run');
   public scope = Option.String('--scope');
   public commitMode = Option.String('--commit-mode');
+  public installationId = Option.String('--installation-id');
+  public workspaceRoot = Option.String('--workspace-root');
+  public applyPlan = Option.String('--apply-plan');
+  public bundleName = Option.String({ required: false });
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
@@ -178,6 +186,17 @@ export class UninstallCommand extends BaseUninstallCommand {
       scope: this.scope as 'user' | 'repository' | undefined,
       commitMode: this.commitMode as RepositoryCommitMode | undefined
     };
+
+    if (this.lockfile === undefined && this.all === undefined && this.bundle === undefined && await targetManagementEnabled(ctx)) {
+      return runManagedUninstall(ctx, {
+        output: fmt,
+        scope: this.scope,
+        target: this.target,
+        dryRun: this.dryRun === true,
+        ...(this.applyPlan === undefined ? {} : { applyPlan: this.applyPlan }),
+        ...(this.workspaceRoot === undefined ? {} : { workspaceRoot: this.workspaceRoot })
+      }, { bundle: this.bundleName, installationId: this.installationId });
+    }
 
     await detectUninstallContext(opts, ctx);
 

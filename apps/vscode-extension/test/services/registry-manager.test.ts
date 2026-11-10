@@ -9,6 +9,9 @@ import * as assert from 'node:assert';
 import {
   Buffer,
 } from 'node:buffer';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type {
   BundleRef,
 } from '@ai-primitives-hub/core';
@@ -561,7 +564,7 @@ suite('RegistryManager - Event Emission Behavior', () => {
       installedAt: new Date(Date.now() - 60_000).toISOString(),
       scope: 'user',
       installPath: '/mock/path',
-      manifest: { id: 'local-skills-repo-plan-angular-migration', name: 'Plan Angular Migration', version: 'hash:old' } as any,
+      manifest: { id: 'local-skills-repo-plan-angular-migration', name: 'Plan Angular Migration', version: 'hash:old' },
       sourceId: 'local-source',
       sourceType: 'local-skills'
     };
@@ -911,7 +914,7 @@ suite('RegistryManager - Version Change Installation', () => {
       sourceId: 'test-source',
       sourceType: 'github',
       installPath: '/mock/path',
-      manifest: { id: bundleId, name: 'Test', version: '1.0.0' } as any
+      manifest: { id: bundleId, name: 'Test', version: '1.0.0' }
     });
 
     // Mock bundle resolution to return v1.0.1
@@ -969,7 +972,7 @@ suite('RegistryManager - Version Change Installation', () => {
       sourceId: 'test-source',
       sourceType: 'github',
       installPath: '/mock/path',
-      manifest: { id: bundleId, name: 'Test', version: '1.0.0' } as any
+      manifest: { id: bundleId, name: 'Test', version: '1.0.0' }
     });
 
     // Mock bundle resolution to return same version
@@ -1012,7 +1015,7 @@ suite('RegistryManager - Version Change Installation', () => {
       sourceId: 'test-source',
       sourceType: 'github',
       installPath: '/mock/path',
-      manifest: { id: bundleId, name: 'Amadeus', version: '1.0.17' } as any
+      manifest: { id: bundleId, name: 'Amadeus', version: '1.0.17' }
     });
 
     // Mock bundle resolution to return v1.0.15 (downgrade)
@@ -1714,5 +1717,101 @@ suite('RegistryManager - Primitive Index Source Selection', () => {
     assert.strictEqual(refs.length, 1);
     assert.strictEqual(refs[0].sourceId, 'github-no-main');
     assert.strictEqual(refs[0].bundleId, 'release-bundle');
+  });
+});
+
+suite('RegistryManager - manifest preservation', () => {
+  test('runtime install returns raw manifest through public path', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aph-rgm-manifest-'));
+    const savedEnv = { ...process.env };
+    try {
+      const env = {
+        HOME: path.join(root, 'home'), USERPROFILE: path.join(root, 'home'),
+        APPDATA: path.join(root, 'appdata'), LOCALAPPDATA: path.join(root, 'appdata'),
+        XDG_CONFIG_HOME: path.join(root, 'xdg/config'), XDG_DATA_HOME: path.join(root, 'xdg/data'),
+        XDG_CACHE_HOME: path.join(root, 'xdg/cache'), XDG_STATE_HOME: path.join(root, 'xdg/state'),
+        XDG_RUNTIME_DIR: path.join(root, 'xdg/runtime'),
+        TMPDIR: path.join(root, 'tmp'), TMP: path.join(root, 'tmp'), TEMP: path.join(root, 'tmp')
+      } as Record<string, string>;
+      for (const k of Object.keys(process.env)) {
+        if (k in env || k === 'PATH' || k === 'SystemRoot') {
+          continue;
+        }
+        delete (process.env as Record<string, string | undefined>)[k];
+      }
+      Object.assign(process.env, env);
+
+      for (const d of ['tmp', 'home', 'xdg/data', 'appdata']) {
+        fs.mkdirSync(path.join(root, d), { recursive: true });
+      }
+      const ws = path.join(root, 'workspace-a');
+      fs.mkdirSync(path.join(ws, '.git'), { recursive: true });
+      fs.writeFileSync(path.join(ws, 'ai-primitives-hub-layouts.yml'), 'layouts: {}\n');
+
+      const bundleDir = path.join(root, 'bundles', 'manifest-demo');
+      const manifest = {
+        id: 'manifest-demo', version: '1.0.0', name: 'Manifest Demo',
+        description: 'modern governed',
+        repository: 'https://example.com/repo',
+        items: [{ path: 'prompts/a.prompt.md', kind: 'prompt', id: 'a' }]
+      };
+      fs.mkdirSync(path.join(bundleDir, 'prompts'), { recursive: true });
+      fs.writeFileSync(path.join(bundleDir, 'deployment-manifest.yml'),
+        [
+          'id: manifest-demo', 'version: 1.0.0', 'name: Manifest Demo', 'description: modern governed',
+          'repository: https://example.com/repo', 'items:', '  - path: prompts/a.prompt.md', '    kind: prompt', '    id: a', ''
+        ].join('\n'));
+      fs.writeFileSync(path.join(bundleDir, 'prompts', 'a.prompt.md'), '# A\n');
+
+      const { registryManager } = await createE2ETestContext();
+      const {
+        XdgAppStorage, ScopedRuntimeTargetStore, NodeRuntimeProjectionFileSystem,
+        BuiltInOnlyLayoutConfigLoader
+      } = await import('@ai-primitives-hub/infra');
+      const { createRuntimeTargetSession } = await import('@ai-primitives-hub/app');
+      const storage = new XdgAppStorage(env);
+      const sessionFactory = () => createRuntimeTargetSession({
+        storage,
+        store: new (ScopedRuntimeTargetStore as any)({ storage, workspaceRoot: ws }),
+        fs: new NodeRuntimeProjectionFileSystem(),
+        env,
+        workspaceRoot: ws,
+        layoutLoader: new BuiltInOnlyLayoutConfigLoader()
+      });
+      const session = sessionFactory();
+      await session.selectTarget({ type: 'kiro' } as any);
+      registryManager.setRuntimeTargetManagement({
+        sessionFactory,
+        getContextRoot: () => ws,
+        hasContext: () => true,
+        actionContext: async () => ({ workspaceRoot: ws, confirm: async () => true })
+      });
+
+      await registryManager.addSource({
+        id: 'local-manifest', name: 'Local', type: 'local',
+        url: path.join(root, 'bundles'), enabled: true, priority: 0
+      });
+      await registryManager.syncSource('local-manifest');
+
+      const emitted: InstalledBundle[] = [];
+      const sub = registryManager.onBundleInstalled((b) => emitted.push(b));
+      const installed = await registryManager.installBundle('manifest-demo', { scope: 'repository' } as any);
+      sub.dispose();
+
+      assert.deepStrictEqual(installed.manifest, manifest);
+      assert.deepStrictEqual(emitted[0]?.manifest, manifest);
+      assert.strictEqual(installed.scope, 'repository');
+      assert.strictEqual(installed.installationId !== undefined, true);
+      const projected = path.join(ws, '.kiro', 'steering', 'a.prompt.md');
+      assert.strictEqual(fs.existsSync(projected), true, `missing ${projected}`);
+    } finally {
+      for (const k of Object.keys(process.env)) {
+        if (!(k in savedEnv)) {
+          delete (process.env as Record<string, string | undefined>)[k];
+        }
+      }
+      Object.assign(process.env, savedEnv);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

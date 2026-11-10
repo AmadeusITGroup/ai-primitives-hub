@@ -22,6 +22,7 @@ import * as path from 'node:path';
 export interface XdgEnv {
   XDG_DATA_HOME?: string;
   XDG_CONFIG_HOME?: string;
+  XDG_STATE_HOME?: string;
   XDG_CACHE_HOME?: string;
   /** Explicit override for this CLI family's cache dir, takes precedence over XDG_CACHE_HOME. */
   AI_PRIMITIVES_HUB_CACHE?: string;
@@ -63,6 +64,16 @@ export function xdgDataDir(env: XdgEnv = process.env): string {
  */
 export function xdgConfigDir(env: XdgEnv = process.env): string {
   const base = env.XDG_CONFIG_HOME ?? path.join(homeDir(env), '.config');
+  return path.join(base, APP_SUBDIR);
+}
+
+/**
+ * User-level state directory (selection, locks, migration journal).
+ * Respects `XDG_STATE_HOME`, falls back to `~/.local/state/ai-primitives-hub`.
+ * @param env
+ */
+export function xdgStateDir(env: XdgEnv = process.env): string {
+  const base = env.XDG_STATE_HOME ?? path.join(homeDir(env), '.local', 'state');
   return path.join(base, APP_SUBDIR);
 }
 

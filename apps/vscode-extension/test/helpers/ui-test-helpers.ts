@@ -24,6 +24,7 @@ const REGISTRY_MANAGER_EVENTS = [
   'onBundleUpdated',
   'onBundlesInstalled',
   'onBundlesUninstalled',
+  'onDidChangeInstallations',
   'onProfileActivated',
   'onProfileDeactivated',
   'onProfileCreated',
@@ -96,6 +97,8 @@ export function setupRegistryManagerEventMocks(
     sandbox: sinon.SinonSandbox,
     captures: RegistryManagerEventCaptures = {}
 ): void {
+  // Target management is off unless a test enables it explicitly.
+  (registryManagerStub as any).isRuntimeTargetManagementEnabled ??= () => false;
   for (const eventName of REGISTRY_MANAGER_EVENTS) {
     const capture = captures[eventName];
     (registryManagerStub as any)[eventName] = capture

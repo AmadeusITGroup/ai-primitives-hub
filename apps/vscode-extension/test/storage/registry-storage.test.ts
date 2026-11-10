@@ -10,6 +10,9 @@ import * as sinon from 'sinon';
 import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
+import {
+  rootedAppStorage,
+} from '../helpers/rooted-app-storage';
 
 suite('RegistryStorage', () => {
   let sandbox: sinon.SinonSandbox;
@@ -327,7 +330,7 @@ suite('RegistryStorage', () => {
         },
         globalStorageUri: { fsPath: storageRoot }
       } as any;
-      const storage = new RegistryStorage(context);
+      const storage = new RegistryStorage(context, rootedAppStorage(context.globalStorageUri.fsPath, context.globalState));
 
       try {
         await storage.initialize();
@@ -426,7 +429,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       const prefs = await storage.getUpdatePreferences();
 
@@ -447,7 +450,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       const prefs = await storage.getUpdatePreferences();
 
@@ -468,7 +471,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       await storage.setUpdatePreference('bundle-1', true);
 
@@ -493,7 +496,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       await storage.setUpdatePreference('bundle-1', true);
 
@@ -518,7 +521,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       const pref1 = await storage.getUpdatePreference('bundle-1');
       const pref2 = await storage.getUpdatePreference('bundle-2');
@@ -540,7 +543,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       const pref = await storage.getUpdatePreference('bundle-nonexistent');
 
@@ -560,7 +563,7 @@ suite('RegistryStorage', () => {
         globalStorageUri: { fsPath: testStoragePath }
       } as any;
 
-      const storage = new RegistryStorage(mockContext);
+      const storage = new RegistryStorage(mockContext, rootedAppStorage(mockContext.globalStorageUri.fsPath, mockContext.globalState));
 
       await storage.setUpdatePreference('bundle-1', true);
 

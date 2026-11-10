@@ -36,6 +36,9 @@ import {
   promptGitHubAccountSelection,
 } from '../../src/utils/github-account-prompt';
 import {
+  SharedStateMap,
+} from '../helpers/rooted-app-storage';
+import {
   createMockHubData,
 } from '../helpers/setup-state-test-helpers';
 
@@ -44,14 +47,14 @@ suite('E2E: Setup State Flows', () => {
   let mockContext: vscode.ExtensionContext;
   let mockHubManager: sinon.SinonStubbedInstance<HubManager>;
   let setupStateManager: SetupStateManager;
-  let globalStateStorage: Map<string, any>;
+  let globalStateStorage: SharedStateMap;
 
   /**
    * Create a fresh mock context for each test
    * @param extensionMode
    */
   const createMockContext = (extensionMode = 1): vscode.ExtensionContext => {
-    globalStateStorage = new Map();
+    globalStateStorage = new SharedStateMap();
     return {
       globalState: {
         get: (key: string, defaultValue?: any) => {

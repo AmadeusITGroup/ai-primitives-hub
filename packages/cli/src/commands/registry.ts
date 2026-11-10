@@ -156,6 +156,13 @@ import {
   TargetListCommand,
 } from './target-list';
 import {
+  InstalledCommand,
+  LockfileInspectCommand,
+  LockfileMigrateCommand,
+  TargetCurrentCommand,
+  TargetUseCommand,
+} from './target-management';
+import {
   TargetRemoveCommand,
 } from './target-remove';
 import {
@@ -173,6 +180,11 @@ import {
 
 /** Every native clipanion command class registered by the production CLI. */
 export const ALL_COMMAND_CLASSES: CommandClass[] = [
+  TargetUseCommand,
+  TargetCurrentCommand,
+  InstalledCommand,
+  LockfileInspectCommand,
+  LockfileMigrateCommand,
   StatusCommand,
   InitCommand,
   InstallCommand,

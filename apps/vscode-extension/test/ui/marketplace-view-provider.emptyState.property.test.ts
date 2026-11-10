@@ -84,6 +84,7 @@ suite('MarketplaceViewProvider Empty State - Property Tests', () => {
       searchBundles: sandbox.stub().resolves([]),
       listInstalledBundles: sandbox.stub().resolves([]),
       listSources: sandbox.stub().resolves([]),
+      isRuntimeTargetManagementEnabled: () => false,
       autoUpdateService: null
     } as any;
     setupRegistryManagerEventMocks(mockRegistryManager, sandbox);

@@ -600,7 +600,7 @@ suite('MarketplaceViewProvider - Empty State UI', () => {
         'marketplace.js should show a loading state when semantic results are still pending');
       assert.ok(jsContent.includes('updateMarketplaceSummary();\n        renderBundles();'),
         'marketplace.js should refresh counts when final semantic results arrive');
-      assert.ok(jsContent.includes('title="Open Details"'),
+      assert.ok(jsContent.includes('title="Details"'),
         'marketplace.js should expose bundle details through a focusable button');
       assert.ok(jsContent.includes('title="Open Source Repository"'),
         'marketplace.js should retain an accessible title for the repository icon');

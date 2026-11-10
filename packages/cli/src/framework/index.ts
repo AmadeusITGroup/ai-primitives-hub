@@ -109,6 +109,13 @@ export {
   copyCommandPrototype,
 } from './command-class';
 export {
+  createRuntimeSession,
+  resolveWorkspaceRoot,
+  runtimeTargetGateError,
+  TARGET_MANAGEMENT_CONFIG_KEY,
+  targetManagementEnabled,
+} from './runtime-target';
+export {
   collectCommandPaths,
   getCommandPaths,
 } from './command-paths';

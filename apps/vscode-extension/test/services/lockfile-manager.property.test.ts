@@ -33,7 +33,7 @@ import {
 suite('LockfileManager Property Tests', () => {
   let tempDir: string;
   let schemaValidator: SchemaValidator;
-  const lockfileSchemaPath = path.join(process.cwd(), 'schemas', 'lockfile.schema.json');
+  const lockfileSchemaPath = path.join(process.cwd(), 'schemas', 'lockfile-v2.schema.json');
 
   // ===== Test Utilities =====
   const createTempDir = (): string => {

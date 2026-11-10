@@ -46,6 +46,7 @@ export enum TreeItemType {
 
   // Installed items
   INSTALLED_BUNDLE = 'installed_bundle',
+  INSTALLED_WARNING = 'installed_warning',
 
   // Discover items
   DISCOVER_CATEGORY = 'discover_category',
@@ -118,6 +119,7 @@ export class RegistryTreeItem extends vscode.TreeItem {
 
       [TreeItemType.INSTALLED_ROOT]: 'package',
       [TreeItemType.INSTALLED_BUNDLE]: 'check',
+      [TreeItemType.INSTALLED_WARNING]: 'warning',
 
       [TreeItemType.DISCOVER_ROOT]: 'search',
       [TreeItemType.DISCOVER_CATEGORY]: 'tag',
@@ -148,6 +150,10 @@ export class RegistryTreeItem extends vscode.TreeItem {
       case TreeItemType.INSTALLED_BUNDLE: {
         const installed = this.data as InstalledBundle;
         return `Version ${installed.version}\nInstalled: ${new Date(installed.installedAt).toLocaleDateString()}`;
+      }
+
+      case TreeItemType.INSTALLED_WARNING: {
+        return String(this.data?.error ?? this.label);
       }
 
       case TreeItemType.SOURCE: {
@@ -300,6 +306,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
       registryManager.onBundleUpdated(() => this.refresh()),
       registryManager.onBundlesInstalled(() => this.refresh()),
       registryManager.onBundlesUninstalled(() => this.refresh()),
+      registryManager.onDidChangeInstallations(() => this.refresh()),
 
       // Profile events
       registryManager.onProfileActivated(() => this.refresh()),
@@ -375,7 +382,7 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
     prefix: string;
     contextValue: string;
   } {
-    let prefix = '✓';
+    let prefix = '';
 
     // Files missing takes precedence for visual indicator
     if (filesMissing) {
@@ -872,6 +879,17 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
   }
 
   /**
+   * Target-managed rows are one node per installation: show scope and version.
+   * @param item
+   * @param bundle
+   */
+  private applyInstallationDescription(item: RegistryTreeItem, bundle: InstalledBundle): void {
+    if (bundle.installationId !== undefined) {
+      item.description = `${bundle.scope} · v${bundle.version}`;
+    }
+  }
+
+  /**
    * Get installed bundle items
    */
   private async getInstalledBundleItems(): Promise<RegistryTreeItem[]> {
@@ -905,14 +923,18 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
           );
 
           const treeItem = new RegistryTreeItem(
-            `${prefix} ${details.name}`,
+            prefix ? `${prefix} ${details.name}` : details.name,
             TreeItemType.INSTALLED_BUNDLE,
             bundle,
             vscode.TreeItemCollapsibleState.None
           );
+          treeItem.accessibilityInformation = {
+            label: `${details.name}, installed in ${bundle.scope} scope, version ${bundle.version}`
+          };
 
           // Set version display with update information
           this.setVersionDisplay(treeItem, bundle.bundleId, bundle.version);
+          this.applyInstallationDescription(treeItem, bundle);
 
           // Set context value to enable/disable update menu option and auto-update toggle
           treeItem.contextValue = this.getContextValue(contextValue, bundle);
@@ -939,14 +961,18 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
           );
 
           const treeItem = new RegistryTreeItem(
-            `${prefix} ${bundle.bundleId}`,
+            prefix ? `${prefix} ${bundle.bundleId}` : bundle.bundleId,
             TreeItemType.INSTALLED_BUNDLE,
             bundle,
             vscode.TreeItemCollapsibleState.None
           );
+          treeItem.accessibilityInformation = {
+            label: `${bundle.bundleId}, installed in ${bundle.scope} scope, version ${bundle.version}`
+          };
 
           // Set version display with update information
           this.setVersionDisplay(treeItem, bundle.bundleId, bundle.version);
+          this.applyInstallationDescription(treeItem, bundle);
 
           // Set context value for menu actions
           treeItem.contextValue = this.getContextValue(contextValue, bundle);
@@ -963,7 +989,15 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
       return items;
     } catch (error) {
       this.logger.error('Failed to load installed bundles', error as Error);
-      return [];
+      const item = new RegistryTreeItem(
+        'Installed state unavailable',
+        TreeItemType.INSTALLED_WARNING,
+        { error: error instanceof Error ? error.message : String(error) },
+        vscode.TreeItemCollapsibleState.None
+      );
+      item.description = 'Resolve lockfile';
+      item.tooltip = String(item.data.error);
+      return [item];
     }
   }
 
@@ -1052,6 +1086,25 @@ export class RegistryTreeProvider implements vscode.TreeDataProvider<RegistryTre
     this.viewMode = this.viewMode === 'all' ? 'favorites' : 'all';
     vscode.commands.executeCommand('setContext', 'promptRegistry.favoritesViewActive', this.viewMode === 'favorites');
     this.refresh();
+  }
+
+  /**
+   * Test-mode observation: the Installed Bundles children as scope/version rows.
+   */
+  public async installedNodes(): Promise<({ collection: string; scope: string; version: string; installationId?: string } | { error: string })[]> {
+    const items = await this.getInstalledBundleItems();
+    return items.map((item) => {
+      if (item.type === TreeItemType.INSTALLED_WARNING) {
+        return { error: `Installed state unavailable: ${String(item.data?.error ?? item.label)}` };
+      }
+      const bundle = item.data as InstalledBundle;
+      return {
+        collection: bundle.manifestId ?? bundle.bundleId,
+        scope: bundle.scope,
+        version: bundle.version,
+        ...(bundle.installationId === undefined ? {} : { installationId: bundle.installationId })
+      };
+    });
   }
 
   /**

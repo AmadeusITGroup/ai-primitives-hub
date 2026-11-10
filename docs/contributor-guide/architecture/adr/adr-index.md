@@ -16,6 +16,7 @@ focused on one decision.
 | [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
 | [0008](./0008-artifactory-hub-tree-distribution-channel.md) | Generic Artifactory Hub Tree as an Explicit Distribution Channel | Proposed |
 | [0010](./0010-native-ports-and-adapters-security-scanning.md) | Native Ports-and-Adapters Security Scanning | Accepted |
+| [0011](./0011-shared-xdg-application-storage.md) | Shared XDG Application Storage Across Delivery Surfaces | Accepted |
 
 ADR-0009 is reserved for the primitive install categories referenced by the
 current domain model; security scanning uses ADR-0010.

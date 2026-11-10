@@ -146,6 +146,8 @@ export interface McpTrackingMetadata {
     originalConfig: McpServerDefinition;
     installedAt: string;
     scope: 'user' | 'workspace';
+    /** Local-only repository MCP config is ignored by Git; absent means tracked/legacy. */
+    commitMode?: 'commit' | 'local-only';
   }>;
   lastUpdated: string;
   version: string;
@@ -192,6 +194,8 @@ export interface McpInstallOptions extends McpServerNaming {
  */
 export interface McpWorkspaceInstallOptions extends McpServerNaming {
   commitMode: 'commit' | 'local-only';
+  /** Extracted bundle directory used for `${bundlePath}` command placeholders. */
+  bundlePath?: string;
   overwrite?: boolean;
   skipOnConflict?: boolean;
   createBackup?: boolean;

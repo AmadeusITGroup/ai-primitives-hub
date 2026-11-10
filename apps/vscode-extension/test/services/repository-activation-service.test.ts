@@ -23,6 +23,9 @@ import {
   SetupStateManager,
 } from '../../src/services/setup-state-manager';
 import {
+  SharedStateFile,
+} from '../../src/storage/extension-storage';
+import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
 import {
@@ -222,7 +225,7 @@ suite('RepositoryActivationService', () => {
       const lockfile = createMockLockfile(2);
       mockLockfileManager.read.resolves(lockfile);
       mockLockfileManager.getLockfilePath.returns('/repo/prompt-registry.lock.json');
-      (mockContext.globalState.get as sinon.SinonStub).returns(['/repo']);
+      await new SharedStateFile('extension-state').update('repositoryActivation.declined', ['/repo']);
 
       // Act
       await service.checkAndPromptActivation();
@@ -343,12 +346,7 @@ suite('RepositoryActivationService', () => {
       const lockfile = createMockLockfile(2);
       mockLockfileManager.read.resolves(lockfile);
       mockLockfileManager.getLockfilePath.returns('/repo/prompt-registry.lock.json');
-      const customContext = {
-        globalState: {
-          get: sandbox.stub().returns(['/repo']) // Already declined
-        }
-      } as any;
-      mockStorage.getContext.returns(customContext);
+      await new SharedStateFile('extension-state').update('repositoryActivation.declined', ['/repo']); // Already declined
       const checkSpy = sandbox.spy(service, 'checkAndOfferMissingSources');
 
       // Act

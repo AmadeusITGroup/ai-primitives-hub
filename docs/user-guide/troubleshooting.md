@@ -18,6 +18,24 @@ View logs: `View → Output → AI Primitives Hub`
 3. Restart VS Code (`Ctrl+R`)
 4. Run `AI Primitives Hub: Sync All Bundles`
 
+### Marketplace Is Blank or Shows an Installed-State Warning
+
+The Marketplace catalog and installed inventory are separate. A problem
+reading the lockfile should not hide the catalog; when installed state is
+unreadable, the Marketplace shows cached bundles, marks installation counts
+unavailable, and disables install/update/uninstall until the lockfile is
+resolved. The Registry Explorer shows a warning under **Installed Bundles**
+instead of treating the unreadable inventory as empty.
+
+For a released v2 repository lockfile, use **Migrate Lockfile** or the CLI
+`lockfile migrate --dry-run` to inspect the plan, then confirm migration.
+Modified or missing files are reported and are not claimed as owned. Commit
+the new `prompt-registry.lock.json` when appropriate. Do not manually change a
+lockfile's version or `$schema` reference; a different schema format requires
+an explicit migration, not a text edit. For an unsupported version, preserve
+the file and include the exact error from the **AI Primitives Hub** Output
+channel when reporting the issue.
+
 ### Installation Fails
 
 - **Network**: Check internet connection
@@ -172,3 +190,18 @@ You'll need to reconfigure everything from scratch.
 
 - [Report Issues](https://github.com/AmadeusITGroup/prompt-registry/issues)
 - [Discussions](https://github.com/AmadeusITGroup/prompt-registry/discussions)
+
+## Legacy Storage Migration Prompt
+
+If AI Primitives Hub shows "Legacy storage found", your IDE still holds data
+from an older version (sources, hubs, installed bundles). Choose **Migrate Now**
+to copy it into the shared location used by the CLI and your other IDEs
+(`$XDG_CONFIG_HOME`/`$XDG_DATA_HOME`/`$XDG_STATE_HOME`, defaulting to
+`~/.config`, `~/.local/share` and `~/.local/state`). Your old files are copied,
+never changed or deleted. **Later** keeps the prompt coming back at every start;
+until you migrate, the extension works only with the shared location and will not
+see the old data. Each IDE (VS Code, Insiders, Kiro, and so on) migrates its own
+data; existing shared entries are kept and any differences are reported.
+If the old and shared configurations select different active hubs, the
+migration notice names both and confirms that the existing shared XDG hub was
+retained; the legacy pointer is left untouched.

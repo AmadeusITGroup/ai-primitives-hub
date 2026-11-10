@@ -8,6 +8,9 @@
 
 import * as vscode from 'vscode';
 import {
+  SharedStateFile,
+} from '../storage/extension-storage';
+import {
   Logger,
 } from '../utils/logger';
 
@@ -27,6 +30,8 @@ export class MigrationRegistry {
   private static instance: MigrationRegistry | undefined;
   private readonly logger: Logger;
   private readonly STATE_KEY = 'promptregistry.migrations';
+
+  private readonly sharedState = new SharedStateFile('extension-state');
 
   private constructor(private readonly context: vscode.ExtensionContext) {
     this.logger = Logger.getInstance();
@@ -65,7 +70,7 @@ export class MigrationRegistry {
       completedAt: new Date().toISOString(),
       details
     };
-    await this.context.globalState.update(this.STATE_KEY, state);
+    await this.sharedState.update(this.STATE_KEY, state);
     this.logger.info(`Migration '${name}' marked as completed`);
   }
 
@@ -73,7 +78,7 @@ export class MigrationRegistry {
    * Get the full migration state
    */
   public async getMigrationState(): Promise<Record<string, MigrationRecord>> {
-    return this.context.globalState.get<Record<string, MigrationRecord>>(this.STATE_KEY, {});
+    return this.sharedState.get<Record<string, MigrationRecord>>(this.STATE_KEY, {});
   }
 
   /**

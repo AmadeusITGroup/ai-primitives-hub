@@ -56,7 +56,7 @@ suite('BundleInstaller - Bundle Storage Location', () => {
     sandbox = sinon.createSandbox();
     tempDir = path.join(__dirname, '..', '..', '..', 'test-temp-storage-location');
     workspaceDir = path.join(tempDir, 'workspace');
-    globalStorageDir = path.join(tempDir, 'global-storage');
+    globalStorageDir = path.join(process.env.XDG_DATA_HOME!, 'ai-primitives-hub');
 
     // Create directories
     fs.mkdirSync(workspaceDir, { recursive: true });

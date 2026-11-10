@@ -1,6 +1,6 @@
-const path = require('path');
+const path = require('node:path');
 
-/**@type {import('webpack').Configuration}*/
+/** @type {import('webpack').Configuration}*/
 const config = {
   target: 'node', // vscode extensions run in a Node.js-context 📖 -> https://webpack.js.org/configuration/node/
   mode: 'none', // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
@@ -52,8 +52,8 @@ const config = {
   },
   devtool: 'nosources-source-map',
   infrastructureLogging: {
-    level: "log", // enables logging required for problem matchers
-  },
+    level: 'log' // enables logging required for problem matchers
+  }
 };
 
 module.exports = config;
