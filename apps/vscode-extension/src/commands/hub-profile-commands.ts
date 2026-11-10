@@ -14,6 +14,9 @@ import {
   SchemaValidator,
 } from '../services/schema-validator';
 import {
+  createHubStorage,
+} from '../storage/create-hub-storage';
+import type {
   HubStorage,
 } from '../storage/hub-storage';
 import {
@@ -36,8 +39,7 @@ export class HubProfileCommands {
 
   constructor(context: vscode.ExtensionContext) {
     this.logger = Logger.getInstance();
-    const storagePath = context.globalStorageUri.fsPath;
-    this.hubStorage = new HubStorage(storagePath);
+    this.hubStorage = createHubStorage(process.env);
     const validator = new SchemaValidator(context.extensionPath);
     this.hubManager = new HubManager(this.hubStorage, validator, context.extensionPath, undefined, undefined, context.secrets);
 

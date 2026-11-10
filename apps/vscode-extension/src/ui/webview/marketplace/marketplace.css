@@ -1,3 +1,86 @@
+.inventory-warning {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--vscode-editorWarning-foreground);
+  color: var(--vscode-editorWarning-foreground);
+  background: var(--vscode-inputValidation-warningBackground);
+}
+
+.inventory-warning[hidden] {
+  display: none;
+}
+
+.inventory-unavailable {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.scope-install-controls {
+    display: grid;
+    gap: 6px;
+    width: 100%;
+}
+
+.scope-install-row {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+    padding: 4px 0;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.scope-install-title {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
+.scope-installed-status {
+    margin-left: auto;
+    font-size: 0.85em;
+}
+
+.scope-install-tools {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.scope-version-select,
+.scope-commit-mode {
+    min-width: 0;
+    max-width: 130px;
+    flex: 1 1 74px;
+    height: 26px;
+    color: var(--vscode-dropdown-foreground);
+    background: var(--vscode-dropdown-background);
+    border: 1px solid var(--vscode-dropdown-border);
+}
+
+.scope-install-tools .btn {
+    min-width: 64px;
+    min-height: 26px;
+    flex: 0 1 auto;
+    padding: 3px 8px;
+}
+
+.scope-mode-badge {
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.85em;
+}
+
+@media (max-width: 420px) {
+    .scope-install-tools .btn {
+        min-width: 58px;
+        flex: 1 1 64px;
+    }
+}
 /* Marketplace — responsive VS Code-native visual system */
 
 :root {
@@ -188,7 +271,7 @@ main { width: 100%; min-width: 0; }
 .bundle-card:hover { border-color: var(--vscode-focusBorder, var(--marketplace-accent)); background: var(--marketplace-card-surface-hover, var(--marketplace-surface-raised)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-focusBorder, var(--marketplace-accent)) 24%, transparent); }
 .bundle-card.installed { border-color: color-mix(in srgb, var(--marketplace-success) 65%, var(--marketplace-border)); }
 .installed-badge { position: absolute; top: 14px; right: 14px; padding: 4px 9px; border-radius: 12px; background: var(--marketplace-success); color: var(--vscode-editor-background); font-size: 11px; font-weight: 600; }
-.bundle-header { min-width: 0; margin-bottom: 9px; padding-right: 74px; }
+.bundle-header { min-width: 0; margin-bottom: 9px; padding-right: 112px; }
 .bundle-title { overflow: hidden; margin-bottom: 3px; font-size: 16px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .bundle-author { overflow: hidden; color: var(--marketplace-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .bundle-description { display: -webkit-box; overflow: hidden; margin-bottom: 12px; color: var(--marketplace-muted); font-size: 13px; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
@@ -207,7 +290,7 @@ main { width: 100%; min-width: 0; }
 .btn-secondary, .btn-link { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 .btn-secondary:hover, .btn-link:hover { background: var(--vscode-button-secondaryHoverBackground); }
 .btn-link { display: flex; min-width: 34px; align-items: center; justify-content: center; padding: 5px 9px; }
-.details-button { order: 2; width: 120px; min-width: 120px; flex: 0 0 120px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
+.details-button { position: absolute; top: 15px; right: 93px; width: 34px; min-width: 34px; height: 30px; flex: 0 0 34px; padding: 5px 0; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
 .details-button:hover, .source-repo-button:hover, .contribute-collection-button:hover { border-color: color-mix(in srgb, var(--vscode-foreground, #cccccc) 78%, transparent); background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground)); }
 .source-repo-button { position: absolute; top: 15px; right: 15px; width: 34px; min-width: 34px; height: 30px; flex: 0 0 34px; padding: 5px 0; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
 .contribute-collection-button { position: absolute; top: 15px; right: 54px; width: 34px; min-width: 34px; height: 30px; flex: 0 0 34px; padding: 5px 0; border: 1px solid color-mix(in srgb, var(--vscode-foreground, #cccccc) 48%, transparent); border-radius: 4px; background: transparent; color: var(--vscode-foreground); }
@@ -260,17 +343,16 @@ main { width: 100%; min-width: 0; }
     .marketplace-tabs { justify-content: center; gap: 8px; }
     .marketplace-tab { flex: 1; font-size: 12px; }
     .bundle-card { padding: 13px; }
-    .bundle-header { padding-right: 54px; }
+    .bundle-header { padding-right: 112px; }
     .installed-badge { position: static; display: inline-block; margin-bottom: 9px; }
-    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .details-button { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
-    .details-button { margin-left: 0; }
+    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
     .bundle-actions .version-selector-group { width: calc(50% - 3px); min-width: 0; flex: 0 0 calc(50% - 3px); }
 }
 
 @media (max-width: 340px) {
     .source-selector-btn, .tag-selector-btn { min-width: 0; max-width: 122px; }
     .header-menu { display: none; }
-    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger, .bundle-actions > .details-button { width: 100%; flex-basis: 100%; }
+    .bundle-actions > .btn-primary, .bundle-actions > .btn-danger { width: 100%; flex-basis: 100%; }
     .bundle-actions .version-selector-group { width: 100%; min-width: 0; flex-basis: 100%; }
     .category-pills { gap: 5px; }
 }

@@ -44,6 +44,9 @@ import type {
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import {
+  extensionDataDir,
+} from '../storage/extension-storage';
+import {
   DeploymentManifest,
 } from '../types/registry';
 import {
@@ -630,7 +633,7 @@ export class UserScopeService implements IScopeService {
       }
 
       // Read the bundle's manifest to find which files were synced
-      const bundlesPath = path.join(this.context.globalStorageUri.fsPath, 'bundles');
+      const bundlesPath = path.join(extensionDataDir(), 'bundles');
       const bundlePath = await resolveExistingPathInside(bundlesPath, bundleId);
       if (!bundlePath || !(await fs.promises.stat(bundlePath)).isDirectory()) {
         this.logger.warn(`No installed bundle found for bundle: ${bundleId}`);

@@ -44,8 +44,10 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [Validation](contributor-guide/architecture/validation.md)
   - [Security Scanner](contributor-guide/architecture/security-scanner.md)
   - [Architecture decisions](contributor-guide/architecture/adr/adr-index.md)
+  - [ADR-0011: Shared XDG Application Storage](contributor-guide/architecture/adr/0011-shared-xdg-application-storage.md)
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
+- **[Target Management](contributor-guide/target-management.md)** — Opt-in shared harness selection, scoped lockfiles and the CLI/extension commands
 - **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing
 - **[Validation](contributor-guide/validation.md)** — Local validation commands
 - **[Coding Standards](contributor-guide/coding-standards.md)** — Style guide

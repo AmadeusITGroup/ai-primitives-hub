@@ -13,6 +13,9 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
+  SharedStateFile,
+} from '../storage/extension-storage';
+import {
   RegistryStorage,
 } from '../storage/registry-storage';
 import {
@@ -144,8 +147,7 @@ export class RepositoryActivationService {
    * @returns Array of repository paths
    */
   private async getDeclinedRepositories(): Promise<string[]> {
-    const context = this.storage.getContext();
-    return context.globalState.get<string[]>(this.DECLINED_KEY, []);
+    return new SharedStateFile('extension-state').get<string[]>(this.DECLINED_KEY, []);
   }
 
   /**

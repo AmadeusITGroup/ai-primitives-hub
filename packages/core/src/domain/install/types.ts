@@ -8,8 +8,8 @@
  * @module domain/install/types
  */
 import type {
-  DeploymentManifest,
-} from '../collection/types';
+  InstalledManifest,
+} from './installed-manifest';
 
 /**
  * Where a bundle is installed to: the current user's global profile, the
@@ -45,7 +45,7 @@ export interface InstalledBundle {
   scope: InstallationScope;
   profileId?: string;
   installPath: string;
-  manifest: DeploymentManifest;
+  manifest: InstalledManifest;
   /** Source identifier, for identity matching across re-syncs. */
   sourceId?: string;
   /** Source type, for identity matching across re-syncs. */

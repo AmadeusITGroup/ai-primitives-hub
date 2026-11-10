@@ -31,8 +31,8 @@ import {
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
-  VsCodeAppStorage,
-} from '../storage/vscode-app-storage';
+  createExtensionStorage,
+} from '../storage/extension-storage';
 import {
   Logger,
 } from '../utils/logger';
@@ -107,7 +107,7 @@ export class PrimitiveIndexService {
     // rather than on the first search request.
     getSearchProfile(this.profile);
 
-    const storage = options.storage ?? new VsCodeAppStorage(context);
+    const storage = options.storage ?? createExtensionStorage();
     this.indexStore = options.indexStore;
     this.installedBundleKeysProvider = options.installedBundleKeysProvider;
     this.searchIndexSourceIdsProvider = options.searchIndexSourceIdsProvider;

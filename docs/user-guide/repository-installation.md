@@ -22,6 +22,11 @@ When installing a bundle, you can choose from three options:
 
 Repository options require an open workspace. If no workspace is open, only User Profile is available.
 
+With Target Management enabled, Marketplace cards show separate Repository and
+User controls. Choose the version in the scope's control; Repository also
+offers **Tracked** or **Local Only**. Existing installs show their scope and
+version, with Update and Uninstall acting on that exact installation.
+
 ## Commit vs Local-Only Mode
 
 ### Commit Mode (Recommended)
@@ -203,6 +208,12 @@ If you've modified bundle files locally, you'll see a warning before updating wi
 | Agents (`.agent.md`) | `.github/agents/` |
 | Skills | `.github/skills/<skill-name>/` |
 | MCP Servers | `.vscode/mcp.json` |
+
+With Target Management enabled, MCP servers are merged into the configuration
+file for the selected harness and scope. A per-config tracking file lets
+Uninstall remove this collection's servers without deleting unrelated MCP
+entries. In Repository Local Only mode, both the MCP configuration and its
+tracking file are excluded from Git while the local installation exists.
 
 ## Troubleshooting
 

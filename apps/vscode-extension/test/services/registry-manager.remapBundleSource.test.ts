@@ -77,7 +77,7 @@ suite('RegistryManager.remapBundleSource - delegates to the app use case', () =>
     installPath: `/mock/${scope}/${bundleId}`,
     sourceId,
     sourceType: 'github',
-    manifest: { id: bundleId, name: bundleId, version: '1.0.0' } as any
+    manifest: { id: bundleId, name: bundleId, version: '1.0.0' }
   });
 
   const createMockContext = (mockSandbox: sinon.SinonSandbox): vscode.ExtensionContext => ({

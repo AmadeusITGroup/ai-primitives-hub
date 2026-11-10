@@ -11,6 +11,7 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   Target,
+  TargetType,
 } from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
@@ -61,23 +62,37 @@ const DISABLED_OPTION_WARNING = '⚠️ Requires an open workspace - please sele
  * repository-scope primitives into (e.g. `.github/` for VS Code, `.kiro/` for
  * Kiro), derived from the host's repository layout so the UI never hardcodes a
  * single editor's folder.
+ * @param targetType
  * @returns The host-appropriate repository root folder, e.g. `.kiro/`.
  */
-export function getRepositoryRootFolder(): string {
-  const targetType = detectHostApp();
+export function getRepositoryRootFolder(targetType?: TargetType): string {
+  const resolved = targetType ?? detectHostApp();
   // Resolve with the token as the root so baseDir keeps its "${workspaceRoot}/<folder>"
   // shape; the folder after the token is the host's top-level folder (e.g. ".kiro").
-  const target: Target = { name: targetType, type: targetType, scope: 'repository', rootPath: WORKSPACE_ROOT_TOKEN };
+  const target: Target = { name: resolved, type: resolved, scope: 'repository', rootPath: WORKSPACE_ROOT_TOKEN };
   const folder = resolveLayout(target).baseDir.split(`${WORKSPACE_ROOT_TOKEN}/`)[1];
   return folder ? `${folder}/` : '.github/';
 }
 
 /**
+ * User-scope root description for the given target type (display only).
+ * @param targetType
+ */
+export function getUserRootDescription(targetType?: TargetType): string {
+  const resolved = targetType ?? detectHostApp();
+  const target: Target = { name: resolved, type: resolved, scope: 'user', rootPath: WORKSPACE_ROOT_TOKEN };
+  void target;
+  return resolved;
+}
+
+/**
  * Creates the QuickPick items for scope selection
  * @param hasWorkspace
+ * @param targetType
+ * @param allowLocalOnly
  */
-export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPickItem[] {
-  const repoRoot = getRepositoryRootFolder();
+export function createScopeQuickPickItems(hasWorkspace: boolean, targetType?: TargetType, allowLocalOnly = true): ScopeQuickPickItem[] {
+  const repoRoot = getRepositoryRootFolder(targetType);
   const options: ScopeSelectionOption[] = [
     {
       label: '$(repo) Repository - Commit to Git (Recommended)',
@@ -103,7 +118,7 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
     }
   ];
 
-  return options.map((opt) => ({
+  return options.filter((opt) => allowLocalOnly || opt.commitMode !== 'local-only').map((opt) => ({
     label: opt.label,
     description: opt.description,
     detail: opt.detail,
@@ -126,6 +141,9 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
  * Repository options are disabled when no workspace is open.
  * When a disabled option is clicked, the dialog remains open and shows an inline warning.
  * @param bundleName - Optional bundle name to display in the dialog title
+ * @param options
+ * @param options.targetType
+ * @param options.allowLocalOnly
  * @returns The selected scope and commit mode, or undefined if cancelled
  * @example
  * ```typescript
@@ -138,12 +156,13 @@ export function createScopeQuickPickItems(hasWorkspace: boolean): ScopeQuickPick
  * }
  * ```
  */
-export async function showScopeSelectionDialog(bundleName?: string): Promise<ScopeSelectionResult | undefined> {
+export async function showScopeSelectionDialog(bundleName?: string, options?: { targetType?: TargetType; allowLocalOnly?: boolean }): Promise<ScopeSelectionResult | undefined> {
   const hasWorkspace = hasOpenWorkspace();
-  const quickPickItems = createScopeQuickPickItems(hasWorkspace);
+  const allowLocalOnly = options?.allowLocalOnly ?? true;
+  const quickPickItems = createScopeQuickPickItems(hasWorkspace, options?.targetType, allowLocalOnly);
 
   const title = bundleName
-    ? `Install ${bundleName} - Select Scope`
+    ? `Install ${bundleName}${options?.targetType ? ` — ${options.targetType}` : ''} - Select Scope`
     : 'Select Installation Scope';
 
   // Use custom QuickPick to handle disabled option selection

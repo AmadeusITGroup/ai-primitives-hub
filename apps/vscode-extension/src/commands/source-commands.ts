@@ -646,6 +646,11 @@ export class SourceCommands {
         return;
       }
 
+      // The marketplace reads the source cache only; populate it right away so the catalog is visible.
+      void this.registryManager.syncSource(source.id).catch((error: unknown) => {
+        this.logger.warn(`Initial sync of '${source.id}' failed: ${(error as Error).message}`);
+      });
+
       vscode.window.showInformationMessage(
         `Source "${name}" added successfully!`,
         'Sync Now', 'View Sources'

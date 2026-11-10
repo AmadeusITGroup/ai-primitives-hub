@@ -18,6 +18,34 @@ suite('Source Management Commands', () => {
   });
 
   suite('addSource', () => {
+    test('syncs a newly added source so the cache-only catalog sees its bundles', async () => {
+      const { SourceCommands } = await import('../../src/commands/source-commands');
+      const synced: string[] = [];
+      const registryManager = {
+        addSource: async () => undefined,
+        validateSource: async () => ({ valid: true, errors: [], warnings: [], bundlesFound: 0 }),
+        syncSource: async (id: string) => {
+          synced.push(id);
+        },
+        listSources: async () => []
+      };
+      sandbox.stub(vscode.window, 'showQuickPick').resolves({ label: 'local', value: 'local' } as never);
+      sandbox.stub(vscode.window, 'showInputBox')
+        .onFirstCall().resolves('Acceptance')
+        .onSecondCall().resolves('1');
+      sandbox.stub(vscode.window, 'showOpenDialog').resolves([vscode.Uri.file('/tmp')]);
+      sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+      const errors: string[] = [];
+      sandbox.stub(vscode.window, 'showErrorMessage').callsFake(async (m: string) => {
+        errors.push(m);
+        return undefined;
+      });
+      const commands = new SourceCommands(registryManager as never);
+      await commands.addSource();
+      assert.deepStrictEqual(errors, []);
+      assert.strictEqual(synced.length, 1, 'the new source is synced right after it is added');
+    });
+
     test('should prompt for source details', () => {
       const showInputBoxStub = sandbox.stub(vscode.window, 'showInputBox');
       showInputBoxStub.onFirstCall().resolves('Test Source');

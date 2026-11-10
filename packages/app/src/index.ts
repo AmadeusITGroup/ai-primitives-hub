@@ -29,6 +29,7 @@ export * from './search';
 export * from './security';
 export * from './transform';
 export * from './replicate/replicate';
+export * from './runtime-target';
 
 /**
  * Phase 1 scaffolding marker, kept until `cli` has real code of its own
@@ -38,3 +39,4 @@ export * from './replicate/replicate';
 export {
   INFRA_PACKAGE_READY as APP_PACKAGE_READY,
 } from '@ai-primitives-hub/infra';
+export * from './storage-migration/legacy-storage-migration';

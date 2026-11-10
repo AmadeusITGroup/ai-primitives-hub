@@ -120,6 +120,32 @@ const loadBundles = (harness: WebviewHarness, bundle = makeBundle()): void => {
 };
 
 suite('Marketplace webview behavior', () => {
+  test('keeps catalog visible and surfaces an installed-state warning', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness);
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [{ ...makeBundle(), inventoryUnavailable: true }],
+          filterOptions: { tags: [], sources: [], environments: [] },
+          setupState: 'complete',
+          sourcesCount: 1,
+          inventoryWarning: 'Installed collections are unavailable until the lockfile is resolved.'
+        }
+      }));
+      const warning = harness.dom.window.document.querySelector('#inventoryWarning');
+      assert.ok(warning);
+      assert.match(warning.textContent ?? '', /lockfile is resolved/);
+      assert.ok(harness.dom.window.document.querySelector('[data-bundle-id]'), 'catalog card still renders');
+      assert.ok(harness.dom.window.document.querySelector('.inventory-unavailable'));
+      assert.strictEqual(harness.dom.window.document.querySelector('[data-action="installBundle"]'), null);
+      assert.strictEqual(harness.dom.window.document.querySelector('.loading'), null);
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
   test('renders untrusted bundle and source metadata without creating forged controls', () => {
     const harness = createHarness();
     try {
@@ -380,7 +406,10 @@ suite('Marketplace webview behavior', () => {
       sortToggle.click();
       assert.strictEqual(document.querySelector('#resultsCount')?.textContent, 'Showing all bundles');
 
-      const detailsButton = document.querySelector('.details-button') as unknown as { click: () => void };
+      const detailsButton = document.querySelector('.details-button') as unknown as {
+        click: () => void;
+        getAttribute: (name: string) => string | null;
+      };
       const repositoryButton = document.querySelector('.source-repo-button') as unknown as {
         click: () => void;
         getAttribute: (name: string) => string | null;
@@ -388,6 +417,8 @@ suite('Marketplace webview behavior', () => {
       assert.ok(detailsButton);
       assert.ok(repositoryButton);
       assert.strictEqual(repositoryButton.getAttribute('aria-label'), 'Open Source Repository');
+      assert.strictEqual(detailsButton.getAttribute('aria-label'), 'Open details');
+      assert.strictEqual(document.querySelector('.bundle-actions .details-button'), null, 'Details is grouped with the header actions');
 
       detailsButton.click();
       repositoryButton.click();
@@ -539,6 +570,81 @@ suite('Marketplace webview behavior', () => {
       assert.match(document.querySelector('#marketplace')?.textContent ?? '', /no hub is set up yet/);
       assert.strictEqual(document.querySelectorAll('.bundle-card').length, 1,
         'bundles should remain visible while the setup warning is displayed');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('counts one installation per scope row and posts the exact installation id from row buttons', () => {
+    const harness = createHarness();
+    try {
+      const installations = [
+        { installationId: 'rcpt-repo', scope: 'repository', version: '1.0.0', targetType: 'kiro' },
+        { installationId: 'rcpt-user', scope: 'user', version: '2.0.0', targetType: 'kiro' }
+      ];
+      const doc = harness.dom.window.document;
+      loadBundles(harness, {
+        ...makeBundle(), installed: true, installations, installedVersion: '1.0.0',
+        availableVersions: [{ version: '2.0.0' }, { version: '1.0.0' }], buttonState: 'update', version: '2.0.0'
+      } as never);
+      assert.strictEqual(doc.querySelector('#installedCount')?.textContent, '2', 'two installations of one bundle count twice');
+      assert.deepStrictEqual([...doc.querySelectorAll('.scope-install-title')].map((b) => b.textContent?.trim()), [
+        'Repo Installed', 'User Installed'
+      ]);
+      assert.deepStrictEqual([...doc.querySelectorAll('.scope-install-row')].map((row) => row.getAttribute('aria-label')), [
+        'Repository scope', 'User profile scope'
+      ]);
+      const repoVersion = doc.querySelector('.scope-install-row[data-scope="repository"] .scope-version-select') as unknown as {
+        value: string;
+        dispatchEvent(event: Event): boolean;
+      };
+      repoVersion.value = '2.0.0';
+      repoVersion.dispatchEvent(new harness.dom.window.Event('change', { bubbles: true }));
+      const update = doc.querySelector('[data-action="updateBundle"][data-installation-id="rcpt-repo"]') as unknown as { click(): void };
+      update.click();
+      const uninstall = doc.querySelector('[data-action="uninstallBundle"][data-installation-id="rcpt-user"]') as unknown as { click(): void };
+      uninstall.click();
+      assert.deepStrictEqual(harness.messages.filter((m) => m.type === 'update' || m.type === 'uninstall').map((m) => [m.type, m.installationId]), [
+        ['update', 'rcpt-repo'],
+        ['uninstall', 'rcpt-user']
+      ]);
+      assert.strictEqual(harness.messages.find((m) => m.type === 'update')?.version, '2.0.0');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('offers one scope-specific install control per missing scope and routes local-only mode', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness, {
+        ...makeBundle(), installations: [],
+        availableVersions: [{ version: '2.0.0' }, { version: '1.0.0' }], version: '2.0.0'
+      } as never);
+      const { document } = harness.dom.window;
+      const repo = document.querySelector('.scope-install-row[data-scope="repository"]')!;
+      const repoMode = repo.querySelector('.scope-commit-mode') as unknown as { value: string };
+      repoMode.value = 'local-only';
+      (repo.querySelector('.scope-install') as unknown as { click(): void }).click();
+      const user = document.querySelector('.scope-install-row[data-scope="user"]')!;
+      (user.querySelector('.scope-install') as unknown as { click(): void }).click();
+      assert.deepStrictEqual(harness.messages.filter((m) => m.type === 'install').map((m) => [
+        m.scope, m.version, m.commitMode
+      ]), [
+        ['repository', '2.0.0', 'local-only'],
+        ['user', '2.0.0', undefined]
+      ]);
+      assert.strictEqual(document.querySelector('[data-action="installBundle"]'), null, 'no ambiguous generic Install button');
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
+  test('without installations the counter keeps counting installed bundles once', () => {
+    const harness = createHarness();
+    try {
+      loadBundles(harness, { ...makeBundle(), installed: true, buttonState: 'uninstall' });
+      assert.strictEqual(harness.dom.window.document.querySelector('#installedCount')?.textContent, '1');
     } finally {
       harness.dom.window.close();
     }

@@ -41,6 +41,9 @@ import {
   HubProfileCommands,
 } from './commands/hub-profile-commands';
 import {
+  LegacyStorageMigration,
+} from './commands/legacy-storage-migration';
+import {
   PrimitiveSearchCommand,
 } from './commands/primitive-search-command';
 import {
@@ -141,8 +144,11 @@ import {
   UpdateScheduler,
 } from './services/update-scheduler';
 import {
-  HubStorage,
-} from './storage/hub-storage';
+  createHubStorage,
+} from './storage/create-hub-storage';
+import {
+  SharedStateFile,
+} from './storage/extension-storage';
 import type {
   HubReference,
 } from './types/hub';
@@ -494,6 +500,17 @@ export class PromptRegistryExtension {
     return undefined;
   }
 
+  private extractInstallationId(arg?: any): string | undefined {
+    return typeof arg?.data?.installationId === 'string'
+      ? arg.data.installationId
+      : (typeof arg?.installationId === 'string' ? arg.installationId : undefined);
+  }
+
+  private extractInstallationScope(arg?: any): import('./types/registry').InstallationScope | undefined {
+    const scope = arg?.data?.scope ?? arg?.scope;
+    return scope === 'user' || scope === 'workspace' || scope === 'repository' ? scope : undefined;
+  }
+
   /**
    * Initialize telemetry service and subscribe to events.
    */
@@ -551,8 +568,7 @@ export class PromptRegistryExtension {
     this.bundleCommands = new BundleCommands(this.registryManager);
 
     // Initialize hub infrastructure
-    const hubStoragePath = this.context.globalStorageUri.fsPath;
-    const hubStorage = new HubStorage(hubStoragePath);
+    const hubStorage = createHubStorage(process.env);
     const hubValidator = new SchemaValidator(this.context.extensionPath);
     // Pass BundleInstaller from RegistryManager to enable bundle installation during profile activation
     const bundleInstaller = this.registryManager.getBundleInstaller();
@@ -684,8 +700,14 @@ export class PromptRegistryExtension {
       vscode.commands.registerCommand('promptRegistry.searchPrimitives', () => this.primitiveSearchCommand.search()),
       vscode.commands.registerCommand('promptRegistry.rebuildPrimitiveIndex', () => this.primitiveSearchCommand.rebuild()),
       vscode.commands.registerCommand('promptRegistry.installBundle', (bundleId?) => this.bundleCommands!.installBundle(bundleId)),
-      vscode.commands.registerCommand('promptRegistry.uninstallBundle', (arg?) => this.bundleCommands!.uninstallBundle(this.extractBundleId(arg))),
-      vscode.commands.registerCommand('promptRegistry.updateBundle', (arg?) => this.bundleCommands!.updateBundle(this.extractBundleId(arg))),
+      vscode.commands.registerCommand('promptRegistry.uninstallBundle', (arg?) =>
+        this.bundleCommands!.uninstallBundle(
+          this.extractBundleId(arg),
+          this.extractInstallationScope(arg),
+          this.extractInstallationId(arg)
+        )),
+      vscode.commands.registerCommand('promptRegistry.updateBundle', (arg?) =>
+        this.bundleCommands!.updateBundle(this.extractBundleId(arg), this.extractInstallationId(arg))),
       vscode.commands.registerCommand('promptRegistry.checkBundleUpdates', (arg?) => {
         const bundleId = this.extractBundleId(arg);
         if (bundleId) {
@@ -969,7 +991,7 @@ export class PromptRegistryExtension {
       this.updateChecker = new UpdateChecker(
         this.registryManager,
         registryStorage,
-        this.context.globalState
+        new SharedStateFile('extension-state')
       );
 
       // Initialize AutoUpdateService with dependency injection
@@ -1197,7 +1219,10 @@ export class PromptRegistryExtension {
       );
 
       // Check for lockfile and prompt activation
-      await this.repositoryActivationService.checkAndPromptActivation();
+      // Target-managed repositories read v3 records through RegistryManager; the v2 activation check does not apply.
+      if (!this.registryManager.isRuntimeTargetManagementEnabled()) {
+        await this.repositoryActivationService.checkAndPromptActivation();
+      }
 
       // Register BundleScopeCommands (requires scope services from RegistryManager)
       const bundleInstaller = this.registryManager.getBundleInstaller();
@@ -1623,7 +1648,7 @@ export class PromptRegistryExtension {
       await this.setupStateManager!.markComplete();
 
       // Trigger source/hub detection now that setup is complete
-      if (this.repositoryActivationService) {
+      if (this.repositoryActivationService && !this.registryManager.isRuntimeTargetManagementEnabled()) {
         await this.repositoryActivationService.checkAndPromptActivation();
       }
 
@@ -1791,7 +1816,7 @@ export class PromptRegistryExtension {
       }
 
       // Mark as initialized (for backward compatibility)
-      await this.context.globalState.update('promptregistry.hubInitialized', true);
+      await new SharedStateFile('extension-state').update('promptregistry.hubInitialized', true);
       this.logger.info('Hub initialization complete');
       return initialized;
     } catch (error) {
@@ -1881,6 +1906,33 @@ export class PromptRegistryExtension {
   /** Shared primitive index service used by commands and UI adapters. */
   public getPrimitiveIndexService(): PrimitiveIndexService {
     return this.primitiveIndexService;
+  }
+
+  /** Test-mode: last bundlesLoaded message delivered to the Marketplace webview. */
+  public async marketplaceSnapshot(): Promise<unknown> {
+    if (!this.marketplaceProvider) {
+      throw new Error('Marketplace provider is not initialized');
+    }
+    return this.marketplaceProvider.deliveredSnapshot();
+  }
+
+  /**
+   * Test-mode: run the Marketplace message handler.
+   * @param message
+   */
+  public async postMarketplaceMessage(message: Record<string, unknown>): Promise<void> {
+    if (!this.marketplaceProvider) {
+      throw new Error('Marketplace provider is not initialized');
+    }
+    await this.marketplaceProvider.handleWebviewMessage(message as never);
+  }
+
+  /** Test-mode: Installed Bundles children as scope/version rows. */
+  public async explorerInstalled(): Promise<({ collection: string; scope: string; version: string; installationId?: string } | { error: string })[]> {
+    if (!this.treeProvider) {
+      throw new Error('Registry tree provider is not initialized');
+    }
+    return this.treeProvider.installedNodes();
   }
 
   public async activate(): Promise<void> {
@@ -2000,9 +2052,52 @@ export class PromptRegistryExtension {
  * Activate the AI Primitives Hub extension.
  * @param context
  */
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export async function activate(context: vscode.ExtensionContext): Promise<{ testApi: ExtensionTestApi } | undefined> {
+  // Target management: thin feature registration — always adds the configure
+  // command; the controls exist only while the setting is on.
+  const { registerRuntimeTargetFeature } = await import('./commands/runtime-target-feature');
+  const registryManager = RegistryManager.getInstance(context);
+  const legacyStorage = new LegacyStorageMigration({
+    legacyRoot: context.globalStorageUri.fsPath,
+    onMigrated: () => registryManager.reloadFromStorage()
+  });
+  void legacyStorage.check();
+  const feature = registerRuntimeTargetFeature(context, { env: process.env, registryManager });
   extensionInstance = new PromptRegistryExtension(context);
   await extensionInstance.activate();
+  if (context.extensionMode !== vscode.ExtensionMode.Test) {
+    return undefined;
+  }
+  const instance = extensionInstance;
+  return {
+    testApi: {
+      marketplaceSnapshot: () => instance.marketplaceSnapshot(),
+      postMarketplaceMessage: (message) => instance.postMarketplaceMessage(message),
+      explorerInstalled: () => instance.explorerInstalled(),
+      statusText: () => feature.statusText(),
+      syncAllSources: async () => {
+        for (const source of await registryManager.listSources()) {
+          await registryManager.syncSource(source.id);
+        }
+      },
+      listSources: () => registryManager.listSources(),
+      runStartupChecks: async () => {
+        await legacyStorage.check();
+        await feature.runStartupChecks();
+      }
+    }
+  };
+}
+
+/** Observation and action surface exposed only when the extension runs in Test mode. */
+export interface ExtensionTestApi {
+  marketplaceSnapshot(): Promise<unknown>;
+  postMarketplaceMessage(message: Record<string, unknown>): Promise<void>;
+  explorerInstalled(): Promise<({ collection: string; scope: string; version: string; installationId?: string } | { error: string })[]>;
+  statusText(): string;
+  syncAllSources(): Promise<void>;
+  listSources(): Promise<unknown[]>;
+  runStartupChecks(): Promise<void>;
 }
 
 // Extension deactivation function called by VS Code

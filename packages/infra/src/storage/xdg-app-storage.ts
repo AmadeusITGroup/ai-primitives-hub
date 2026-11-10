@@ -2,7 +2,7 @@
  * XdgAppStorage — the default, universal `AppStorage` (ADR-0005) for the
  * CLI and any other non-VS-Code client.
  *
- * Splits the registry/bookkeeping directories across the three XDG Base
+ * Splits the registry/bookkeeping directories across the four XDG Base
  * Directory roots, per their actual nature: `config.json` under
  * `XDG_CONFIG_HOME`, the bundle/source cache under `XDG_CACHE_HOME`, and
  * everything else (installed-bundle records, profiles, logs — genuine
@@ -24,6 +24,7 @@ import {
   xdgCacheDir,
   xdgConfigDir,
   xdgDataDir,
+  xdgStateDir,
 } from './xdg-base-dirs';
 import type {
   XdgEnv,
@@ -50,7 +51,8 @@ export class XdgAppStorage implements AppStorage {
       userInstalled: path.join(dataDir, 'installed', 'user'),
       profilesInstalled: path.join(dataDir, 'installed', 'profiles'),
       profiles: path.join(dataDir, 'profiles'),
-      logs: path.join(dataDir, 'logs')
+      logs: path.join(dataDir, 'logs'),
+      state: xdgStateDir(env)
     };
     this.statePath = path.join(dataDir, STATE_FILENAME);
   }

@@ -4,9 +4,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const Module = require('node:module');
 
+const mockWorkspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'aph-mock-ws-'));
 global.__mockWorkspaceFolders = [
   {
-    uri: { fsPath: path.join(os.tmpdir(), 'mock-workspace') },
+    uri: { fsPath: mockWorkspacePath },
     name: 'workspace',
     index: 0
   }
@@ -37,6 +38,7 @@ global.__mockShowWarningMessage = global.__mockShowWarningMessage || null;
 global.__mockOpenExternal = global.__mockOpenExternal || null;
 
 const windowState = {
+  onDidChangeWindowState: () => ({ dispose: () => {} }),
   createWebviewPanel: () => ({
     webview: {
       html: '',
@@ -229,6 +231,7 @@ const vscode = {
   },
   workspace: {
     isTrusted: true,
+    onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
     fs: {
       createDirectory: (uri) => {
         if (uri?.scheme === 'file' && uri?.fsPath) {
@@ -327,11 +330,12 @@ const vscode = {
         }
         return defaultValue;
       },
+      inspect: () => undefined,
       update: async (key, value, target) => undefined
     }),
     workspaceFolders: [
       {
-        uri: { fsPath: path.join(os.tmpdir(), 'mock-workspace') },
+        uri: { fsPath: mockWorkspacePath },
         name: 'workspace',
         index: 0
       }
@@ -547,6 +551,37 @@ const vscode = {
     },
     registerCodeLensProvider: () => ({ dispose: () => {} }),
     registerCodeActionsProvider: () => ({ dispose: () => {} })
+  }
+};
+
+// Every test gets its own synthetic HOME/XDG roots: the extension resolves all
+// application storage from them, so no test can touch (or share) real user dirs.
+const ISOLATED_ENV_KEYS = ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME'];
+let isolatedRoot;
+let savedEnv;
+vscode.mochaHooks = {
+  beforeEach() {
+    savedEnv = Object.fromEntries(ISOLATED_ENV_KEYS.map((key) => [key, process.env[key]]));
+    isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aph-test-xdg-'));
+    process.env.HOME = path.join(isolatedRoot, 'home');
+    process.env.USERPROFILE = process.env.HOME;
+    process.env.APPDATA = path.join(isolatedRoot, 'appdata');
+    process.env.LOCALAPPDATA = process.env.APPDATA;
+    process.env.XDG_CONFIG_HOME = path.join(isolatedRoot, 'xdg', 'config');
+    process.env.XDG_DATA_HOME = path.join(isolatedRoot, 'xdg', 'data');
+    process.env.XDG_CACHE_HOME = path.join(isolatedRoot, 'xdg', 'cache');
+    process.env.XDG_STATE_HOME = path.join(isolatedRoot, 'xdg', 'state');
+    fs.mkdirSync(process.env.HOME, { recursive: true });
+  },
+  afterEach() {
+    for (const key of ISOLATED_ENV_KEYS) {
+      if (savedEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedEnv[key];
+      }
+    }
+    fs.rmSync(isolatedRoot, { recursive: true, force: true });
   }
 };
 

@@ -198,7 +198,7 @@ suite('UserScopeService - WSL Support', () => {
 
     test('should delete copied file during unsync when content matches (CRLF-normalized)', async () => {
       const windowsUserDir = path.join(tempDir, 'Users', 'testuser');
-      const globalStorageDir = path.join(tempDir, 'home', 'testuser');
+      const globalStorageDir = path.join(process.env.XDG_DATA_HOME!, 'ai-primitives-hub');
       stubWSLEnvironment(windowsUserDir, 'vscode');
 
       const bundleId = 'test-bundle';

@@ -37,6 +37,19 @@ export interface LoadHubResult {
 }
 
 /**
+ * Optional composition settings for `HubStorage`.
+ *
+ * `activeHubPath` overrides the active-hub pointer file (default:
+ * `<storagePath>/activeHubId.json`); `cacheMode: 'stateless'` disables the
+ * in-memory hub-config cache so external writers stay visible. Both default
+ * to the pre-existing legacy behavior.
+ */
+export interface HubStorageOptions {
+  activeHubPath?: string;
+  cacheMode?: 'legacy' | 'stateless';
+}
+
+/**
  * HubStorage manages persistent storage of hub configurations.
  *
  * Thin facade over `@ai-primitives-hub/infra`'s `HubStore` +
@@ -49,6 +62,7 @@ export interface LoadHubResult {
 export class HubStorage {
   private readonly storagePath: string;
   private readonly cache: Map<string, LoadHubResult>;
+  private readonly cacheMode: 'legacy' | 'stateless';
   private readonly hubStore: HubStore;
   private readonly activeHubStore: ActiveHubStore;
   private readonly favoritesStore: FavoritesStore;
@@ -57,14 +71,16 @@ export class HubStorage {
   /**
    * Initialize hub storage
    * @param storagePath Directory path for storing hub configurations
+   * @param options Optional composition settings (pointer path, cache mode)
    */
-  constructor(storagePath: string) {
+  constructor(storagePath: string, options: HubStorageOptions = {}) {
     if (!storagePath || storagePath.trim() === '') {
       throw new Error('Invalid storage path');
     }
 
     this.storagePath = path.resolve(storagePath);
     this.cache = new Map();
+    this.cacheMode = options.cacheMode ?? 'legacy';
 
     // Create storage directory if it doesn't exist
     if (!fs.existsSync(this.storagePath)) {
@@ -73,7 +89,10 @@ export class HubStorage {
 
     const nodeFs = new NodeFileSystem();
     this.hubStore = new HubStore(this.storagePath, nodeFs);
-    this.activeHubStore = new ActiveHubStore(path.join(this.storagePath, 'activeHubId.json'), nodeFs);
+    this.activeHubStore = new ActiveHubStore(
+      options.activeHubPath ?? path.join(this.storagePath, 'activeHubId.json'),
+      nodeFs
+    );
     this.favoritesStore = new FavoritesStore(path.join(this.storagePath, 'favorites.json'), nodeFs);
     this.activationStore = new ProfileActivationStore(this.storagePath, nodeFs);
   }
@@ -122,7 +141,9 @@ export class HubStorage {
    */
   public async saveHub(hubId: string, config: HubConfig, reference: HubReference): Promise<void> {
     await this.hubStore.save(hubId, config, reference);
-    this.cache.set(hubId, { config, reference });
+    if (this.cacheMode === 'legacy') {
+      this.cache.set(hubId, { config, reference });
+    }
   }
 
   /**
@@ -132,12 +153,14 @@ export class HubStorage {
    * @returns Loaded hub configuration and reference
    */
   public async loadHub(hubId: string, forceReload = false): Promise<LoadHubResult> {
-    if (!forceReload && this.cache.has(hubId)) {
+    if (this.cacheMode === 'legacy' && !forceReload && this.cache.has(hubId)) {
       return this.cache.get(hubId)!;
     }
 
     const result = await this.hubStore.load(hubId);
-    this.cache.set(hubId, result);
+    if (this.cacheMode === 'legacy') {
+      this.cache.set(hubId, result);
+    }
     return result;
   }
 

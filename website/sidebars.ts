@@ -55,10 +55,13 @@ const sidebars: SidebarsConfig = {
             { type: "doc", id: "contributor-guide/architecture/scaffolding", label: "Scaffolding" },
             { type: "doc", id: "contributor-guide/architecture/validation", label: "Validation" },
             { type: "doc", id: "contributor-guide/architecture/security-scanner", label: "Security Scanner" },
+            { type: "doc", id: "contributor-guide/architecture/adr/adr-index", label: "ADR Index" },
+            { type: "doc", id: "contributor-guide/architecture/adr/shared-xdg-application-storage", label: "ADR-0011: Shared XDG Storage" },
           ],
         },
         { type: "doc", id: "contributor-guide/core-flows", label: "Core Flows" },
         { type: "doc", id: "contributor-guide/testing", label: "Testing" },
+        { type: "doc", id: "contributor-guide/target-management", label: "Target Management" },
         {
           type: "category",
           label: "Testing Details",

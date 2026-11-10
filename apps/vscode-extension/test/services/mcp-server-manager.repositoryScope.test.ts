@@ -431,6 +431,10 @@ suite('McpServerManager Repository Scope Test Suite', () => {
         excludeContent.includes('.vscode/mcp.json'),
         '.vscode/mcp.json should be in git exclude'
       );
+      assert.ok(
+        excludeContent.includes('.vscode/prompt-registry-mcp-tracking.json'),
+        'MCP ownership metadata should be excluded with a Local Only config'
+      );
     });
 
     test('should NOT add .vscode/mcp.json to git exclude for commit mode', async () => {
@@ -460,6 +464,10 @@ suite('McpServerManager Repository Scope Test Suite', () => {
         assert.ok(
           !excludeContent.includes('.vscode/mcp.json'),
           '.vscode/mcp.json should NOT be in git exclude for commit mode'
+        );
+        assert.ok(
+          !excludeContent.includes('.vscode/prompt-registry-mcp-tracking.json'),
+          'MCP ownership metadata should remain tracked in commit mode'
         );
       }
     });
@@ -620,11 +628,15 @@ suite('McpServerManager Repository Scope Test Suite', () => {
       // Act
       await manager.uninstallServersFromWorkspace('test-bundle', testWorkspaceRoot);
 
-      // Assert - git exclude should be cleaned up if no more local-only bundles
-      // Note: The exact behavior depends on whether other local-only bundles exist
-      // For this test, we just verify the uninstall succeeded
+      // Assert - both local-only files stop being ignored after the last managed server is removed.
       const result = await manager.uninstallServersFromWorkspace('test-bundle', testWorkspaceRoot);
       assert.strictEqual(result.success, true);
+      const finalExclude = await readGitExclude();
+      assert.ok(!finalExclude?.includes('.vscode/mcp.json'), 'mcp.json exclude should be removed');
+      assert.ok(
+        !finalExclude?.includes('.vscode/prompt-registry-mcp-tracking.json'),
+        'tracking metadata exclude should be removed'
+      );
     });
 
     test('should handle uninstall when bundle has no servers', async () => {

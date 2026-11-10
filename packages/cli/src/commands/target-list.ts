@@ -17,7 +17,11 @@ import {
   Option,
   type OutputFormat,
   renderTable,
+  targetManagementEnabled,
 } from '../framework';
+import {
+  runTargetList,
+} from './target-managed';
 
 /**
  * Render a target list as a fixed-width text table. Empty list is
@@ -61,10 +65,17 @@ export class TargetListCommand extends Command {
   });
 
   public output = Option.String('-o,--output');
+  public workspaceRoot = Option.String('--workspace-root');
   public commandContext!: { ctx: Context };
 
   public async execute(): Promise<number> {
     const { ctx } = this.commandContext;
+    if (await targetManagementEnabled(ctx)) {
+      return runTargetList(ctx, {
+        output: (this.output as OutputFormat) ?? 'text',
+        ...(this.workspaceRoot === undefined ? {} : { workspaceRoot: this.workspaceRoot })
+      });
+    }
 
     const targets = await loadTargets(ctx);
     formatOutput({

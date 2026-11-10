@@ -78,6 +78,18 @@ suite('BundleCommands - updateBundle() Integration', () => {
   });
 
   suite('Bug: Versioned Bundle ID After Consolidation', () => {
+    test('passes the selected installation id through the public update command', async () => {
+      const bundleId = 'webapp-parity';
+      const installationId = 'rcpt-repository-row';
+      sandbox.stub(registryManager, 'getBundleDetails').resolves({ id: bundleId, name: 'Webapp Feature Mirror' } as any);
+      const update = sandbox.stub(registryManager, 'updateBundle').resolves();
+      showInformationMessageStub.resolves(undefined);
+
+      await bundleCommands.updateBundle(bundleId, installationId);
+
+      assert.deepStrictEqual(update.firstCall.args, [bundleId, undefined, installationId]);
+    });
+
     test('should update bundle when installed with versioned ID but consolidated list only has identity', async () => {
       // SETUP: Simulate the real scenario
       const installedBundleId = 'amadeus-airlines-solutions-workflow-instructions-1.0.18';

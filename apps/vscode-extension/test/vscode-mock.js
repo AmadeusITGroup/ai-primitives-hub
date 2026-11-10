@@ -11,6 +11,7 @@ module.exports = {
   workspace: {
     isTrusted: true,
     workspaceFolders: undefined,
+    onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
     textDocuments: [],
     onDidChangeTextDocument: () => ({ dispose: () => {} }),
     onDidOpenTextDocument: () => ({ dispose: () => {} }),
@@ -94,6 +95,7 @@ module.exports = {
     showInformationMessage: () => Promise.resolve(),
     showWarningMessage: () => Promise.resolve(),
     showErrorMessage: () => Promise.resolve(),
+    onDidChangeWindowState: () => ({ dispose: () => {} }),
     showQuickPick: () => Promise.resolve(),
     showInputBox: () => Promise.resolve(),
     showOpenDialog: () => Promise.resolve(),

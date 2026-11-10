@@ -22,6 +22,9 @@ import {
   RepositoryActivationService,
 } from '../../src/services/repository-activation-service';
 import {
+  SharedStateFile,
+} from '../../src/storage/extension-storage';
+import {
   createE2ETestContext,
   E2ETestContext,
 } from '../helpers/e2e-test-helpers';
@@ -228,7 +231,7 @@ suite('Extension Activation Integration', () => {
       // Arrange
       const workspacePath = testContext.tempStoragePath;
       // Implementation uses array-based tracking: repositoryActivation.declined = [path1, path2, ...]
-      await testContext.mockContext.globalState.update('repositoryActivation.declined', [workspacePath]);
+      await new SharedStateFile('extension-state').update('repositoryActivation.declined', [workspacePath]);
 
       const mockLockfile = {
         $schema: 'https://example.com/lockfile.schema.json',
@@ -294,7 +297,7 @@ suite('Extension Activation Integration', () => {
       // Arrange
       const workspacePath = testContext.tempStoragePath;
       // Implementation uses array-based tracking: repositoryActivation.declined = [path1, path2, ...]
-      await testContext.mockContext.globalState.update('repositoryActivation.declined', [workspacePath]);
+      await new SharedStateFile('extension-state').update('repositoryActivation.declined', [workspacePath]);
 
       const mockLockfile = {
         $schema: 'https://example.com/lockfile.schema.json',

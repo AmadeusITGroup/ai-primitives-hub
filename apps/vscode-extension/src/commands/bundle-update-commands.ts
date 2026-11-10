@@ -378,8 +378,9 @@ export class BundleUpdateCommands {
   /**
    * Update a specific bundle
    * @param bundleId
+   * @param installationId
    */
-  public async updateBundle(bundleId: string): Promise<void> {
+  public async updateBundle(bundleId: string, installationId?: string): Promise<void> {
     await this.withErrorHandling(async () => {
       // Get bundle name for display (try to get details, but don't fail if not found)
       let bundleName = bundleId;
@@ -399,7 +400,7 @@ export class BundleUpdateCommands {
         },
         async (progress) => {
           progress.report({ message: 'Downloading...' });
-          await this.registryManager.updateBundle(bundleId);
+          await this.registryManager.updateBundle(bundleId, undefined, installationId);
           progress.report({ message: 'Complete', increment: 100 });
         }
       );

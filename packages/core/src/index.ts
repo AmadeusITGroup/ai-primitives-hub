@@ -37,6 +37,9 @@ export { default as DEPLOYMENT_MANIFEST_SCHEMA } from './public/schemas/deployme
  */
 export { default as HUB_CONFIG_SCHEMA } from './public/schemas/hub-config.schema.json';
 
+/** Current multi-target lockfile schema, embedded for offline and SEA use. */
+export { default as LOCKFILE_SCHEMA } from './public/schemas/lockfile.schema.json';
+
 /** Artifactory source index JSON schema. */
 export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/artifactory-source-index.schema.json';
 

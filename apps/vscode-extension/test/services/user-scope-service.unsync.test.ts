@@ -18,9 +18,8 @@ suite('UserScopeService - Unsync Bundle Fix', () => {
     // Create temp directory structure
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'copilot-sync-test-'));
 
-    // Mock a realistic structure: .../User/globalStorage/prompt-registry
-    const userDir = path.join(tempDir, 'User');
-    const globalStorageDir = path.join(userDir, 'globalStorage', 'prompt-registry');
+    // Bundles live under the XDG data directory
+    const globalStorageDir = path.join(process.env.XDG_DATA_HOME!, 'ai-primitives-hub');
 
     bundlesDir = path.join(globalStorageDir, 'bundles');
     // Default prompts dir is .../.copilot/prompts

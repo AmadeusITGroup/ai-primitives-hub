@@ -25,19 +25,26 @@ import {
   listAllProfiles,
   listInstalledBundles as listInstalledBundlesCore,
   listLocalProfiles as listLocalProfilesCore,
+  LogEvent,
   reuseCachedSourceReadmes,
+  type RuntimeRegistryActionContext,
+  type RuntimeRegistryCatalog,
+  RuntimeRegistryFacade,
+  type RuntimeTargetSession,
   searchRegistryBundles,
   uninstallInstalledBundle,
   updateLocalProfile,
   updateRegistryBundle,
 } from '@ai-primitives-hub/app';
 import type {
-  LogEvent,
-} from '@ai-primitives-hub/app';
-import type {
   BundleProvider,
   PrimitiveIndexKey,
   ProfileBundleSyncResult,
+  RuntimeInstallation,
+  TargetType,
+} from '@ai-primitives-hub/core';
+import {
+  readInstalledManifest,
 } from '@ai-primitives-hub/core';
 import {
   BlobCache,
@@ -52,6 +59,7 @@ import {
   SourceAdapterBundleProvider,
   StaticTokenProvider,
   XdgAppStorage,
+  ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import * as vscode from 'vscode';
 import {
@@ -93,6 +101,7 @@ import {
   WARNING_RESULTS,
 } from '../utils/constants';
 import {
+  RegistryError,
   UpdateCancelledError,
 } from '../utils/error-handler';
 import {
@@ -122,6 +131,9 @@ import {
 import {
   LockfileManager,
 } from './lockfile-manager';
+import {
+  RepositoryScopeService,
+} from './repository-scope-service';
 import {
   SourceTokenVault,
 } from './source-token-vault';
@@ -199,8 +211,20 @@ function createFallbackBundleProvider(
  * Registry Manager
  * Main entry point for all registry operations
  */
+export interface RuntimeTargetManagementBinding {
+  sessionFactory: (workspaceRoot?: string) => RuntimeTargetSession;
+  getContextRoot: () => string | undefined;
+  hasContext: () => boolean;
+  actionContext: () => Promise<RuntimeRegistryActionContext | undefined>;
+  /** Prompts to migrate and reports whether a legacy lockfile still blocks mutations. */
+  blockedByLegacy?: () => Promise<boolean>;
+}
+
 export class RegistryManager {
-  private static instance: RegistryManager;
+  /**
+   * Compose/clear runtime-target management binding; disable fires refresh only.
+   * @param binding
+   */
 
   /**
    * Reset the singleton instance.
@@ -224,14 +248,27 @@ export class RegistryManager {
     return RegistryManager.instance;
   }
 
+  // Event emitters
+
+  // Public event accessors
+  private static instance: RegistryManager;
+  private runtimeBinding?: RuntimeTargetManagementBinding;
+
+  private runtimeFacade?: RuntimeRegistryFacade;
+  private readonly extractor = new ZipBundleExtractor();
+
   private readonly storage: RegistryStorage;
   private readonly tokenVault: SourceTokenVault;
+
   private hubManager?: HubManager;
   private _autoUpdateService?: AutoUpdateService;
+
   private readonly installer: BundleInstaller;
   private readonly logger: Logger;
+
   private readonly adapters = new Map<string, IRepositoryAdapter>();
   private readonly versionConsolidator: VersionConsolidator;
+
   private sourcesCache: RegistrySource[] = [];
   private readonly primitiveIndexKeyCache = new Map<string, {
     key: PrimitiveIndexKey;
@@ -244,7 +281,7 @@ export class RegistryManager {
     sourceRevisions: Readonly<Record<string, string>>;
   }>>();
 
-  // Event emitters
+  private readonly _onDidChangeInstallations = new vscode.EventEmitter<void>();
   private readonly _onBundleInstalled = new vscode.EventEmitter<InstalledBundle>();
   private readonly _onBundleUninstalled = new vscode.EventEmitter<string>();
   private readonly _onBundleUpdated = new vscode.EventEmitter<InstalledBundle>();
@@ -264,7 +301,7 @@ export class RegistryManager {
   private readonly _onReadmeDownloaded = new vscode.EventEmitter<{ sourceId: string; bundleIds: string[] }>();
   private readonly _onReadmeDownloadComplete = new vscode.EventEmitter<{ sourceId: string; succeeded: string[]; failed: string[] }>();
 
-  // Public event accessors
+  public readonly onDidChangeInstallations = this._onDidChangeInstallations.event;
   public readonly onBundleInstalled = this._onBundleInstalled.event;
   public readonly onBundleUninstalled = this._onBundleUninstalled.event;
   public readonly onBundleUpdated = this._onBundleUpdated.event;
@@ -408,11 +445,6 @@ export class RegistryManager {
     }
   }
 
-  /**
-   * Enrich source with global token if applicable
-   * Applies global GitHub token to GitHub sources that don't have their own token
-   * @param source
-   */
   private enrichSourceWithGlobalToken(source: RegistrySource): RegistrySource {
     // The deprecated setting is a GitHub-only compatibility fallback.
     if (!new Set(['github', 'awesome-copilot', 'skills', 'apm']).has(source.type)) {
@@ -445,9 +477,6 @@ export class RegistryManager {
     return this.enrichSourceWithGlobalToken({ ...source, token: await this.tokenVault.get(source.id) });
   }
 
-  /**
-   * Load adapters for all sources
-   */
   private async loadAdapters(): Promise<void> {
     const sources = await this.storage.getSources();
     this.sourcesCache = sources; // Cache for synchronous access
@@ -465,14 +494,6 @@ export class RegistryManager {
     }
   }
 
-  /**
-   * Local skills installations are symlinked directly to the source directory, so updating files
-   * in the source immediately updates the installed content. After syncing the source, refresh the
-   * recorded installation metadata so the UI reflects the latest hash/version without requiring an
-   * explicit update action.
-   * @param sourceId
-   * @param latestBundles
-   */
   private async refreshLocalSkillInstallations(sourceId: string, latestBundles: Bundle[]): Promise<void> {
     const installedBundles = await this.storage.getInstalledBundles();
     const installsForSource = installedBundles.filter((bundle) => bundle.sourceId === sourceId && bundle.scope !== 'repository');
@@ -507,10 +528,6 @@ export class RegistryManager {
     }
   }
 
-  /**
-   * Get or create adapter for a source
-   * @param source
-   */
   private getAdapter(source: RegistrySource): IRepositoryAdapter {
     let adapter = this.adapters.get(source.id);
 
@@ -523,12 +540,6 @@ export class RegistryManager {
     return adapter;
   }
 
-  /**
-   * Auto-update installed bundles from a source
-   * Used for Awesome Copilot sources that should auto-update
-   * @param sourceId
-   * @param latestBundles
-   */
   private async autoUpdateInstalledBundles(sourceId: string, latestBundles: Bundle[]): Promise<void> {
     const bundlesToUpdate = await this.identifyBundlesForUpdate(sourceId, latestBundles);
     const results = await this.performBundleUpdates(bundlesToUpdate, latestBundles);
@@ -544,11 +555,6 @@ export class RegistryManager {
     }
   }
 
-  /**
-   * Identify bundles that need to be updated from a source
-   * @param sourceId
-   * @param latestBundles
-   */
   private async identifyBundlesForUpdate(
     sourceId: string,
     latestBundles: Bundle[]
@@ -560,14 +566,6 @@ export class RegistryManager {
     return bundlesFromSource;
   }
 
-  /**
-   * Perform updates for a list of bundles
-   *
-   * Iterates through bundles, checks for updates, and tracks results.
-   * Continues processing even if individual updates fail.
-   * @param bundlesToUpdate
-   * @param latestBundles
-   */
   private async performBundleUpdates(
     bundlesToUpdate: InstalledBundle[],
     latestBundles: Bundle[]
@@ -607,12 +605,6 @@ export class RegistryManager {
     return results;
   }
 
-  /**
-   * Filter installed bundles by source ID
-   * @param installed
-   * @param sourceId
-   * @param latestBundles
-   */
   private filterBundlesBySource(
     installed: InstalledBundle[],
     sourceId: string,
@@ -621,12 +613,6 @@ export class RegistryManager {
     return installed.filter((b) => this.belongsToSource(b, sourceId, latestBundles));
   }
 
-  /**
-   * Check if an installed bundle belongs to a specific source
-   * @param bundle
-   * @param sourceId
-   * @param latestBundles
-   */
   private belongsToSource(
     bundle: InstalledBundle,
     sourceId: string,
@@ -654,7 +640,7 @@ export class RegistryManager {
     }
 
     // Manifest URL match
-    if (bundle.manifest?.metadata?.repository?.url?.includes(sourceId)) {
+    if (readInstalledManifest(bundle.manifest).repositoryUrl?.includes(sourceId)) {
       return true;
     }
 
@@ -662,12 +648,6 @@ export class RegistryManager {
     return latestBundles.some((lb) => this.bundlesMatch(bundle, lb, sourceId));
   }
 
-  /**
-   * Check if installed bundle matches a latest bundle from a source
-   * @param installed
-   * @param latest
-   * @param sourceId
-   */
   private bundlesMatch(installed: InstalledBundle, latest: Bundle, sourceId: string): boolean {
     if (latest.sourceId !== sourceId) {
       return false;
@@ -681,11 +661,6 @@ export class RegistryManager {
     );
   }
 
-  /**
-   * Find matching latest bundle for an installed bundle
-   * @param installedBundle
-   * @param latestBundles
-   */
   private findMatchingLatestBundle(installedBundle: InstalledBundle, latestBundles: Bundle[]): Bundle | undefined {
     return latestBundles.find((lb) => {
       if (installedBundle.sourceType === 'github') {
@@ -703,19 +678,6 @@ export class RegistryManager {
     });
   }
 
-  /**
-   * Check for local modifications and handle user response before updating
-   *
-   * For repository-scoped bundles, this method:
-   * 1. Detects if any bundle files have been modified locally
-   * 2. Shows a warning dialog if modifications are found
-   * 3. Handles user response (contribute, override, or cancel)
-   * @param bundleId - The bundle ID being updated
-   * @param current - The current installed bundle
-   * @throws {UpdateCancelledError} if user chooses to contribute or cancel
-   *
-   * Requirements: 14.1-14.10
-   */
   private async checkLocalModificationsBeforeUpdate(
     bundleId: string,
     current: InstalledBundle
@@ -734,8 +696,8 @@ export class RegistryManager {
     const warningService = new LocalModificationWarningService(lockfileManager);
 
     // Get bundle repository URL for "Contribute Changes" action
-    const bundleRepoUrl = current.manifest?.metadata?.repository?.url
-      || current.manifest?.metadata?.homepage;
+    const manifestView = readInstalledManifest(current.manifest);
+    const bundleRepoUrl = manifestView.repositoryUrl || manifestView.homepage;
 
     const warningResult = await warningService.checkAndWarn(bundleId, bundleRepoUrl);
 
@@ -768,32 +730,15 @@ export class RegistryManager {
     }
   }
 
-  // ===== Helper Methods =====
-
-  /**
-   * Get source type for a source ID
-   * Used by version consolidator for identity matching
-   * @param sourceId
-   */
   private getSourceType(sourceId: string): SourceType {
     const source = this.sourcesCache.find((s) => s.id === sourceId);
     return source?.type ?? 'local';
   }
 
-  /**
-   * Get a source by its ID from the cache
-   * @param sourceId
-   */
   private getSourceById(sourceId: string): RegistrySource | undefined {
     return this.sourcesCache.find((s) => s.id === sourceId);
   }
 
-  /**
-   * Forward a generic `@ai-primitives-hub/app` log event to this
-   * extension's `Logger`. Shared by thin delegators to `app`'s registry
-   * orchestration functions (e.g. `checkUpdates`).
-   * @param event
-   */
   private forwardLogEvent(event: LogEvent): void {
     switch (event.level) {
       case 'debug': {
@@ -815,10 +760,6 @@ export class RegistryManager {
     }
   }
 
-  /**
-   * Read/write access to local profile storage, shared by every thin
-   * profile-CRUD delegator in the "Profile Management" section below.
-   */
   private profileStorePorts() {
     return {
       getProfiles: () => this.storage.getProfiles(),
@@ -828,9 +769,6 @@ export class RegistryManager {
     };
   }
 
-  /**
-   * Read/write access needed by `exportSettings`/`importSettings`.
-   */
   private settingsPorts() {
     return {
       ...this.profileStorePorts(),
@@ -883,6 +821,99 @@ export class RegistryManager {
     }
     return true;
   }
+
+  private facadeCatalog(): RuntimeRegistryCatalog {
+    return {
+      getBundleDetails: (id) => this.getBundleDetails(id),
+      listSources: () => this.storage.getSources(),
+      getCachedSourceBundles: (sourceId) => this.storage.getCachedSourceBundles(sourceId),
+      getBundleVersion: (identity, version) => this.versionConsolidator.getBundleVersion(identity, version),
+      getAdapter: (source) => this.getAdapter(source)
+    };
+  }
+
+  private runtimeRowToInstalled(r: RuntimeInstallation): InstalledBundle {
+    return {
+      bundleId: r.registryRef?.bundleId ?? r.manifestId,
+      version: r.version,
+      installPath: r.instance.root,
+      scope: r.instance.scope,
+      installedAt: r.installedAt,
+      manifestId: r.manifestId,
+      installationId: r.installationId,
+      targetType: r.instance.type,
+      targetRoot: r.instance.root,
+      manifest: r.manifest,
+      sourceId: r.sourceId,
+      sourceType: r.registryRef?.sourceType,
+      ...(r.contextRoot === undefined ? {} : { contextRoot: r.contextRoot }),
+      ...(r.commitMode === undefined ? {} : { commitMode: r.commitMode })
+    };
+  }
+
+  private async runtimeInstalledRows(scope?: InstallationScope): Promise<InstalledBundle[]> {
+    if (scope === 'workspace') {
+      return [];
+    }
+    const binding = this.runtimeBinding!;
+    if (!binding.hasContext()) {
+      return [];
+    }
+    const rows = await this.runtimeFacade!.list(binding.getContextRoot());
+    return rows
+      .filter((r) => scope === undefined || r.instance.scope === scope)
+      .map((r) => this.runtimeRowToInstalled(r));
+  }
+
+  private requireRuntimeEnabled(): RuntimeRegistryFacade {
+    if (this.runtimeFacade === undefined || this.runtimeBinding === undefined) {
+      throw new Error('Runtime target management is not enabled; enable target management and select a target');
+    }
+    return this.runtimeFacade;
+  }
+
+  public setRuntimeTargetManagement(binding?: RuntimeTargetManagementBinding): void {
+    this.runtimeBinding = binding;
+    this.runtimeFacade = binding === undefined
+      ? undefined
+      : new RuntimeRegistryFacade({
+        sessionFactory: binding.sessionFactory,
+        extractor: this.extractor ?? new ZipBundleExtractor(),
+        catalog: this.facadeCatalog(),
+        onMcpServersChanged: async (action, installation) => {
+          await (action === 'uninstall' ? this.installer.uninstallRuntimeMcpServers(installation) : this.installer.installRuntimeMcpServers(installation, action));
+        },
+        onLocalOnlyPathsChanged: (workspaceRoot, added, removed, hasLocalOnly) =>
+          new RepositoryScopeService(workspaceRoot, this.storage)
+            .updateRuntimeLocalOnlyGitExclude(added, removed, hasLocalOnly)
+      });
+    this._onDidChangeInstallations.fire();
+  }
+
+  /** True while a legacy v2 lockfile blocks target-managed mutations (the user is prompted to migrate). */
+  public async isBlockedByLegacyLockfile(): Promise<boolean> {
+    return await this.runtimeBinding?.blockedByLegacy?.() ?? false;
+  }
+
+  public isRuntimeTargetManagementEnabled(): boolean {
+    return this.runtimeFacade !== undefined;
+  }
+
+  /** Selected harness of the bound runtime session (undefined when off/no context). */
+  public async getSelectedRuntimeTarget(): Promise<TargetType | undefined> {
+    if (this.runtimeBinding === undefined || !this.runtimeBinding.hasContext()) {
+      return undefined;
+    }
+    const session = this.runtimeBinding.sessionFactory(this.runtimeBinding.getContextRoot());
+    const selected = await session.getSelectedTarget();
+    return selected?.type;
+  }
+
+  public refreshRuntimeInstallations(): void {
+    this._onDidChangeInstallations.fire();
+  }
+
+  // ===== Helper Methods =====
 
   /**
    * Set HubManager instance for hub integration
@@ -1086,7 +1117,7 @@ export class RegistryManager {
         // `McpServersManifest` (see `installBundle`'s identical, documented
         // cast) — the data itself is always this extension's own shape here,
         // since it only ever flows back out of `RegistryStorage` above.
-        recordInstallation: (bundle) => this.storage.recordInstallation(bundle as InstalledBundle)
+        recordInstallation: (bundle) => this.storage.recordInstallation(bundle)
       },
       (event) => this.forwardLogEvent(event)
     );
@@ -1140,6 +1171,14 @@ export class RegistryManager {
   /**
    * List all sources
    */
+  /** Re-read storage-backed caches after another process or a migration changed them. */
+  public async reloadFromStorage(): Promise<void> {
+    this.storage.invalidateConfigCache();
+    this.sourcesCache = await this.storage.getSources();
+    this.invalidatePrimitiveIndexKeyCache();
+    this._onDidChangeInstallations.fire();
+  }
+
   public async listSources(): Promise<RegistrySource[]> {
     return await this.storage.getSources();
   }
@@ -1449,11 +1488,24 @@ export class RegistryManager {
    * @param silent
    */
   public async installBundle(bundleId: string, options: InstallOptions, silent = false): Promise<InstalledBundle> {
-    // See uninstallBundle's identical, documented `as InstalledBundle` cast:
-    // core's DeploymentManifest.mcpServers is intentionally looser than this
-    // extension's McpServersManifest; the data itself is always this
-    // extension's own shape here too, since it only ever flows from
-    // RegistryStorage/BundleInstaller below.
+    if (this.isRuntimeTargetManagementEnabled()) {
+      const facade = this.runtimeFacade!;
+      const context = await this.runtimeBinding!.actionContext();
+      if (context === undefined) {
+        throw new UpdateCancelledError(bundleId, WARNING_RESULTS.CANCEL);
+      }
+      if (options.scope !== 'user' && options.scope !== 'repository') {
+        throw new RegistryError(`scope "${String(options.scope)}" is not supported by runtime target management; choose Repository or User`, 'UNSUPPORTED_SCOPE');
+      }
+      const row = await facade.install(bundleId, { ...options, scope: options.scope }, context);
+      if (row === undefined) {
+        throw new UpdateCancelledError(bundleId, WARNING_RESULTS.CANCEL);
+      }
+      const adapted = this.runtimeRowToInstalled(row);
+      this._onDidChangeInstallations.fire();
+      this._onBundleInstalled.fire(adapted);
+      return adapted;
+    }
     const installation = await installRegistryBundle(
       bundleId,
       options,
@@ -1468,7 +1520,7 @@ export class RegistryManager {
           this.installer.installFromBuffer(bundle, buffer, installOptions, sourceType),
         installLocalSkillAsSymlink: (bundle, skillName, sourcePath, installOptions) =>
           this.installer.installLocalSkillAsSymlink(bundle, skillName, sourcePath, installOptions),
-        recordInstallation: (installedBundle) => this.storage.recordInstallation(installedBundle as InstalledBundle),
+        recordInstallation: (installedBundle) => this.storage.recordInstallation(installedBundle),
         getInstalledBundles: (scope) => this.storage.getInstalledBundles(scope),
         removeInstallation: (id, scope) => this.storage.removeInstallation(id, scope)
       },
@@ -1537,8 +1589,24 @@ export class RegistryManager {
    * @param bundleId
    * @param scope
    * @param silent
+   * @param installationId
    */
-  public async uninstallBundle(bundleId: string, scope: InstallationScope = 'user', silent = false): Promise<void> {
+  public async uninstallBundle(bundleId: string, scope: InstallationScope = 'user', silent = false, installationId?: string): Promise<void> {
+    if (this.isRuntimeTargetManagementEnabled()) {
+      const facade = this.runtimeFacade!;
+      const context = await this.runtimeBinding!.actionContext();
+      if (context === undefined) {
+        throw new UpdateCancelledError(bundleId, WARNING_RESULTS.CANCEL);
+      }
+      const id = installationId ?? (await facade.resolveInstallation(bundleId, this.runtimeBinding!.getContextRoot(), scope as 'user' | 'repository')).installationId;
+      const res = await facade.uninstall(id, context);
+      if (res === undefined) {
+        throw new UpdateCancelledError(bundleId, WARNING_RESULTS.CANCEL);
+      }
+      this._onDidChangeInstallations.fire();
+      this._onBundleUninstalled.fire(bundleId);
+      return;
+    }
     const installed = await uninstallInstalledBundle(
       bundleId,
       scope,
@@ -1559,8 +1627,8 @@ export class RegistryManager {
         // (see `listInstalledBundles`'s identical, already-documented cast above) —
         // the data itself is always this extension's own shape here too, since it
         // only ever flows from `RegistryStorage`/`LockfileManager` above.
-        uninstall: (installedBundle) => this.installer.uninstall(installedBundle as InstalledBundle),
-        uninstallSkillSymlink: (installedBundle) => this.installer.uninstallSkillSymlink(installedBundle as InstalledBundle),
+        uninstall: (installedBundle) => this.installer.uninstall(installedBundle),
+        uninstallSkillSymlink: (installedBundle) => this.installer.uninstallSkillSymlink(installedBundle),
         removeInstallation: (id, s) => this.storage.removeInstallation(id, s)
       },
       (event) => this.forwardLogEvent(event)
@@ -1612,25 +1680,36 @@ export class RegistryManager {
    * Update a bundle
    * @param bundleId
    * @param version
+   * @param installationId
    */
-  public async updateBundle(bundleId: string, version?: string): Promise<void> {
-    // See installBundle's identical, documented `as InstalledBundle` cast:
-    // core's DeploymentManifest.mcpServers is intentionally looser than this
-    // extension's McpServersManifest; the data itself is always this
-    // extension's own shape here too, since it only ever flows from
-    // RegistryStorage/BundleInstaller below.
+  public async updateBundle(bundleId: string, version?: string, installationId?: string): Promise<void> {
+    if (this.isRuntimeTargetManagementEnabled()) {
+      const facade = this.runtimeFacade!;
+      const context = await this.runtimeBinding!.actionContext();
+      if (context === undefined) {
+        throw new UpdateCancelledError(bundleId, WARNING_RESULTS.CANCEL);
+      }
+      const id = installationId ?? (await facade.resolveInstallation(bundleId, this.runtimeBinding!.getContextRoot())).installationId;
+      const updatedRow = await facade.update(id, version, context);
+      if (updatedRow === undefined) {
+        throw new UpdateCancelledError(bundleId, WARNING_RESULTS.CANCEL);
+      }
+      this._onDidChangeInstallations.fire();
+      this._onBundleUpdated.fire(this.runtimeRowToInstalled(updatedRow));
+      return;
+    }
     const updated = await updateRegistryBundle(
       bundleId,
       version,
       {
         listInstalledBundles: () => this.listInstalledBundles(),
-        checkLocalModifications: (id, current) => this.checkLocalModificationsBeforeUpdate(id, current as InstalledBundle),
+        checkLocalModifications: (id, current) => this.checkLocalModificationsBeforeUpdate(id, current),
         getBundleDetails: (id) => this.getBundleDetails(id),
         listSources: () => this.storage.getSources(),
         getAdapter: (source) => this.getAdapter(source),
         updateInstalledBundle: (current, bundle, buffer, sourceType) =>
-          this.installer.update(current as InstalledBundle, bundle, buffer, sourceType),
-        recordInstallation: (installation) => this.storage.recordInstallation(installation as InstalledBundle),
+          this.installer.update(current, bundle, buffer, sourceType),
+        recordInstallation: (installation) => this.storage.recordInstallation(installation),
         removeInstallation: (id, scope) => this.storage.removeInstallation(id, scope)
       },
       (event) => this.forwardLogEvent(event)
@@ -1654,6 +1733,9 @@ export class RegistryManager {
    * @param scope
    */
   public async listInstalledBundles(scope?: InstallationScope): Promise<InstalledBundle[]> {
+    if (this.isRuntimeTargetManagementEnabled()) {
+      return this.runtimeInstalledRows(scope);
+    }
     const bundles = await listInstalledBundlesCore(scope, {
       getInstalledBundles: (s) => this.storage.getInstalledBundles(s),
       getRepositoryInstalledBundles: async () => {
@@ -1676,7 +1758,7 @@ export class RegistryManager {
     // `packages/core/src/domain/collection/types.ts`) — the data itself is
     // always this extension's own shape, since it only ever flows through
     // `RegistryStorage`/`LockfileManager` above and back out.
-    return bundles as InstalledBundle[];
+    return bundles;
   }
 
   /**
@@ -1844,7 +1926,7 @@ export class RegistryManager {
           getAdapter: (source) => this.getAdapter(source),
           installFromBuffer: (bundle, buffer, options, sourceType) =>
             this.installer.installFromBuffer(bundle, buffer, options, sourceType),
-          recordInstallation: (installation) => this.storage.recordInstallation(installation as InstalledBundle),
+          recordInstallation: (installation) => this.storage.recordInstallation(installation),
           deactivateOther: (id) => this.deactivateProfile(id),
           hub: this.hubManager && {
             listActiveHubProfiles: () => this.hubManager!.listActiveHubProfiles(),
@@ -1872,7 +1954,7 @@ export class RegistryManager {
         this._onProfileActivated.fire(result.localActivation.profile);
 
         if (result.localActivation.installedBundles.length > 0) {
-          this._onBundlesInstalled.fire(result.localActivation.installedBundles as InstalledBundle[]);
+          this._onBundlesInstalled.fire(result.localActivation.installedBundles);
         }
       }
     });
@@ -1968,7 +2050,7 @@ export class RegistryManager {
       installed ??= await this.storage.getInstalledBundle(bundleId, 'workspace');
 
       // If found in installed bundles, get name from metadata or manifest description
-      if (installed?.manifest?.metadata?.description) {
+      if (readInstalledManifest(installed?.manifest).description) {
         // Try to extract a clean name from the description or use bundleId
         // For now, we'll try to get it from bundle details
         const { name } = await this.getBundleDetails(bundleId) || {};
@@ -2020,4 +2102,112 @@ export class RegistryManager {
     this._onReadmeDownloaded.dispose();
     this._onReadmeDownloadComplete.dispose();
   }
+
+  /**
+   * Enrich source with global token if applicable
+   * Applies global GitHub token to GitHub sources that don't have their own token
+   * @param source
+   */
+
+  /**
+   * Load adapters for all sources
+   */
+  /**
+   * Local skills installations are symlinked directly to the source directory, so updating files
+   * in the source immediately updates the installed content. After syncing the source, refresh the
+   * recorded installation metadata so the UI reflects the latest hash/version without requiring an
+   * explicit update action.
+   * @param sourceId
+   * @param latestBundles
+   */
+  /**
+   * Get or create adapter for a source
+   * @param source
+   */
+  /**
+   * Auto-update installed bundles from a source
+   * Used for Awesome Copilot sources that should auto-update
+   * @param sourceId
+   * @param latestBundles
+   */
+  /**
+   * Identify bundles that need to be updated from a source
+   * @param sourceId
+   * @param latestBundles
+   */
+  /**
+   * Perform updates for a list of bundles
+   *
+   * Iterates through bundles, checks for updates, and tracks results.
+   * Continues processing even if individual updates fail.
+   * @param bundlesToUpdate
+   * @param latestBundles
+   */
+  /**
+   * Filter installed bundles by source ID
+   * @param installed
+   * @param sourceId
+   * @param latestBundles
+   */
+  /**
+   * Check if an installed bundle belongs to a specific source
+   * @param bundle
+   * @param sourceId
+   * @param latestBundles
+   */
+  /**
+   * Check if installed bundle matches a latest bundle from a source
+   * @param installed
+   * @param latest
+   * @param sourceId
+   */
+  /**
+   * Find matching latest bundle for an installed bundle
+   * @param installedBundle
+   * @param latestBundles
+   */
+  /**
+   * Check for local modifications and handle user response before updating
+   *
+   * For repository-scoped bundles, this method:
+   * 1. Detects if any bundle files have been modified locally
+   * 2. Shows a warning dialog if modifications are found
+   * 3. Handles user response (contribute, override, or cancel)
+   * @param bundleId - The bundle ID being updated
+   * @param current - The current installed bundle
+   * @throws {UpdateCancelledError} if user chooses to contribute or cancel
+   *
+   * Requirements: 14.1-14.10
+   */
+  /**
+   * Get source type for a source ID
+   * Used by version consolidator for identity matching
+   * @param sourceId
+   */
+  /**
+   * Get a source by its ID from the cache
+   * @param sourceId
+   */
+  /**
+   * Forward a generic `@ai-primitives-hub/app` log event to this
+   * extension's `Logger`. Shared by thin delegators to `app`'s registry
+   * orchestration functions (e.g. `checkUpdates`).
+   * @param event
+   */
+  /**
+   * Read/write access to local profile storage, shared by every thin
+   * profile-CRUD delegator in the "Profile Management" section below.
+   */
+  /**
+   * Read/write access needed by `exportSettings`/`importSettings`.
+   */
+
+  /**
+   * RuntimeInstallation -> InstalledBundle (single mapping; preserves source/ref metadata).
+   * @param r
+   */
+  /**
+   * Runtime-install rows adapted to InstalledBundle, or [] when no context chosen.
+   * @param scope
+   */
 }

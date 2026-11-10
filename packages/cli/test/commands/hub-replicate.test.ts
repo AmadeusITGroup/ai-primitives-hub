@@ -1,6 +1,8 @@
 import {
   Buffer,
 } from 'node:buffer';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type {
   HttpClient,
   HttpRequest,
@@ -112,8 +114,8 @@ const tokenProvider: TokenProvider = {
 describe('hub replicate command', () => {
   it('uses the supplied GitHub credential for a private source hub without leaking it', async () => {
     const http = new RecordingHttp();
-    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test' } });
-    const cacheDir = `/tmp/aph-replicate-test-cache-${process.pid}-${Date.now()}`;
+    const ctx = createTestContext({ env: { HOME: path.join(os.tmpdir(), 'aph-replicate-test') } });
+    const cacheDir = `${path.join(os.tmpdir(), 'aph-replicate-test-cache')}-${process.pid}-${Date.now()}`;
     const exitCode = await runCli([
       'hub', 'replicate',
       '--source-hub', 'owner/hub',
@@ -144,14 +146,14 @@ describe('hub replicate command', () => {
 
   it('surfaces release and profile exclusions in warning output without publishing', async () => {
     const http = new RecordingHttp(undefined, true);
-    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test' } });
+    const ctx = createTestContext({ env: { HOME: path.join(os.tmpdir(), 'aph-replicate-test') } });
     const exitCode = await runCli([
       'hub', 'replicate',
       '--source-hub', 'owner/hub',
       '--target-root', 'https://artifactory.example/replicated',
       '--mode', 'latest',
       '--output', 'json',
-      '--cache-dir', `/tmp/aph-replicate-warning-${process.pid}-${Date.now()}`
+      '--cache-dir', `${path.join(os.tmpdir(), 'aph-replicate-warning')}-${process.pid}-${Date.now()}`
     ], {
       ctx,
       http,
@@ -174,8 +176,8 @@ describe('hub replicate command', () => {
 
   it('uploads the hub config at the target root and everything else under sources/replicated', async () => {
     const http = new RecordingHttp();
-    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
-    const cacheDir = `/tmp/aph-replicate-test-cache-publish-${process.pid}-${Date.now()}`;
+    const ctx = createTestContext({ env: { HOME: path.join(os.tmpdir(), 'aph-replicate-test'), ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const cacheDir = `${path.join(os.tmpdir(), 'aph-replicate-test-cache-publish')}-${process.pid}-${Date.now()}`;
     const exitCode = await runCli([
       'hub', 'replicate',
       '--source-hub', 'owner/hub',
@@ -296,14 +298,14 @@ describe('hub replicate command', () => {
 
   it.each(['deployment-manifest.yml', '.zip'])('reports unverified %s objects as a warning and publishes no bundle references', async (suffix) => {
     const http = new RecordingHttp(suffix);
-    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const ctx = createTestContext({ env: { HOME: path.join(os.tmpdir(), 'aph-replicate-test'), ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
     const exitCode = await runCli([
       'hub', 'replicate',
       '--source-hub', 'owner/hub',
       '--target-root', 'https://artifactory.example/replicated',
       '--output', 'json',
       '--publish', '--review', '--allow-unverified-existing',
-      '--cache-dir', `/tmp/aph-replicate-unverified-${suffix}-${process.pid}-${Date.now()}`
+      '--cache-dir', `${path.join(os.tmpdir(), 'aph-replicate-unverified')}-${suffix}-${process.pid}-${Date.now()}`
     ], {
       ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
     });
@@ -327,14 +329,14 @@ describe('hub replicate command', () => {
 
   it.each(['index-v1.json', 'hub-config.yml'])('fails publication when existing %s metadata cannot be verified', async (suffix) => {
     const http = new RecordingHttp(suffix);
-    const ctx = createTestContext({ env: { HOME: '/tmp/aph-replicate-test', ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
+    const ctx = createTestContext({ env: { HOME: path.join(os.tmpdir(), 'aph-replicate-test'), ARTIFACTORY_PUBLISHER_TOKEN: 'publisher-token' } });
     const exitCode = await runCli([
       'hub', 'replicate',
       '--source-hub', 'owner/hub',
       '--target-root', 'https://artifactory.example/replicated',
       '--output', 'json',
       '--publish', '--review', '--allow-unverified-existing',
-      '--cache-dir', `/tmp/aph-replicate-unverified-metadata-${suffix}-${process.pid}-${Date.now()}`
+      '--cache-dir', `${path.join(os.tmpdir(), 'aph-replicate-unverified-metadata')}-${suffix}-${process.pid}-${Date.now()}`
     ], {
       ctx, http, tokens: tokenProvider, commandClasses: [HubReplicateCommand], commands: [], name: 'ai-primitives-hub', version: 'test'
     });

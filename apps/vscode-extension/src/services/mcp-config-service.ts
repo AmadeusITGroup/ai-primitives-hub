@@ -7,6 +7,7 @@ import {
 } from '@ai-primitives-hub/app';
 import type {
   McpEnvPlaceholderStyle,
+  TargetType,
 } from '@ai-primitives-hub/core';
 import {
   collectInputReferences,
@@ -53,7 +54,7 @@ export class McpConfigService {
   private static readonly SCHEMA_VERSION = '1.0.0';
   private readonly logger: Logger;
 
-  constructor() {
+  constructor(private readonly targetType?: TargetType) {
     this.logger = Logger.getInstance();
   }
 
@@ -128,8 +129,10 @@ export class McpConfigService {
     return scope === 'workspace' ? 'repository' : 'user';
   }
 
-  public async readMcpConfig(scope: 'user' | 'workspace'): Promise<McpConfiguration> {
-    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
+  public async readMcpConfig(scope: 'user' | 'workspace', workspaceRoot?: string): Promise<McpConfiguration> {
+    const location = McpConfigLocator.getMcpConfigLocation(
+      McpConfigService.toLayoutScope(scope), this.targetType, workspaceRoot
+    );
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -154,14 +157,19 @@ export class McpConfigService {
     }
   }
 
-  public async writeMcpConfig(config: McpConfiguration, scope: 'user' | 'workspace', createBackup = true): Promise<void> {
+  public async writeMcpConfig(
+    config: McpConfiguration,
+    scope: 'user' | 'workspace',
+    createBackup = true,
+    workspaceRoot?: string
+  ): Promise<void> {
     const layoutScope = McpConfigService.toLayoutScope(scope);
-    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope, this.targetType, workspaceRoot);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(layoutScope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope, this.targetType, workspaceRoot);
 
     if (createBackup && location.exists) {
       await this.createBackup(location.configPath);
@@ -181,8 +189,10 @@ export class McpConfigService {
     }
   }
 
-  public async readTrackingMetadata(scope: 'user' | 'workspace'): Promise<McpTrackingMetadata> {
-    const location = McpConfigLocator.getMcpConfigLocation(McpConfigService.toLayoutScope(scope));
+  public async readTrackingMetadata(scope: 'user' | 'workspace', workspaceRoot?: string): Promise<McpTrackingMetadata> {
+    const location = McpConfigLocator.getMcpConfigLocation(
+      McpConfigService.toLayoutScope(scope), this.targetType, workspaceRoot
+    );
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
@@ -204,14 +214,18 @@ export class McpConfigService {
     }
   }
 
-  public async writeTrackingMetadata(metadata: McpTrackingMetadata, scope: 'user' | 'workspace'): Promise<void> {
+  public async writeTrackingMetadata(
+    metadata: McpTrackingMetadata,
+    scope: 'user' | 'workspace',
+    workspaceRoot?: string
+  ): Promise<void> {
     const layoutScope = McpConfigService.toLayoutScope(scope);
-    const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
+    const location = McpConfigLocator.getMcpConfigLocation(layoutScope, this.targetType, workspaceRoot);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
     }
 
-    await McpConfigLocator.ensureConfigDirectory(layoutScope);
+    await McpConfigLocator.ensureConfigDirectory(layoutScope, this.targetType, workspaceRoot);
 
     metadata.lastUpdated = new Date().toISOString();
 
@@ -307,12 +321,14 @@ export class McpConfigService {
    *
    * The first enabled server encountered is kept enabled, subsequent duplicates are disabled.
    * @param scope
+   * @param workspaceRoot
    */
   public async detectAndDisableDuplicates(
-    scope: 'user' | 'workspace'
+    scope: 'user' | 'workspace',
+    workspaceRoot?: string
   ): Promise<{ duplicatesDisabled: DuplicateInfo[]; config: McpConfiguration }> {
-    const config = await this.readMcpConfig(scope);
-    const tracking = await this.readTrackingMetadata(scope);
+    const config = await this.readMcpConfig(scope, workspaceRoot);
+    const tracking = await this.readTrackingMetadata(scope, workspaceRoot);
 
     const serverIdentities = new Map<string, { serverName: string; bundleId: string }>();
     const duplicatesDisabled: DuplicateInfo[] = [];
@@ -466,9 +482,13 @@ export class McpConfigService {
     };
   }
 
-  public async removeServersForBundle(bundleId: string, scope: 'user' | 'workspace'): Promise<string[]> {
-    const config = await this.readMcpConfig(scope);
-    const tracking = await this.readTrackingMetadata(scope);
+  public async removeServersForBundle(
+    bundleId: string,
+    scope: 'user' | 'workspace',
+    workspaceRoot?: string
+  ): Promise<string[]> {
+    const config = await this.readMcpConfig(scope, workspaceRoot);
+    const tracking = await this.readTrackingMetadata(scope, workspaceRoot);
     const removedServers: string[] = [];
 
     for (const [serverName, metadata] of Object.entries(tracking.managedServers)) {
@@ -483,8 +503,8 @@ export class McpConfigService {
 
     if (removedServers.length > 0) {
       const cleanedConfig = this.removeOrphanedInputs(config);
-      await this.writeMcpConfig(cleanedConfig, scope, true);
-      await this.writeTrackingMetadata(tracking, scope);
+      await this.writeMcpConfig(cleanedConfig, scope, true, workspaceRoot);
+      await this.writeTrackingMetadata(tracking, scope, workspaceRoot);
       this.logger.info(`Removed ${removedServers.length} MCP servers for bundle ${bundleId}`);
     }
 

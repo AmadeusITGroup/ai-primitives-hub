@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import {
   isSameBundleIdentity,
+  type TargetType,
 } from '@ai-primitives-hub/core';
 import * as fs from 'fs-extra';
 import {
@@ -43,10 +44,12 @@ export class McpServerManager {
   private static readonly GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
   private readonly logger: Logger;
   private readonly configService: McpConfigService;
+  private readonly targetType: TargetType;
 
-  constructor() {
+  constructor(targetType?: TargetType) {
     this.logger = Logger.getInstance();
-    this.configService = new McpConfigService();
+    this.targetType = targetType ?? detectHostApp();
+    this.configService = new McpConfigService(this.targetType);
   }
 
   /**
@@ -137,6 +140,28 @@ export class McpServerManager {
     return path.relative(workspaceRoot, configPath).split(path.sep).join('/');
   }
 
+  private getWorkspaceTrackingExcludePattern(workspaceRoot: string): string {
+    const trackingPath = this.getWorkspaceTrackingPath(workspaceRoot);
+    return path.relative(workspaceRoot, trackingPath).split(path.sep).join('/');
+  }
+
+  private async syncWorkspaceMcpGitExclude(
+    workspaceRoot: string,
+    tracking: McpTrackingMetadata
+  ): Promise<void> {
+    const patterns = [
+      this.getWorkspaceMcpExcludePattern(workspaceRoot),
+      this.getWorkspaceTrackingExcludePattern(workspaceRoot)
+    ];
+    const hasLocalOnlyServers = Object.values(tracking.managedServers)
+      .some((server) => server.commitMode === 'local-only');
+    for (const pattern of patterns) {
+      await (hasLocalOnlyServers
+        ? this.addToGitExclude(workspaceRoot, pattern)
+        : this.removeFromGitExclude(workspaceRoot, pattern));
+    }
+  }
+
   /**
    * Resolve the repository-scope MCP config location for a workspace.
    * Throws when the host IDE has no workspace-level MCP file, rather than
@@ -144,7 +169,7 @@ export class McpServerManager {
    * @param workspaceRoot - Absolute workspace root.
    */
   private getWorkspaceMcpLocation(workspaceRoot: string): McpConfigLocation {
-    const location = McpConfigLocator.getMcpConfigLocation('repository', detectHostApp(), workspaceRoot);
+    const location = McpConfigLocator.getMcpConfigLocation('repository', this.targetType, workspaceRoot);
     if (!location) {
       throw new Error(
         'This IDE has no workspace-level MCP configuration file. Install to user scope instead.'
@@ -508,7 +533,8 @@ export class McpServerManager {
 
       const serversToInstall: Record<string, any> = {};
       const location = McpConfigLocator.getMcpConfigLocation(
-        options.scope === 'workspace' ? 'repository' : 'user'
+        options.scope === 'workspace' ? 'repository' : 'user',
+        this.targetType
       );
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
@@ -689,7 +715,7 @@ export class McpServerManager {
           definition,
           bundleId,
           bundleVersion,
-          workspaceRoot,
+          options.bundlePath ?? workspaceRoot,
           workspaceLocation.envPlaceholderStyle
         );
 
@@ -701,7 +727,8 @@ export class McpServerManager {
           originalName: serverName,
           originalConfig: definition,
           installedAt: new Date().toISOString(),
-          scope: 'workspace'
+          scope: 'workspace',
+          ...(options.commitMode === 'local-only' ? { commitMode: 'local-only' } : {})
         };
       }
 
@@ -757,10 +784,7 @@ export class McpServerManager {
       await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig, options.createBackup !== false);
       await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
 
-      // Handle git exclude for local-only mode
-      if (options.commitMode === 'local-only') {
-        await this.addToGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
-      }
+      await this.syncWorkspaceMcpGitExclude(workspaceRoot, tracking);
 
       result.serversInstalled = Object.keys(serversToInstall).length;
       result.installedServers = Object.keys(serversToInstall);
@@ -800,6 +824,7 @@ export class McpServerManager {
       const removedServers: string[] = [];
 
       // Find and remove servers for this bundle
+      let trackingChanged = false;
       for (const [serverName, metadata] of Object.entries(tracking.managedServers)) {
         if (metadata.bundleId === bundleId) {
           if (config.servers[serverName]) {
@@ -807,24 +832,21 @@ export class McpServerManager {
             removedServers.push(serverName);
           }
           delete tracking.managedServers[serverName];
+          trackingChanged = true;
         }
       }
 
       if (removedServers.length > 0) {
         const cleanedConfig = this.configService.removeOrphanedInputs(config);
         await this.writeWorkspaceMcpConfig(workspaceRoot, cleanedConfig, true);
-        await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
         this.logger.info(`Removed ${removedServers.length} MCP servers for bundle ${bundleId} from workspace`);
-      } else {
+      }
+      if (trackingChanged) {
+        await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
+      } else if (removedServers.length === 0) {
         this.logger.debug(`No MCP servers found for bundle ${bundleId} in workspace`);
       }
-
-      // Check if we should clean up git exclude
-      // Only remove from git exclude if no more managed servers exist
-      const hasRemainingManagedServers = Object.keys(tracking.managedServers).length > 0;
-      if (!hasRemainingManagedServers) {
-        await this.removeFromGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
-      }
+      await this.syncWorkspaceMcpGitExclude(workspaceRoot, tracking);
 
       result.serversRemoved = removedServers.length;
       result.removedServers = removedServers;

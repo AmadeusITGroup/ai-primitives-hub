@@ -6,6 +6,16 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Target Acceptance (Isolated)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/apps/vscode-extension/test/run-target-acceptance.js",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build: target acceptance",
+      "env": { "APH_ACCEPT_MODE": "all" }
+    },
+    {
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",

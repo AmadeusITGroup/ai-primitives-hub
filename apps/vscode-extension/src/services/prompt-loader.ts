@@ -11,6 +11,9 @@ import {
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import {
+  extensionDataDir,
+} from '../storage/extension-storage';
+import {
   DeploymentManifest,
 } from '../types/registry';
 import {
@@ -104,7 +107,7 @@ export class PromptLoader {
 
     try {
       // Get bundles directory
-      const bundlesDir = path.join(this.context.globalStorageUri.fsPath, 'bundles');
+      const bundlesDir = path.join(extensionDataDir(), 'bundles');
 
       if (!fs.existsSync(bundlesDir)) {
         this.logger.debug('Bundles directory does not exist');

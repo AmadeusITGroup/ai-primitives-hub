@@ -30,6 +30,10 @@ export * from './storage';
 export * from './stores';
 export * from './telemetry';
 export * from './writers';
+export * from './runtime-target/node-projection-fs';
+export * from './runtime-target/scoped-runtime-target-store';
+export * from './runtime-target/payload-store';
+export * from './runtime-target/local-payload-loader';
 
 /**
  * Phase 1 scaffolding marker, kept until `app`/`cli` each have real code

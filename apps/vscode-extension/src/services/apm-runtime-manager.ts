@@ -22,6 +22,9 @@ import {
 } from 'node:util';
 import * as vscode from 'vscode';
 import {
+  extensionDataDir,
+} from '../storage/extension-storage';
+import {
   Logger,
 } from '../utils/logger';
 
@@ -121,7 +124,7 @@ export class ApmRuntimeManager {
       throw new Error('Extension context not initialized');
     }
 
-    const storagePath = this.context.globalStorageUri.fsPath;
+    const storagePath = extensionDataDir();
     const binPath = path.join(storagePath, 'bin');
     const uvPath = path.join(binPath, process.platform === 'win32' ? 'uv.exe' : 'uv');
 
@@ -269,7 +272,7 @@ export class ApmRuntimeManager {
     if (!this.context) {
       return undefined;
     }
-    const binPath = path.join(this.context.globalStorageUri.fsPath, 'bin');
+    const binPath = path.join(extensionDataDir(), 'bin');
     const uvPath = path.join(binPath, process.platform === 'win32' ? 'uv.exe' : 'uv');
     return fs.existsSync(uvPath) ? uvPath : undefined;
   }

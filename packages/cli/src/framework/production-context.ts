@@ -16,7 +16,7 @@
  * @module framework/production-context
  */
 import {
-  NodeFileSystem,
+  NodeRuntimeProjectionFileSystem,
   SystemClock,
 } from '@ai-primitives-hub/infra';
 import type {
@@ -95,7 +95,7 @@ const detectColorDepth = (): number => {
  * @returns A `Context` whose IO surfaces are wired to real Node primitives.
  */
 export const createProductionContext = (overrides: { cwd?: string } = {}): Context => ({
-  fs: new NodeFileSystem(),
+  fs: new NodeRuntimeProjectionFileSystem(),
   net: createProductionNet(),
   clock: new SystemClock(),
   stdin: createProductionStdin(),

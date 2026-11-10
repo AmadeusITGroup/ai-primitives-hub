@@ -5,6 +5,9 @@
 
 import * as vscode from 'vscode';
 import {
+  SharedStateFile,
+} from '../storage/extension-storage';
+import {
   Logger,
 } from '../utils/logger';
 import {
@@ -64,6 +67,8 @@ export class SetupStateManager {
   // Session-scoped flag (not persisted across extension reloads)
   private resumePromptShown = false;
 
+  private readonly sharedState = new SharedStateFile('extension-state');
+
   private constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly hubManager: HubManager
@@ -83,7 +88,7 @@ export class SetupStateManager {
       return;
     }
 
-    await this.context.globalState.update(this.SETUP_STATE_KEY, newState);
+    await this.sharedState.update(this.SETUP_STATE_KEY, newState);
     this.logger.info(`State transition: ${oldState} → ${newState}`);
   }
 
@@ -91,7 +96,7 @@ export class SetupStateManager {
    * Get current setup state
    */
   public async getState(): Promise<SetupState> {
-    const state = this.context.globalState.get<string>(this.SETUP_STATE_KEY);
+    const state = this.sharedState.get<string>(this.SETUP_STATE_KEY);
 
     // Validate state value
     if (state && Object.values(SetupState).includes(state as SetupState)) {
@@ -162,8 +167,8 @@ export class SetupStateManager {
     }
 
     // Backward compatibility: check old flags
-    const firstRun = this.context.globalState.get<boolean>('promptregistry.firstRun', true);
-    const hubInitialized = this.context.globalState.get<boolean>('promptregistry.hubInitialized', false);
+    const firstRun = this.sharedState.get<boolean>('promptregistry.firstRun', true);
+    const hubInitialized = this.sharedState.get<boolean>('promptregistry.hubInitialized', false);
 
     // If firstRun=false but no hub, setup is incomplete
     if (!firstRun && !hubInitialized) {

@@ -299,7 +299,7 @@ export class LockfileManager {
   /**
    * Get the path to a schema file.
    * Resolves from extension installation directory, with fallback to process.cwd() for development.
-   * @param schemaFileName - Name of the schema file (e.g., 'lockfile.schema.json')
+   * @param schemaFileName - Name of the schema file (e.g., 'lockfile-v2.schema.json')
    * @returns Full path to the schema file
    */
   private getSchemaPath(schemaFileName: string): string {
@@ -719,7 +719,7 @@ export class LockfileManager {
     try {
       // Get schema path from extension installation directory
       // Falls back to process.cwd() for development mode
-      const schemaPath = this.getSchemaPath('lockfile.schema.json');
+      const schemaPath = this.getSchemaPath('lockfile-v2.schema.json');
       const result = await this.schemaValidator.validate(lockfile, schemaPath);
 
       return {

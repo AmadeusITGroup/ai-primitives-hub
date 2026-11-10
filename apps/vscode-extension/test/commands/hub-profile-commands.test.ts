@@ -5,7 +5,15 @@
 
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
+import {
+  FavoritesStore,
+  NodeFileSystem,
+} from '@ai-primitives-hub/infra';
 import {
   JSDOM,
 } from 'jsdom';
@@ -17,6 +25,9 @@ import {
 import {
   HubManager,
 } from '../../src/services/hub-manager';
+import {
+  createHubStorage,
+} from '../../src/storage/create-hub-storage';
 import {
   HubStorage,
 } from '../../src/storage/hub-storage';
@@ -62,7 +73,7 @@ suite('HubProfileCommands - Logic Tests', () => {
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
-    storage = new HubStorage(tempDir);
+    storage = createHubStorage(process.env);
     hubManager = new HubManager(storage, {} as any, process.cwd(), undefined, undefined);
   });
 
@@ -330,6 +341,76 @@ suite('HubProfileCommands - Logic Tests', () => {
 
       assert.ok(profile.createdAt);
       assert.ok(profile.updatedAt);
+    });
+  });
+
+  suite('XDG composition (ADR-0011)', () => {
+    test('toggleProfileFavorite writes to the canonical shared favorites store over the shared XDG paths', async () => {
+      const sandboxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hpc-xdg-'));
+      const envKeys = [
+        'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+        'XDG_STATE_HOME', 'TMPDIR', 'TMP', 'TEMP',
+        'AI_PRIMITIVES_HUB_CACHE'
+      ] as const;
+      const savedEnv = new Map<string, string | undefined>();
+      const synthetic = {
+        HOME: path.join(sandboxRoot, 'home'),
+        USERPROFILE: path.join(sandboxRoot, 'home'),
+        XDG_CONFIG_HOME: path.join(sandboxRoot, 'xdg', 'config'),
+        XDG_DATA_HOME: path.join(sandboxRoot, 'xdg', 'data'),
+        XDG_CACHE_HOME: path.join(sandboxRoot, 'xdg', 'cache'),
+        XDG_STATE_HOME: path.join(sandboxRoot, 'xdg', 'state'),
+        TMPDIR: path.join(sandboxRoot, 'tmp'),
+        TMP: path.join(sandboxRoot, 'tmp'),
+        TEMP: path.join(sandboxRoot, 'tmp'),
+        AI_PRIMITIVES_HUB_CACHE: path.join(sandboxRoot, 'aph-cache')
+      };
+      const sinonSandbox = sinon.createSandbox();
+      const subscriptions: vscode.Disposable[] = [];
+      try {
+        for (const key of envKeys) {
+          savedEnv.set(key, process.env[key]);
+          process.env[key] = synthetic[key];
+        }
+        const paths = resolveUserConfigPaths(process.env);
+        const canonical = new HubStorage(paths.hubs, {
+          activeHubPath: paths.activeHub,
+          cacheMode: 'stateless'
+        });
+        await canonical.saveHub('shared-hub', createSampleHub('shared', 1), { type: 'local', location: '/fixture/hub' });
+
+        const showError = sinonSandbox.stub(vscode.window, 'showErrorMessage').resolves();
+        sinonSandbox.stub(vscode.window, 'showInformationMessage').resolves();
+        const commands = new HubProfileCommands({
+          get globalStorageUri(): never {
+            throw new Error('globalStorageUri must not be read in XDG composition');
+          },
+          get globalState(): never {
+            throw new Error('globalState must not be read in XDG composition');
+          },
+          extensionPath: process.cwd(),
+          secrets: undefined,
+          subscriptions
+        } as unknown as vscode.ExtensionContext);
+
+        await commands.toggleProfileFavorite({ hubId: 'shared-hub', profileId: 'profile-1' });
+
+        const favoritesPath = path.join(paths.hubs, 'favorites.json');
+        const favorites = await new FavoritesStore(favoritesPath, new NodeFileSystem()).get();
+        assert.deepStrictEqual(favorites, { 'shared-hub': ['profile-1'] });
+        assert.ok(showError.notCalled, 'no error notification expected');
+      } finally {
+        for (const [key, value] of savedEnv) {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        }
+        subscriptions.forEach((disposable) => disposable.dispose());
+        sinonSandbox.restore();
+        fs.rmSync(sandboxRoot, { recursive: true, force: true });
+      }
     });
   });
 

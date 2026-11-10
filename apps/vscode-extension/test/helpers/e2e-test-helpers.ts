@@ -71,6 +71,11 @@ export async function createE2ETestContext(): Promise<E2ETestContext> {
     path.join(os.tmpdir(), 'e2e-extension-test-')
   );
   const tempWorkspaceRoot = path.join(tempStoragePath, 'test-workspace');
+  // All application storage resolves from XDG: root it under this test's temp directory.
+  process.env.XDG_CONFIG_HOME = path.join(tempStoragePath, 'xdg', 'config');
+  process.env.XDG_DATA_HOME = path.join(tempStoragePath, 'xdg', 'data');
+  process.env.XDG_CACHE_HOME = path.join(tempStoragePath, 'xdg', 'cache');
+  process.env.XDG_STATE_HOME = path.join(tempStoragePath, 'xdg', 'state');
   const tempUserDir = path.join(tempStoragePath, 'User');
   const tempGlobalStoragePath = path.join(tempUserDir, 'globalStorage', 'prompt-registry');
 

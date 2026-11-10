@@ -41,6 +41,9 @@ import type {
   HubYamlIntelligence,
 } from '../services/hub-yaml-intelligence';
 import {
+  extensionStateDir,
+} from '../storage/extension-storage';
+import {
   HubConfigCustomEditorProvider,
   type HubVisualEditorFocusTarget,
 } from '../ui/hub-config-custom-editor';
@@ -95,7 +98,7 @@ export class HubEditorCommands {
       tokenProvider: this.promptingTokenProvider
     });
     const gitAdapter = new GitWorkspaceAdapter(processExecutor, this.promptingTokenProvider);
-    const sessionStorePath = path.join(context.globalStorageUri.fsPath, 'hub-contribution-sessions.json');
+    const sessionStorePath = path.join(extensionStateDir(), 'hub-contribution-sessions.json');
 
     this.workflowService = new HubContributionWorkflowService({
       fs: this.fsAdapter,

@@ -312,6 +312,23 @@ The scaffold command normalizes path separators to forward slashes before checki
 | `promptregistry.openItemRepository` | Open Repository | Open an item's repository in a browser |
 | `promptRegistry.resetFirstRun` | Reset First Run | Reset first-run state to re-trigger hub selection dialog |
 
+## Target Management
+
+### `promptregistry.configureTargetManagement`
+
+**Configure Target Management** — opens Settings at
+`promptregistry.experimental.runtimeTargetManagement`. Always visible;
+opening Settings does not select a target or project files. See
+[Target Management](../contributor-guide/target-management.md).
+
+### CLI
+
+With `experimental.targetManagement: true` in the CLI config, the CLI adds
+`target use <type|name>`, `target current`, `installed` and
+`lockfile inspect <file>`, and `install`/`update`/`uninstall` operate on the
+selected harness with an explicit `--scope user|repository` (or
+`--installation-id`). See [Target Management](../contributor-guide/target-management.md#cli).
+
 ## See Also
 
 - [Settings Reference](./settings.md) — Extension configuration options

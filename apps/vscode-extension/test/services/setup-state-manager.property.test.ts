@@ -18,6 +18,9 @@ import {
   PropertyTestConfig,
 } from '../helpers/property-test-helpers';
 import {
+  SharedStateMap,
+} from '../helpers/rooted-app-storage';
+import {
   createMockHubData,
   formatTestParams,
 } from '../helpers/setup-state-test-helpers';
@@ -26,11 +29,11 @@ suite('SetupStateManager - Property Tests', () => {
   let sandbox: sinon.SinonSandbox;
   let mockContext: vscode.ExtensionContext;
   let mockHubManager: sinon.SinonStubbedInstance<HubManager>;
-  let globalStateData: Map<string, any>;
+  let globalStateData: SharedStateMap;
 
   setup(() => {
     sandbox = sinon.createSandbox();
-    globalStateData = new Map();
+    globalStateData = new SharedStateMap();
 
     mockContext = {
       globalState: {

@@ -25,6 +25,9 @@ import {
   SetupStateManager,
 } from '../../src/services/setup-state-manager';
 import {
+  SharedStateFile,
+} from '../../src/storage/extension-storage';
+import {
   RegistryStorage,
 } from '../../src/storage/registry-storage';
 import {
@@ -83,6 +86,7 @@ suite('RepositoryActivationService - Property Tests', () => {
 
   const configureMockContext = (declinedRepos: string[] = []): void => {
     mockContextGetStub.returns(declinedRepos);
+    void new SharedStateFile('extension-state').update('repositoryActivation.declined', declinedRepos);
     mockStorage.getContext.returns({
       globalState: { get: mockContextGetStub }
     } as any);
@@ -319,12 +323,8 @@ suite('RepositoryActivationService - Property Tests', () => {
           mockLockfileManager.read.resolves(lockfile);
           mockLockfileManager.getLockfilePath.returns(`${repositoryPath}/prompt-registry.lock.json`);
 
-          mockContextGetStub.callsFake((key: string, defaultValue: any) => {
-            if (key === 'repositoryActivation.declined') {
-              return [repositoryPath];
-            }
-            return defaultValue;
-          });
+          void new SharedStateFile('extension-state').update('repositoryActivation.declined', [repositoryPath]);
+          mockContextGetStub.callsFake((key: string, defaultValue: any) => defaultValue);
           mockStorage.getContext.returns({
             globalState: {
               get: mockContextGetStub,

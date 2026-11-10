@@ -17,6 +17,13 @@
   ],
   "tasks": [
     {
+      "label": "build: target acceptance",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "build:acceptance:targets"],
+      "problemMatcher": []
+    },
+    {
       "type": "shell",
       "label": "pnpm: watch",
       "command": "pnpm",

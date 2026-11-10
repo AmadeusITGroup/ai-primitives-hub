@@ -56,6 +56,9 @@
       setupState = message.setupState || 'complete';
       sourcesCount = message.sourcesCount || 0;
       hasConfiguredHub = message.hasConfiguredHub;
+      var inventoryWarning = document.querySelector('#inventoryWarning');
+      inventoryWarning.textContent = message.inventoryWarning || '';
+      inventoryWarning.hidden = !message.inventoryWarning;
       updateFilterUI();
       updateMarketplaceSummary();
       renderBundles();
@@ -484,7 +487,7 @@
 
     var installedCount = document.querySelector('#installedCount');
     if (installedCount) {
-      installedCount.textContent = filteredBundles.filter((bundle) => bundle.installed === true).length;
+      installedCount.textContent = filteredBundles.reduce((sum, bundle) => sum + installationCount(bundle), 0);
     }
 
     var forYouCount = document.querySelector('#forYouCount');
@@ -549,6 +552,18 @@
       var dropdownId = openFilterDropdownId;
       closeFilterDropdowns();
       document.querySelector('[aria-controls="' + dropdownId + '"]')?.focus();
+    }
+  });
+
+  document.addEventListener('change', (event) => {
+    const select = event.target.closest('.scope-version-select');
+    if (!select) {
+      return;
+    }
+    const row = select.closest('.scope-install-row');
+    const update = row?.querySelector('[data-action="updateBundle"][data-version-select="true"]');
+    if (update) {
+      update.disabled = select.value === select.dataset.currentVersion;
     }
   });
 
@@ -1166,6 +1181,11 @@
           + '✏️'
           + '</button>'
           : '')
+        + '<button class="btn btn-link details-button" data-action="openDetails"'
+        + ' data-bundle-id="' + escapeHtml(bundle.id) + '" data-stop-propagation="true"'
+        + ' title="Details" aria-label="Open details">'
+        + '<span class="fa-icon fa-circle-info" aria-hidden="true"></span>'
+        + '</button>'
         + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo"'
         + ' data-bundle-id="' + escapeHtml(bundle.id) + '" data-stop-propagation="true"'
         + ' title="Open Source Repository" aria-label="Open Source Repository">'
@@ -1199,8 +1219,9 @@
         + '</div>'
 
         + '<div class="bundle-actions" data-stop-propagation="true">'
-        + renderBundleButtons(bundle)
-        + '<button class="btn btn-link details-button" data-action="openDetails" data-bundle-id="' + escapeHtml(bundle.id) + '" title="Open Details" aria-label="Open Details">Details</button>'
+        + (bundle.inventoryUnavailable
+          ? '<span class="inventory-unavailable">Actions unavailable</span>'
+          : (Array.isArray(bundle.installations) ? renderScopeControls(bundle) : renderBundleButtons(bundle)))
         + '</div>'
         + '</div>';
     }).join('') + setupBanner;
@@ -1214,6 +1235,54 @@
         openVersionDropdownId = null;
       }
     }
+  };
+
+  // One installation per scope row when target management supplies `installations`; otherwise a bundle counts once.
+  const installationCount = (bundle) => {
+    if (Array.isArray(bundle.installations)) {
+      return bundle.installations.length;
+    }
+    return bundle.installed === true ? 1 : 0;
+  };
+
+  const renderScopeControls = (bundle) => {
+    const bundleId = escapeHtml(bundle.id);
+    const catalogVersions = (bundle.availableVersions || []).map((v) => v.version);
+    const scopes = [
+      { id: 'repository', label: 'Repo', accessibleLabel: 'Repository', icon: 'fa-code-branch' },
+      { id: 'user', label: 'User', accessibleLabel: 'User profile', icon: 'fa-user' }
+    ];
+    return '<div class="scope-install-controls">' + scopes.map((scope) => {
+      const installed = bundle.installations.find((row) => row.scope === scope.id);
+      const versions = Array.from(new Set([bundle.version, ...catalogVersions, installed?.version].filter(Boolean)));
+      const selectedVersion = installed?.version ?? bundle.version;
+      const versionOptions = versions.map((version) =>
+        '<option value="' + escapeHtml(version) + '"' + (version === selectedVersion ? ' selected' : '')
+        + '>v' + escapeHtml(version) + '</option>'
+      ).join('');
+      const commitMode = installed?.commitMode ?? 'commit';
+      const repositoryMode = scope.id === 'repository' && !installed
+        ? '<select class="scope-commit-mode" title="Repository tracking mode" aria-label="Repository tracking mode">'
+        + '<option value="commit">Tracked</option><option value="local-only">Local only</option></select>'
+        : (scope.id === 'repository' ? '<span class="scope-mode-badge">' + (commitMode === 'local-only' ? 'Local only' : 'Tracked') + '</span>' : '');
+      const action = installed
+        ? '<button class="btn btn-primary scope-update" data-action="updateBundle" data-bundle-id="' + bundleId
+        + '" data-installation-id="' + escapeHtml(installed.installationId) + '" data-version-select="true"'
+        + ' aria-label="Update ' + scope.accessibleLabel + ' installation to selected version"'
+        + (selectedVersion === installed.version ? ' disabled' : '') + '>Update</button>'
+        + '<button class="btn btn-danger scope-uninstall" data-action="uninstallBundle" data-bundle-id="' + bundleId
+        + '" data-installation-id="' + escapeHtml(installed.installationId) + '" aria-label="Uninstall ' + scope.accessibleLabel + ' installation">Uninstall</button>'
+        : '<button class="btn btn-primary scope-install" data-action="installScoped" data-bundle-id="' + bundleId
+          + '" data-scope="' + scope.id + '" aria-label="Install in ' + scope.accessibleLabel + ' scope">Install</button>';
+      return '<div class="scope-install-row" data-scope="' + scope.id + '" role="group" aria-label="' + scope.accessibleLabel + ' scope">'
+        + '<span class="scope-install-title" title="' + scope.accessibleLabel + '" aria-label="' + scope.accessibleLabel + ' scope">'
+        + '<span class="fa-icon ' + scope.icon + '" aria-hidden="true"></span> ' + scope.label
+        + (installed ? ' <span class="scope-installed-status">Installed</span>' : '') + '</span>'
+        + '<div class="scope-install-tools">'
+        + '<select class="scope-version-select" data-current-version="' + escapeHtml(installed?.version ?? '')
+        + '" title="' + scope.accessibleLabel + ' installation version" aria-label="' + scope.accessibleLabel + ' installation version">'
+        + versionOptions + '</select>' + repositoryMode + action + '</div></div>';
+    }).join('') + '</div>';
   };
 
   const renderBundleButtons = (bundle) => {
@@ -1318,12 +1387,12 @@
     vscode.postMessage({ type: 'install', bundleId: bundleId });
   };
 
-  const updateBundle = (bundleId) => {
-    vscode.postMessage({ type: 'update', bundleId: bundleId });
+  const updateBundle = (bundleId, installationId, version) => {
+    vscode.postMessage({ type: 'update', bundleId, installationId, version });
   };
 
-  const uninstallBundle = (bundleId) => {
-    vscode.postMessage({ type: 'uninstall', bundleId: bundleId });
+  const uninstallBundle = (bundleId, installationId) => {
+    vscode.postMessage(installationId ? { type: 'uninstall', bundleId: bundleId, installationId: installationId } : { type: 'uninstall', bundleId: bundleId });
   };
 
   const openDetails = (bundleId) => {
@@ -1416,6 +1485,21 @@
           }
           break;
         }
+        case 'installScoped': {
+          if (bundleId) {
+            e.stopPropagation();
+            const scopeRow = actionElement.closest('.scope-install-row');
+            const scope = scopeRow?.dataset.scope;
+            const version = scopeRow?.querySelector('.scope-version-select')?.value;
+            const commitMode = scope === 'repository'
+              ? scopeRow?.querySelector('.scope-commit-mode')?.value || 'commit'
+              : undefined;
+            if (scope && version) {
+              vscode.postMessage({ type: 'install', bundleId, scope, version, commitMode });
+            }
+          }
+          break;
+        }
         case 'installBundleVersion': {
           if (bundleId && version) {
             e.stopPropagation();
@@ -1426,14 +1510,18 @@
         case 'updateBundle': {
           if (bundleId) {
             e.stopPropagation();
-            updateBundle(bundleId);
+            const scopeRow = actionElement.closest('.scope-install-row');
+            const version = actionElement.dataset.versionSelect === 'true'
+              ? scopeRow?.querySelector('.scope-version-select')?.value
+              : actionElement.dataset.version;
+            updateBundle(bundleId, actionElement.dataset.installationId, version);
           }
           break;
         }
         case 'uninstallBundle': {
           if (bundleId) {
             e.stopPropagation();
-            uninstallBundle(bundleId);
+            uninstallBundle(bundleId, actionElement.dataset.installationId);
           }
           break;
         }

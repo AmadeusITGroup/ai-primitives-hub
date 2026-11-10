@@ -231,9 +231,14 @@ export class McpConfigLocator {
    * Create the directory holding the MCP config file for a scope.
    * @param scope - Which scope's directory to create.
    * @param host - Optional TargetType override.
+   * @param workspaceRootOverride
    */
-  public static async ensureConfigDirectory(scope: McpConfigScope, host?: TargetType): Promise<void> {
-    const location = this.getMcpConfigLocation(scope, host);
+  public static async ensureConfigDirectory(
+    scope: McpConfigScope,
+    host?: TargetType,
+    workspaceRootOverride?: string
+  ): Promise<void> {
+    const location = this.getMcpConfigLocation(scope, host, workspaceRootOverride);
     if (!location) {
       throw new Error(`No MCP configuration file is defined for this IDE at ${scope} scope. No workspace open?`);
     }
