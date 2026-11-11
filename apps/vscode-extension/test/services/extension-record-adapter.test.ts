@@ -294,7 +294,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     Object.assign(record.bundles[BUNDLE_ID].tools.kiro, { version: '1.1.0', installedAt: '2099-01-01T00:00:00.000Z' });
     fs.writeFileSync(abs(RECORD_FILE), JSON.stringify(record));
     showWarning.resolves('Move');
-    const installBundle = sandbox.stub(manager, 'installBundle').resolves(undefined as any);
+    const installBundle = sandbox.stub(manager, 'installBundle').resolves(undefined);
     sandbox.stub(manager, 'uninstallBundle').resolves();
     const resolver = sandbox.createStubInstance(ScopeConflictResolver);
     resolver.migrateBundle.callsFake(async (bundleId, fromScope, toScope, uninstall, reinstall) => {

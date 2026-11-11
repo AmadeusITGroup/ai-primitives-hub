@@ -37,7 +37,6 @@ import {
   Logger,
 } from '../utils/logger';
 import {
-  getWorkspaceRoot,
   hasOpenWorkspace,
 } from '../utils/scope-selection-ui';
 
@@ -193,11 +192,7 @@ export class BundleScopeCommands {
       }
 
       // Move the version the host tool installed, not another tool's newer entry of the bundle.
-      const workspaceRoot = getWorkspaceRoot();
-      const hostEntry = workspaceRoot === undefined
-        ? undefined
-        : await this.registryManager.getRecordAdapter().findHostEntry(workspaceRoot, bundleId);
-      const version = hostEntry?.entry.version ?? repoBundle.version;
+      const version = (await this.registryManager.getHostVersion(bundleId)) ?? repoBundle.version;
 
       // Perform migration
       const result = await this.scopeConflictResolver.migrateBundle(
