@@ -3,7 +3,9 @@
  *
  * Turns the `--kinds/--targets/--scopes` filters into the bundles to build
  * and the cases to run. Filters select cases only; they never change an
- * expected outcome.
+ * expected outcome. A bundle that mixes kinds runs in both install modes
+ * (the default all-or-nothing install and `install --skip-unsupported`);
+ * a single-kind bundle runs in the default mode only.
  * @module domain/diagnostics/primitives/planner
  */
 import {
@@ -23,7 +25,9 @@ import {
   expectedStatus,
 } from './support-matrix';
 import {
+  DIAGNOSTIC_INSTALL_MODES,
   DIAGNOSTIC_SCOPES,
+  type DiagnosticInstallMode,
   type DiagnosticScope,
 } from './types';
 
@@ -34,9 +38,9 @@ export interface PrimitiveDiagnosticsFilters {
   scopes?: readonly DiagnosticScope[];
 }
 
-/** One install case: a bundle on a target at a scope. */
+/** One install case: a bundle on a target at a scope, in an install mode. */
 export interface PlannedCase {
-  /** `${bundle}__${target}__${scope}`. */
+  /** `${bundle}__${target}__${scope}`, with a `__skip-unsupported` suffix in that mode. */
   id: string;
   bundle: string;
   /** Distinct item kinds, in bundle item order. */
@@ -45,6 +49,8 @@ export interface PlannedCase {
   items: { path: string; kind: PrimitiveKind }[];
   target: TargetType;
   scope: DiagnosticScope;
+  /** `skip-unsupported` only for a bundle with more than one kind. */
+  mode: DiagnosticInstallMode;
   expectedStatus: ExpectedInstallStatus;
 }
 
@@ -56,7 +62,7 @@ export interface PrimitiveDiagnosticsPlan {
   notCovered: { kinds: PrimitiveKind[] };
   /** Catalogue order. */
   bundles: DiagnosticBundle[];
-  /** Bundle, then TARGET_TYPES, then DIAGNOSTIC_SCOPES order. */
+  /** Bundle, then TARGET_TYPES, then DIAGNOSTIC_SCOPES, then DIAGNOSTIC_INSTALL_MODES order. */
   cases: PlannedCase[];
 }
 
@@ -70,6 +76,17 @@ const inEnumOrder = <T extends string>(order: readonly T[], values: readonly T[]
   order.filter((value) => values.includes(value));
 
 const kindsOf = (bundle: DiagnosticBundle): PrimitiveKind[] => [...new Set(bundle.items.map((item) => item.kind))];
+
+/**
+ * Case id of a bundle on a target at a scope, in an install mode.
+ * @param bundle - Bundle id.
+ * @param target - Target type.
+ * @param scope - Requested scope.
+ * @param mode - Install mode; the default mode has no suffix.
+ * @returns The case id.
+ */
+const caseId = (bundle: string, target: TargetType, scope: DiagnosticScope, mode: DiagnosticInstallMode): string =>
+  `${bundle}__${target}__${scope}${mode === 'default' ? '' : `__${mode}`}`;
 
 /**
  * Plan a primitive diagnostics run.
@@ -90,18 +107,18 @@ export function planPrimitiveDiagnostics(
   // An invalid bundle is only validated and built: it has no install cases.
   const cases = bundles.filter((bundle) => bundle.rejection === undefined).flatMap((bundle) => {
     const bundleKinds = kindsOf(bundle);
-    return targets.flatMap((target) => {
-      const status = expectedStatus(bundleKinds, target);
-      return scopes.map((scope): PlannedCase => ({
-        id: `${bundle.id}__${target}__${scope}`,
-        bundle: bundle.id,
-        kinds: [...bundleKinds],
-        items: bundle.items.map((item) => ({ path: item.path, kind: item.kind })),
-        target,
-        scope,
-        expectedStatus: status
-      }));
-    });
+    // Only a mixed bundle can be partially installed, so only it runs with --skip-unsupported.
+    const modes: readonly DiagnosticInstallMode[] = bundleKinds.length > 1 ? DIAGNOSTIC_INSTALL_MODES : ['default'];
+    return targets.flatMap((target) => scopes.flatMap((scope) => modes.map((mode): PlannedCase => ({
+      id: caseId(bundle.id, target, scope, mode),
+      bundle: bundle.id,
+      kinds: [...bundleKinds],
+      items: bundle.items.map((item) => ({ path: item.path, kind: item.kind })),
+      target,
+      scope,
+      mode,
+      expectedStatus: expectedStatus(bundleKinds, target, mode)
+    }))));
   });
 
   return {

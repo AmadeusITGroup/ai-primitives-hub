@@ -28,6 +28,7 @@ import {
   evaluateBundle,
   evaluateCase,
   evaluateRejectedBundle,
+  expectedDestination,
   NOT_EVALUATED,
   type PlannedCase,
   planPrimitiveDiagnostics,
@@ -392,7 +393,8 @@ describe('evaluateCase', () => {
         ['prompts/hello-world.prompt.md', 'fail', { rejected: true }],
         ['.kiro/steering/api-standards.md', 'pass', undefined]
       ]);
-      expect(byInvariant(checks, 'I4')).toMatchObject({ outcome: 'fail', expected: { status: 'partial' } });
+      // The default install is all-or-nothing: the rejection itself is expected.
+      expect(byInvariant(checks, 'I4')).toEqual({ invariant: 'I4', outcome: 'pass', expected: { status: 'rejected' } });
     });
   });
 
@@ -478,6 +480,131 @@ describe('evaluateCase', () => {
     observation.install = { ...observation.install!, errorMessages: ['failed writing /home/me/.copilot/x'] };
     const checks = evaluateCase(caseOf('prompt', 'vscode', 'user'), prompt, promptEvaluation, observation);
     expect(JSON.stringify(checks.map((c) => c.observed))).not.toContain('/home/me');
+  });
+});
+
+describe('evaluateCase with --skip-unsupported', () => {
+  const prompt = bundleOf('prompt');
+  const instruction = bundleOf('instruction');
+  const steering = bundleOf('steering');
+  const plugin = bundleOf('plugin');
+  const UNSUPPORTED = 'BUNDLE.UNSUPPORTED_CONTENT';
+  const mixOf = (...bundles: DiagnosticBundle[]): DiagnosticBundle => ({ ...prompt, id: 'mix', items: bundles.map((b) => b.items[0]) });
+  const skipCaseOf = (mix: DiagnosticBundle): PlannedCase =>
+    planPrimitiveDiagnostics({ targets: ['vscode'], scopes: ['user'] }, [mix]).cases.find((c) => c.mode === 'skip-unsupported')!;
+  // User-scope vscode destinations of the item files, as the placement oracle gives them.
+  const placedFor = (...bundles: DiagnosticBundle[]): string[] => bundles.flatMap((b) => b.items[0].files.flatMap((file) => {
+    const destination = expectedDestination('vscode', 'user', b.items[0], file);
+    return destination.kind === 'file' ? [destination.label] : [];
+  }));
+  const skippedFor = (...bundles: DiagnosticBundle[]): { path: string; code: string; reason: string }[] =>
+    bundles.flatMap((b) => b.items[0].files).map((file) => ({ path: file, code: UNSUPPORTED, reason: 'target "tgt" (vscode) cannot install this content' }));
+  const filesOf = (...bundles: DiagnosticBundle[]): string[] => bundles.flatMap((b) => b.items[0].files);
+  const partial = (
+    placed: readonly string[],
+    skipped: { path: string; code: string; reason: string }[],
+    lockedFiles?: readonly string[]
+  ): CaseObservation => installed('prompt', placed, {
+    install: { ...ok, status: 'warning', skipped },
+    ...(lockedFiles === undefined ? {} : { lockedFiles })
+  });
+
+  const promptSteering = mixOf(prompt, steering);
+  const promptSteeringCase = skipCaseOf(promptSteering);
+  const promptSteeringEvaluation = readyEvaluation(promptSteering);
+
+  it('passes a partial install: the supported items placed, the others skipped with a reason, the lockfile listing the installed files', () => {
+    expect(promptSteeringCase).toMatchObject({ id: 'mix__vscode__user__skip-unsupported', mode: 'skip-unsupported', expectedStatus: 'partial' });
+    const checks = evaluateCase(promptSteeringCase, promptSteering, promptSteeringEvaluation,
+      partial(placedFor(prompt), skippedFor(steering), filesOf(prompt)));
+    expect(checks.map((c) => [c.invariant, c.outcome, c.item])).toEqual([
+      ['I4', 'pass', undefined],
+      ['I6', 'pass', undefined],
+      ['I7', 'not-applicable', undefined],
+      ['I8', 'pass', undefined],
+      ['I9', 'pass', 'prompts/hello-world.prompt.md'],
+      ['I9', 'pass', '.kiro/steering/api-standards.md'],
+      ['I13', 'pass', undefined],
+      ['I15', 'pass', undefined]
+    ]);
+    expect(byInvariant(checks, 'I4').expected).toEqual({ status: 'partial' });
+    expect(checks.filter((c) => c.invariant === 'I9').map((c) => c.expected)).toEqual([{ rejected: false }, { rejected: true }]);
+    expect(byInvariant(checks, 'I15').expected).toEqual({ unreasoned: [], missing: [], unexpected: [] });
+  });
+
+  it('fails I4 with status partial and no error code when the matrix expects every item installed', () => {
+    const both = mixOf(prompt, instruction);
+    const checks = evaluateCase(skipCaseOf(both), both, readyEvaluation(both), partial(placedFor(prompt), skippedFor(instruction), filesOf(prompt)));
+    expect(byInvariant(checks, 'I4')).toMatchObject({ outcome: 'fail', expected: { status: 'installed' }, observed: { status: 'partial', errorCode: null } });
+    expect(byInvariant(checks, 'I6').outcome).toBe('pass');
+    expect(byInvariant(checks, 'I7')).toMatchObject({ outcome: 'not-applicable', detail: 'not applicable: install partial' });
+  });
+
+  it('fails I9 for a supported item that was skipped, and I13 checks only what was installed', () => {
+    const mix = mixOf(prompt, instruction, steering);
+    const checks = evaluateCase(skipCaseOf(mix), mix, readyEvaluation(mix),
+      partial(placedFor(instruction), skippedFor(prompt, steering), filesOf(instruction)));
+    expect(checks.filter((c) => c.invariant === 'I9').map((c) => [c.item, c.outcome, c.observed])).toEqual([
+      ['prompts/hello-world.prompt.md', 'fail', { rejected: true }],
+      ['instructions/code-style.instructions.md', 'pass', undefined],
+      ['.kiro/steering/api-standards.md', 'pass', undefined]
+    ]);
+    expect(byInvariant(checks, 'I13').outcome).toBe('pass');
+    expect(byInvariant(checks, 'I15').outcome).toBe('pass');
+  });
+
+  it('fails I9 for an unsupported item that was installed, counting an absent skipped list as empty', () => {
+    const observation = installed('prompt', placedFor(prompt), { install: ok, lockedFiles: filesOf(prompt) });
+    const checks = evaluateCase(promptSteeringCase, promptSteering, promptSteeringEvaluation, observation);
+    expect(byInvariant(checks, 'I4')).toMatchObject({ outcome: 'fail', observed: { status: 'installed', errorCode: null } });
+    expect(checks.filter((c) => c.invariant === 'I9').map((c) => [c.item, c.outcome, c.observed])).toEqual([
+      ['prompts/hello-world.prompt.md', 'pass', undefined],
+      ['.kiro/steering/api-standards.md', 'fail', { rejected: false }]
+    ]);
+  });
+
+  it.each([
+    ['a skipped file without the unsupported-content code', [{ path: '.kiro/steering/api-standards.md', code: 'FS.WRITE_FAILED', reason: 'x' }], ['prompts/hello-world.prompt.md'],
+      { unreasoned: ['.kiro/steering/api-standards.md'], missing: [], unexpected: [] }],
+    ['a skipped file without a reason', [{ path: '.kiro/steering/api-standards.md', code: UNSUPPORTED, reason: ' ' }], ['prompts/hello-world.prompt.md'],
+      { unreasoned: ['.kiro/steering/api-standards.md'], missing: [], unexpected: [] }],
+    ['a lockfile that records a skipped file', undefined, ['.kiro/steering/api-standards.md', 'prompts/hello-world.prompt.md'],
+      { unreasoned: [], missing: [], unexpected: ['.kiro/steering/api-standards.md'] }],
+    ['a lockfile that misses an installed file', undefined, [],
+      { unreasoned: [], missing: ['prompts/hello-world.prompt.md'], unexpected: [] }],
+    ['an unread lockfile', undefined, undefined,
+      { unreasoned: [], missing: null, unexpected: null }]
+  ] as const)('fails I15 for %s', (_name, skipped, lockedFiles, observed) => {
+    const checks = evaluateCase(promptSteeringCase, promptSteering, promptSteeringEvaluation,
+      partial(placedFor(prompt), skipped === undefined ? skippedFor(steering) : [...skipped], lockedFiles));
+    expect(byInvariant(checks, 'I15')).toMatchObject({ outcome: 'fail', expected: { unreasoned: [], missing: [], unexpected: [] }, observed });
+  });
+
+  it('is not applicable to a rejected --skip-unsupported install, and checks its I9 by the rejected paths', () => {
+    const checks = evaluateCase(promptSteeringCase, promptSteering, promptSteeringEvaluation,
+      rejected(UNSUPPORTED, [], filesOf(steering)));
+    expect(byInvariant(checks, 'I4')).toMatchObject({ outcome: 'fail', observed: { status: 'rejected', errorCode: UNSUPPORTED } });
+    expect(checks.filter((c) => c.invariant === 'I9').map((c) => c.outcome)).toEqual(['pass', 'pass']);
+    expect(byInvariant(checks, 'I15')).toMatchObject({ outcome: 'not-applicable', detail: 'not applicable: install rejected' });
+  });
+
+  it('makes I11, I12 and I14 not applicable when the plugin was skipped', () => {
+    const mix = mixOf(prompt, plugin);
+    const checks = evaluateCase(skipCaseOf(mix), mix, readyEvaluation(mix), partial(placedFor(prompt), skippedFor(plugin), filesOf(prompt)));
+    expect(['I11', 'I12', 'I14'].map((invariant) => [byInvariant(checks, invariant).outcome, byInvariant(checks, invariant).detail]))
+      .toEqual([1, 2, 3].map(() => ['not-applicable', 'not applicable: plugin skipped']));
+    expect(byInvariant(checks, 'I10')).toMatchObject({ outcome: 'not-applicable', detail: 'not applicable: no executable file was placed' });
+    expect(byInvariant(checks, 'I13').outcome).toBe('pass');
+    expect(checks.map((c) => c.invariant).at(-1)).toBe('I15');
+  });
+
+  it('adds no I15 check to a default-mode case', () => {
+    const defaultCase = planPrimitiveDiagnostics({ targets: ['vscode'], scopes: ['user'] }, [promptSteering]).cases[0];
+    expect(defaultCase.mode).toBe('default');
+    const checks = evaluateCase(defaultCase, promptSteering, promptSteeringEvaluation, rejected(UNSUPPORTED, [], filesOf(steering)));
+    expect(checks.map((c) => c.invariant)).not.toContain('I15');
+    const single = evaluateCase(caseOf('prompt', 'vscode', 'user'), prompt, readyEvaluation(prompt), installed('prompt', placedFor(prompt)));
+    expect(single.map((c) => c.invariant)).not.toContain('I15');
   });
 });
 
