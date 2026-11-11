@@ -620,6 +620,7 @@ export class InstallRecordService {
     return serializeByRoot(input.location.root, () => this.applyInstall(input));
   }
 
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
   private async applyInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
     this.validateInput(input);
     const source: SourceRecord = sanitizeSource(input.source);
@@ -705,6 +706,7 @@ export class InstallRecordService {
     return serializeByRoot(input.location.root, () => this.applyUninstall(input));
   }
 
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
   private async applyUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
     const { location, bundleId, tool } = input;
     const first = await this.store.load(location);
@@ -802,6 +804,7 @@ export class InstallRecordService {
     return serializeByRoot(input.location.root, () => this.applyMove(input));
   }
 
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
   private async applyMove(input: MoveEntryInput): Promise<MoveEntryResult> {
     const { location, bundleId, tool } = input;
     const targetLocation = otherRepositoryLocation(location);
