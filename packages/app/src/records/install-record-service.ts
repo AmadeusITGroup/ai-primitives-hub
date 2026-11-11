@@ -1,12 +1,12 @@
 /**
  * Install record service: records a tool's install or uninstall of a bundle in
- * the shared record. It deletes nothing itself; superseded files come back in
- * `deletedFiles` for `deleteSuperseded` to remove after the save.
+ * the shared record and keeps sibling tools that share its files in step. It
+ * deletes nothing itself; superseded files come back in `deletedFiles` for
+ * `deleteSuperseded` to remove after the save.
  * @module records/install-record-service
  */
 import * as path from 'node:path';
 import {
-  bundleIdentityOf,
   type BundleRecord,
   compareCodeUnits,
   FORBIDDEN_KEYS,
@@ -15,6 +15,7 @@ import {
   type RecordedFile,
   recordError,
   type RecordFs,
+  type RecordLevel,
   type RecordLocation,
   relativeInside,
   repositoryLocations,
@@ -22,6 +23,7 @@ import {
   type SourceType,
   TARGET_TYPES,
   type ToolEntry,
+  UNKNOWN_TOOL_NAME,
   WORKSPACE_ROOT_TOKEN,
 } from '@ai-primitives-hub/core';
 import {
@@ -37,6 +39,9 @@ import {
 import {
   removeExcluded,
 } from './git-root';
+import {
+  recordIdentityOf,
+} from './record-identity';
 import type {
   LoadedRecord,
   RecordStore,
@@ -93,12 +98,42 @@ export interface RecordInstallInput {
   writtenPaths: readonly string[];
   /** Workspace root the writer installed into, where merged MCP configs sit; defaults to the record's root. */
   workspaceRoot?: string;
+  /**
+   * Which sibling tools that share this tool's files to bring to the same version:
+   * all (default), the accepted ones, or none. Pass `false` when re-recording a sibling, so the sync never loops.
+   */
+  syncSiblings?: boolean | ((tool: string) => boolean);
+}
+
+/** One sibling entry found by the shared-folder sync. */
+export interface SiblingSync {
+  tool: string;
+  /** Its version now: the new one when synced, the old one otherwise. */
+  version: string;
+  /** The file that holds the sibling. */
+  location: RecordLocation;
+  /** `false` when `syncSiblings` did not accept the tool, so the entry is out of date. */
+  synced: boolean;
 }
 
 /** Outcome of {@link InstallRecordService.recordInstall}. */
 export interface RecordInstallResult extends RecordChange {
   /** Non-fatal problems from the saves, for the caller to log. */
   warnings: string[];
+  /** Sibling entries found by the shared-folder sync, sorted by tool; empty for an uninstall. */
+  siblings: SiblingSync[];
+}
+
+/** One `status` row: one (bundle, tool) entry of a record file. */
+export interface StatusRow {
+  bundleId: string;
+  tool: string;
+  level: RecordLevel;
+  version: string;
+  /** Absolute path of the record file the entry is in. */
+  record: string;
+  /** `true` for an entry under the `unknown` tool that must be reinstalled. */
+  needsReinstall: boolean;
 }
 
 /** Outcome of {@link InstallRecordService.deleteSuperseded}. */
@@ -149,17 +184,11 @@ const createBundle = (): BundleRecord => {
   return bundle;
 };
 
-/**
- * Identity of a recorded key; an id past the helper's length guard is its own identity.
- * @param bundleId - Bundle id.
- * @param version - Version recorded for it.
- */
-const identityOf = (bundleId: string, version: string): string => {
-  try {
-    return bundleIdentityOf(bundleId, version);
-  } catch {
-    return bundleId;
-  }
+const copyRecordedFile = (file: RecordedFile): RecordedFile => {
+  const copy = Object.create(null) as RecordedFile;
+  copy.path = file.path;
+  copy.checksum = file.checksum;
+  return copy;
 };
 
 const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
@@ -301,7 +330,7 @@ export class InstallRecordService {
   private removeSameIdentity(record: InstallRecord, bundleId: string, identity: string, tool: string): ToolEntry[] {
     const removed: ToolEntry[] = [];
     for (const [key, bundle] of Object.entries(record.bundles)) {
-      if (Object.hasOwn(bundle.tools, tool) && (key === bundleId || identityOf(key, bundle.tools[tool].version) === identity)) {
+      if (Object.hasOwn(bundle.tools, tool) && (key === bundleId || recordIdentityOf(key, bundle.tools[tool].version) === identity)) {
         removed.push(this.removeEntry(record, key, tool) as ToolEntry);
       }
     }
@@ -344,11 +373,82 @@ export class InstallRecordService {
   }
 
   /**
+   * Bring sibling entries that share the installed tool's files to its version, in memory.
+   * A sibling held under another key of the same identity moves to the installed key.
+   * @param loaded - The target file, then the other repository file.
+   * @param change - What the installed tool wrote.
+   * @param change.bundleId - Bundle id.
+   * @param change.identity - Its bundle identity.
+   * @param change.tool - The installed tool.
+   * @param change.version - Its new version.
+   * @param change.files - Its new recorded files.
+   * @param change.previousPaths - Paths its previous entry listed.
+   * @param change.accepts - Which sibling tools to sync.
+   * @returns The siblings found, sorted by tool, and the files changed.
+   */
+  private syncSiblingEntries(
+    loaded: readonly LoadedRecord[],
+    change: {
+      bundleId: string;
+      identity: string;
+      tool: string;
+      version: string;
+      files: readonly RecordedFile[];
+      previousPaths: ReadonlySet<string>;
+      accepts: (tool: string) => boolean;
+    }
+  ): { siblings: SiblingSync[]; changed: Set<LoadedRecord> } {
+    const newByPath = new Map(change.files.map((file) => [file.path, file]));
+    const isShared = (recorded: RecordedFile): boolean => change.previousPaths.has(recorded.path) || newByPath.has(recorded.path);
+    const siblings: SiblingSync[] = [];
+    const changed = new Set<LoadedRecord>();
+    for (const file of loaded) {
+      const { bundles } = file.record;
+      const holdsTool = (tool: string): boolean => Object.hasOwn(bundles, change.bundleId) && Object.hasOwn(bundles[change.bundleId].tools, tool);
+      const handled = new Set<string>();
+      for (const [key, bundle] of Object.entries(bundles)) {
+        for (const [tool, entry] of Object.entries(bundle.tools)) {
+          const sameBundle = key === change.bundleId || recordIdentityOf(key, entry.version) === change.identity;
+          if (!sameBundle || handled.has(tool) || tool === change.tool || tool === UNKNOWN_TOOL_NAME
+            || !entry.files.some((recorded) => isShared(recorded)) || (key !== change.bundleId && holdsTool(tool))) {
+            continue;
+          }
+          handled.add(tool);
+          if (!change.accepts(tool)) {
+            siblings.push({ tool, version: entry.version, location: file.location, synced: false });
+            continue;
+          }
+          entry.files = entry.files.flatMap((recorded) => {
+            if (!isShared(recorded)) {
+              return [recorded];
+            }
+            const written = newByPath.get(recorded.path);
+            return written === undefined ? [] : [copyRecordedFile(written)];
+          });
+          entry.version = change.version;
+          entry.installedAt = this.now().toISOString();
+          if (key !== change.bundleId) {
+            this.removeEntry(file.record, key, tool);
+            if (!Object.hasOwn(bundles, change.bundleId)) {
+              bundles[change.bundleId] = createBundle();
+            }
+            bundles[change.bundleId].tools[tool] = entry;
+          }
+          siblings.push({ tool, version: change.version, location: file.location, synced: true });
+          changed.add(file);
+        }
+      }
+    }
+    return { siblings: siblings.toSorted((left, right) => compareCodeUnits(left.tool, right.tool)), changed };
+  }
+
+  /**
    * Record that a tool installed a bundle, moving the entry out of the other
-   * repository file. The tool's entries with the same bundle identity in either
-   * file are replaced. Saves the target file first; deletes nothing.
+   * repository file and syncing siblings. The tool's entries with the same
+   * bundle identity in either file are replaced. Saves the target file first;
+   * deletes nothing.
    * @param input - Install to record.
-   * @returns The change, with the superseded files to delete after the save.
+   * @returns The change, with the superseded files to delete after the save and the siblings found.
    * @throws {RegistryError} A `RECORD.*` error; the record is unchanged when the target save fails.
    */
   public async recordInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
@@ -360,7 +460,7 @@ export class InstallRecordService {
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
     const files = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot);
 
-    const identity = identityOf(bundleId, input.version);
+    const identity = recordIdentityOf(bundleId, input.version);
     const previous = this.removeSameIdentity(target.record, bundleId, identity, tool);
     const moved = other === undefined ? [] : this.removeSameIdentity(other.record, bundleId, identity, tool);
     previous.push(...moved);
@@ -382,8 +482,21 @@ export class InstallRecordService {
     target.record.bundles[bundleId].tools[tool] = entry;
     target.record.sources[input.source.sourceId] = source;
 
+    const loaded = other === undefined ? [target] : [target, other];
+    const sync = input.syncSiblings === false
+      ? { siblings: [], changed: new Set<LoadedRecord>() }
+      : this.syncSiblingEntries(loaded, {
+        bundleId,
+        identity,
+        tool,
+        version: input.version,
+        files,
+        previousPaths: new Set(previous.flatMap((prior) => prior.files.map((file) => file.path))),
+        accepts: typeof input.syncSiblings === 'function' ? input.syncSiblings : () => true
+      });
+
     const newPaths = new Set(files.map((file) => file.path));
-    const stillListed = listedPaths(other === undefined ? [target.record] : [target.record, other.record]);
+    const stillListed = listedPaths(loaded.map((file) => file.record));
     const deletedFiles: string[] = [];
     const keptSharedFiles: string[] = [];
     for (const old of previous.flatMap((prior) => prior.files)) {
@@ -395,15 +508,17 @@ export class InstallRecordService {
     }
 
     const warnings = [...(await this.store.save(location, target.record)).warnings];
-    if (other !== undefined && moved.length > 0) {
+    if (other !== undefined && (moved.length > 0 || sync.changed.has(other))) {
       warnings.push(...(await this.saveOther(other)));
     }
+    const synced = sync.siblings.filter((sibling) => sibling.synced);
     return {
-      changedEntries: [{ bundleId, tool }],
+      changedEntries: [{ bundleId, tool }, ...synced.map((sibling) => ({ bundleId, tool: sibling.tool }))],
       deletedFiles: deletedFiles.toSorted(compareCodeUnits),
       keptSharedFiles: keptSharedFiles.toSorted(compareCodeUnits),
       location,
-      warnings
+      warnings,
+      siblings: sync.siblings
     };
   }
 
@@ -457,8 +572,73 @@ export class InstallRecordService {
       deletedFiles: [...deletedFiles].toSorted(compareCodeUnits),
       keptSharedFiles: [...keptSharedFiles].toSorted(compareCodeUnits),
       location: changed[0].file.location,
-      warnings
+      warnings,
+      siblings: []
     };
+  }
+
+  /**
+   * One status row per (bundle, tool) entry of the given record files, sorted.
+   * @param locations - Record files to list.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public async listEntries(locations: readonly RecordLocation[]): Promise<StatusRow[]> {
+    const rows: StatusRow[] = [];
+    for (const location of locations) {
+      const { record } = await this.store.load(location);
+      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
+        for (const [tool, entry] of Object.entries(bundle.tools)) {
+          rows.push({
+            bundleId,
+            tool,
+            level: location.level,
+            version: entry.version,
+            record: location.path,
+            needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
+          });
+        }
+      }
+    }
+    return rows.toSorted((left, right) =>
+      compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
+  }
+
+  /**
+   * The record file that holds the entry, so a re-record keeps its commit mode.
+   * @param locations - Record files to search, committed first.
+   * @param bundleId - Bundle id.
+   * @param tool - Tool key.
+   * @returns The first file holding the entry, or `undefined` when none does.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public async holdingLocation(locations: readonly RecordLocation[], bundleId: string, tool: string): Promise<RecordLocation | undefined> {
+    for (const location of locations) {
+      const { record } = await this.store.load(location);
+      if (Object.hasOwn(record.bundles, bundleId) && Object.hasOwn(record.bundles[bundleId].tools, tool)) {
+        return location;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Recorded paths by bundle id for every bundle with an entry for `tool`, merged across the files.
+   * @param locations - Record files to read.
+   * @param tool - Tool key.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public async entriesForTool(locations: readonly RecordLocation[], tool: string): Promise<Map<string, string[]>> {
+    const entries = new Map<string, string[]>();
+    for (const location of locations) {
+      const { record } = await this.store.load(location);
+      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
+        if (Object.hasOwn(bundle.tools, tool)) {
+          const paths = bundle.tools[tool].files.map((file) => file.path);
+          entries.set(bundleId, [...new Set([...(entries.get(bundleId) ?? []), ...paths])]);
+        }
+      }
+    }
+    return new Map([...entries].toSorted(([left], [right]) => compareCodeUnits(left, right)));
   }
 
   /**
@@ -486,5 +666,43 @@ export class InstallRecordService {
       }
     }
     return { deleted, warnings };
+  }
+
+  /**
+   * Delete the superseded files of several changes saved in one run, keeping
+   * any path a later change listed again.
+   * @param changes - The saved changes, in order.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public async deleteSupersededAfterAll(changes: readonly Pick<RecordChange, 'deletedFiles' | 'location'>[]): Promise<DeleteSupersededResult> {
+    const listedByRecord = new Map<string, Set<string>>();
+    const handled = new Set<string>();
+    const result: DeleteSupersededResult = { deleted: [], warnings: [] };
+    for (const change of changes) {
+      let listed = listedByRecord.get(change.location.path);
+      if (listed === undefined) {
+        const other = this.otherLocation(change.location);
+        const locations = other === undefined ? [change.location] : [change.location, other];
+        const records: InstallRecord[] = [];
+        for (const location of locations) {
+          records.push((await this.store.load(location)).record);
+        }
+        listed = listedPaths(records);
+        listedByRecord.set(change.location.path, listed);
+      }
+      const still = listed;
+      const deletedFiles = change.deletedFiles.filter((recordedPath) => {
+        const key = `${change.location.root}\u0000${recordedPath}`;
+        if (still.has(recordedPath) || handled.has(key)) {
+          return false;
+        }
+        handled.add(key);
+        return true;
+      });
+      const removal = await this.deleteSuperseded({ deletedFiles, location: change.location });
+      result.deleted.push(...removal.deleted);
+      result.warnings.push(...removal.warnings);
+    }
+    return result;
   }
 }

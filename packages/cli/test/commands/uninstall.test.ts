@@ -16,9 +16,6 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  NodeFileSystem,
-} from '@ai-primitives-hub/infra';
-import {
   afterEach,
   beforeEach,
   describe,
@@ -35,14 +32,13 @@ import {
   UninstallCommand,
 } from '../../src/commands/uninstall';
 import {
-  runCommand,
-} from '../../src/framework';
-import {
   createGovernedReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
 import {
+  addRepositoryTargets,
   initGitRoot,
+  makeRun,
   readRecord,
   recordPathIn,
 } from '../helpers/install-record-fixtures';
@@ -64,19 +60,7 @@ describe('uninstall command', () => {
   let targetDir: string;
   const installedFile = (): string => path.join(targetDir, 'prompts', 'hello.prompt.md');
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES);
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -220,12 +204,7 @@ describe('uninstall command', () => {
 
     beforeEach(async () => {
       await initGitRoot(workspace);
-      for (const [name, type] of [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]) {
-        expect((await run([
-          'target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
-        ])).exitCode).toBe(0);
-        expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', name, '-o', 'json'])).exitCode).toBe(0);
-      }
+      await addRepositoryTargets(run, workspace, [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], { bundleDir });
     });
 
     it('uninstalling one tool from the record keeps the other tool and its files', async () => {
@@ -262,6 +241,53 @@ describe('uninstall command', () => {
       expect(data.uninstalled).toBe(2);
       expect(await recordedTools()).toEqual(['kiro']);
     });
+
+    it('refuses uninstall <id> without --target when the bundle has several tools, removing nothing', async () => {
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['uninstall', '--bundle', 'local-foo', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      const error = (JSON.parse(result.stdout) as { errors: { code: string; message: string; context: { tools: string[] } }[] }).errors[0];
+      expect(error).toMatchObject({ code: 'USAGE.MISSING_FLAG', context: { tools: ['kiro', 'vscode'] } });
+      expect(error.message).toContain('kiro, vscode');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <3.0.0 record> --target <user-scope vscode> refuses with USAGE.INVALID_FLAG, removing nothing', async () => {
+      expect((await run(['target', 'add', 'user-vscode', '--type', 'vscode', '--path', path.join(workspace, 'user-vscode'), '-o', 'json'])).exitCode).toBe(0);
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'user-vscode', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect((JSON.parse(result.stdout) as { errors: { code: string }[] }).errors[0].code).toBe('USAGE.INVALID_FLAG');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <3.0.0 record> --target <kiro> removes only the kiro entries and keeps vscode files', async () => {
+      const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'repo-kiro']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await recordedTools()).toEqual(['vscode']);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <2.0.0 file> uninstalls as before', async () => {
+      const oldFile = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldFile, '# Old\n');
+      await writeOldLock({ 'old-only': 'prompts/old.prompt.md' });
+
+      const result = await run(['uninstall', '--lockfile', oldLockPath(), '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string; uninstalled: number }>(result.stdout).data).toMatchObject({ lockfile: oldLockPath(), uninstalled: 1 });
+      expect(await exists(oldFile)).toBe(false);
+      expect(await recordedTools()).toEqual(['kiro', 'vscode']);
+    });
   });
 
   it('fails with exit 1 when neither --bundle, --lockfile, nor --all is given (and no lockfile is discoverable)', async () => {
@@ -269,19 +295,7 @@ describe('uninstall command', () => {
     try {
       const freshTargetDir = path.join(freshWorkspace, 'target');
       await mkdir(freshTargetDir, { recursive: true });
-      const freshRun = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-        commandClasses: COMMAND_CLASSES,
-        context: {
-          cwd: freshWorkspace,
-          fs: new NodeFileSystem(),
-          env: {
-            HOME: freshWorkspace,
-            USERPROFILE: freshWorkspace,
-            XDG_CONFIG_HOME: path.join(freshWorkspace, 'xdg-config'),
-            XDG_CACHE_HOME: path.join(freshWorkspace, 'xdg-cache')
-          }
-        }
-      });
+      const freshRun = makeRun(() => freshWorkspace, COMMAND_CLASSES);
       expect((await freshRun([
         'target', 'add', 'copilot', '--type', 'copilot-cli', '--path', freshTargetDir, '-o', 'json'
       ])).exitCode).toBe(0);

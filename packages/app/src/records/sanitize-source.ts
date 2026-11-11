@@ -7,9 +7,10 @@ import {
   recordError,
   type SourceRecord,
 } from '@ai-primitives-hub/core';
-
-/** Optional string fields copied from a source, in addition to `type` and `url`. */
-const OPTIONAL_SOURCE_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef'] as const;
+import {
+  copySourceFields,
+  SOURCE_FIELDS,
+} from './source-fields';
 
 /** Query parameter names that look like a credential. */
 const TOKEN_PARAM_PATTERN = /token|^sig$|^signature$|^key$|^api[-_]?key$|secret|password|^auth|credential/i;
@@ -93,14 +94,5 @@ export const sanitizeSource = (source: Readonly<Record<string, unknown>>): Sourc
   if (typeof type !== 'string' || type === '' || typeof url !== 'string' || url === '') {
     throw recordError('RECORD.MALFORMED', { detail: 'a source needs a type and a url' });
   }
-  const sanitized = Object.create(null) as SourceRecord;
-  sanitized.type = type;
-  sanitized.url = sanitizeSourceUrl(url);
-  for (const field of OPTIONAL_SOURCE_FIELDS) {
-    const value = source[field];
-    if (typeof value === 'string') {
-      sanitized[field] = value;
-    }
-  }
-  return sanitized;
+  return copySourceFields(source, type, sanitizeSourceUrl(url), SOURCE_FIELDS);
 };

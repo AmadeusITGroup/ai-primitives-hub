@@ -11,15 +11,27 @@
  * approach in install.test.ts/uninstall.test.ts.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
+  realpathSync,
+} from 'node:fs';
+import {
   access,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type {
+  HttpClient,
+  HttpRequest,
+} from '@ai-primitives-hub/core';
 import {
+  buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
@@ -40,17 +52,35 @@ import {
   InstallCommand,
 } from '../../src/commands/install';
 import {
+  SourceAddCommand,
+} from '../../src/commands/source';
+import {
   StatusCommand,
 } from '../../src/commands/status';
 import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
+  TargetRemoveCommand,
+} from '../../src/commands/target-remove';
+import {
   UpdateCommand,
 } from '../../src/commands/update';
 import {
-  runCommand,
+  createTestContext,
+  runCli,
 } from '../../src/framework';
+import {
+  addRepositoryTargets,
+  initGitRoot,
+  makeGitWorktree,
+  makeRun,
+  readExcludeLines,
+  readRecord,
+  recordPathIn,
+  workspaceEnv,
+  writeRecord,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   DoctorCommand,
@@ -70,20 +100,7 @@ interface JsonEnvelope<T> {
 describe('doctor/status/init/update commands', () => {
   let workspace: string;
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
-        AI_PRIMITIVES_HUB_SKIP_NETWORK: '1'
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES, { AI_PRIMITIVES_HUB_SKIP_NETWORK: '1' });
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -201,23 +218,19 @@ describe('doctor/status/init/update commands', () => {
   });
 
   describe('status', () => {
-    it('reports empty state for a fresh workspace', async () => {
+    it('falls back to the user level with no record or lockfile', async () => {
       const result = await run(['status', '-o', 'json']);
       expect(result.exitCode).toBe(0);
-      const envelope = parseJson<{
-        configPath: string | null;
-        targets: unknown[];
-        activeHubId: string | null;
-        index: unknown;
-        lockfile: unknown;
-      }>(result.stdout);
+      const envelope = parseJson<Record<string, unknown>>(result.stdout);
       expect(envelope.data).toMatchObject({
         configPath: null,
         targets: [],
         activeHubId: null,
         index: null,
-        lockfile: null
+        level: 'user',
+        entries: []
       });
+      expect(envelope.data).not.toHaveProperty('lockfile');
     });
 
     it('reflects a configured target + installed bundle', async () => {
@@ -238,11 +251,12 @@ describe('doctor/status/init/update commands', () => {
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{
         targets: { name: string; type: string }[];
-        lockfile: { entries: number; bundles?: { bundleId: string }[] } | null;
+        level: string;
+        entries: { bundleId: string; version: string }[];
       }>(result.stdout);
       expect(envelope.data.targets).toContainEqual(expect.objectContaining({ name: 'copilot', type: 'copilot-cli' }));
-      expect(envelope.data.lockfile?.entries).toBe(1);
-      expect(envelope.data.lockfile?.bundles?.map((b) => b.bundleId)).toContain('local-foo');
+      expect(envelope.data.level).toBe('user');
+      expect(envelope.data.entries).toMatchObject([{ bundleId: 'local-foo', version: '1.0.0' }]);
     });
   });
 
@@ -442,6 +456,484 @@ profiles: []
       expect(result.exitCode).toBe(0);
       const envelope = parseJson<{ dryRun: boolean; updated: number }>(result.stdout);
       expect(envelope.data).toMatchObject({ dryRun: true, updated: 0 });
+    });
+  });
+
+  describe('update on the repository install record (format 3.0.0)', () => {
+    const ART_ROOT = 'https://artifactory.example/repo/source';
+    const recordPath = (): string => recordPathIn(workspace);
+    const bundleDir = (): string => path.join(workspace, 'bundle');
+    const requests: HttpRequest[] = [];
+    const envReads = new Set<string>();
+
+    /**
+     * Bundle files of `local-foo`; version 1.0.0 also ships `extra.prompt.md`.
+     * @param version
+     */
+    const bundleFiles = (version: string): Map<string, string> => new Map([
+      ['deployment-manifest.yml', [
+        'id: local-foo', `version: ${version}`, 'name: Local Foo', 'prompts:',
+        '  - id: hello', '    file: prompts/hello.prompt.md', '    type: prompt',
+        ...(version === '1.0.0' ? ['  - id: extra', '    file: prompts/extra.prompt.md', '    type: prompt'] : [])
+      ].join('\n') + '\n'],
+      ['prompts/hello.prompt.md', `# Hello ${version}\n`],
+      ...(version === '1.0.0' ? [['prompts/extra.prompt.md', '# Extra\n'] as [string, string]] : [])
+    ]);
+    const v2Zip = buildZip([...bundleFiles('2.0.0')].map(([filePath, text]) => ({ path: filePath, bytes: new TextEncoder().encode(text) })));
+    /**
+     * Release zip of a one-or-more-prompt bundle.
+     * @param id Bundle id.
+     * @param version Bundle version.
+     * @param prompts Prompt file names under `prompts/`.
+     */
+    const promptZip = (id: string, version: string, prompts: string[]): Uint8Array => buildZip([
+      { path: 'deployment-manifest.yml', text: [`id: ${id}`, `version: ${version}`, `name: ${id}`, 'prompts:',
+        ...prompts.flatMap((name) => [`  - id: ${name}`, `    file: prompts/${name}.prompt.md`, '    type: prompt'])].join('\n') + '\n' },
+      ...prompts.map((name) => ({ path: `prompts/${name}.prompt.md`, text: `# ${id} ${name} ${version}\n` }))
+    ].map(({ path: filePath, text }) => ({ path: filePath, bytes: new TextEncoder().encode(text) })));
+    /** Release zips by repository name: each repository acme-org/<name> serves `<name>` 2.0.0. */
+    const releaseZips = new Map<string, Uint8Array>([
+      ['local-foo', v2Zip],
+      ['other-bar', promptZip('other-bar', '2.0.0', ['bar', 'extra'])],
+      ['old-only', promptZip('old-only', '2.0.0', ['old'])]
+    ]);
+    let ambientToken: string | undefined;
+    const json = (request: HttpRequest, body: unknown) =>
+      ({ statusCode: 200, body: new TextEncoder().encode(JSON.stringify(body)), finalUrl: request.url, headers: {} });
+
+    /** HTTP boundary: GitHub releases of `releaseZips` and an Artifactory index and archive serving `local-foo` 2.0.0. */
+    const http: HttpClient = {
+      fetch: async (request) => {
+        requests.push(request);
+        const release = /^https:\/\/api\.github\.com\/repos\/acme-org\/([^/]+)\/releases$/.exec(request.url)?.[1];
+        if (release === 'no-release') {
+          return json(request, []);
+        }
+        if (release !== undefined && releaseZips.has(release)) {
+          return json(request, [{ tag_name: `${release}-v2.0.0`, assets: [{ name: 'bundle.zip', url: `https://api.github.com/assets/${release}` }] }]);
+        }
+        const asset = /^https:\/\/api\.github\.com\/assets\/(.+)$/.exec(request.url)?.[1];
+        if (asset !== undefined && releaseZips.has(asset)) {
+          return { statusCode: 200, body: releaseZips.get(asset) as Uint8Array, finalUrl: request.url, headers: {} };
+        }
+        if (request.url === `${ART_ROOT}/index-v1.json`) {
+          return json(request, {
+            formatVersion: 1, source: { id: 'art', name: 'Art', updatedAt: '2026-01-01T00:00:00Z' },
+            bundles: [{
+              id: 'local-foo', version: '2.0.0', name: 'Local Foo', description: '', author: 'Test', environments: ['vscode'],
+              tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+              manifest: { path: '2.0.0/local-foo/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+              archive: { path: '2.0.0/local-foo.zip', size: v2Zip.length, sha256: createHash('sha256').update(v2Zip).digest('hex'), mediaType: 'application/zip' }
+            }]
+          });
+        }
+        if (request.url === `${ART_ROOT}/2.0.0/local-foo.zip`) {
+          return { statusCode: 200, body: v2Zip, finalUrl: request.url, headers: {} };
+        }
+        throw new Error(`Unexpected request: ${request.url}`);
+      }
+    };
+
+    /**
+     * Run a command; `ctx.env` records every key read, so a test can prove a variable was never read.
+     * @param argv Command line.
+     */
+    const runRecord = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+      const base = createTestContext({
+        cwd: workspace,
+        fs: new NodeFileSystem(),
+        env: workspaceEnv(workspace, { ARTIFACTORY_TOKEN: 'reader-token' })
+      });
+      const env = new Proxy(base.env, {
+        get: (target, key, receiver) => {
+          if (typeof key === 'string') {
+            envReads.add(key);
+          }
+          return Reflect.get(target, key, receiver) as unknown;
+        }
+      });
+      const ctx = { ...base, env };
+      const exitCode = await runCli(argv, {
+        ctx,
+        http,
+        tokens: { getToken: async () => ambientToken },
+        commandClasses: [TargetAddCommand, TargetRemoveCommand, InstallCommand, UpdateCommand, SourceAddCommand, StatusCommand],
+        commands: [],
+        name: 'test',
+        version: 'test'
+      });
+      return { exitCode, stdout: base.stdout.captured() };
+    };
+
+    interface RecordJson {
+      bundles: Record<string, { tools: Record<string, { version: string; sourceId: string; sourceType: string; files: { path: string }[] }> }>;
+      sources: Record<string, Record<string, string>>;
+    }
+    interface UpdateData {
+      level: string;
+      records: string[];
+      updates: { bundleId: string; tool: string; from: string; to: string }[];
+      alsoUpdated: { bundleId: string; tool: string }[];
+      skipped: { bundleId: string; tool: string; reason: string }[];
+    }
+    const readRecordJson = (): Promise<RecordJson> => readRecord<RecordJson>(workspace);
+    const versions = async (): Promise<Record<string, string>> =>
+      Object.fromEntries(Object.entries((await readRecordJson()).bundles['local-foo'].tools).map(([tool, entry]) => [tool, entry.version]));
+    const promptFile = (name: string): string => path.join(workspace, '.github', 'prompts', name);
+
+    /**
+     * Add repository targets, install `local-foo` 1.0.0 from a local folder
+     * with each (in order), then point every record entry at `source`.
+     * @param targets Target name and type pairs, in install order.
+     * @param source Recorded source the entries now come from.
+     */
+    const installAt100 = async (targets: [string, string][], source: Record<string, string>): Promise<void> => {
+      for (const [filePath, text] of bundleFiles('1.0.0')) {
+        await mkdir(path.dirname(path.join(bundleDir(), filePath)), { recursive: true });
+        await writeFile(path.join(bundleDir(), filePath), text);
+      }
+      await addRepositoryTargets(runRecord, workspace, targets, { bundleDir: bundleDir() });
+      const record = await readRecordJson();
+      record.sources = { remote: source };
+      for (const entry of Object.values(record.bundles['local-foo'].tools)) {
+        entry.sourceId = 'remote';
+        entry.sourceType = source.type;
+      }
+      await writeRecord(workspace, record);
+    };
+    const GITHUB_SOURCE = { type: 'github', url: 'https://github.com/acme-org/local-foo' };
+
+    beforeEach(async () => {
+      workspace = realpathSync.native(workspace);
+      requests.length = 0;
+      envReads.clear();
+      ambientToken = undefined;
+      await initGitRoot(workspace);
+    });
+
+    it.each([
+      ['vscode then kiro', [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]],
+      ['kiro then vscode', [['repo-kiro', 'kiro'], ['repo-vscode', 'vscode']]]
+    ] as [string, [string, string][]][])('updates every tool at the level with an inferred target (%s), one key per tool', async (_order, targets) => {
+      await installAt100(targets, GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<UpdateData>(result.stdout);
+      expect(data).toMatchObject({ level: 'repository', records: [recordPath()], alsoUpdated: [], skipped: [] });
+      expect(data.updates).toEqual([
+        { bundleId: 'local-foo', tool: 'kiro', from: '1.0.0', to: '2.0.0' },
+        { bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }
+      ]);
+      const record = await readRecordJson();
+      expect(Object.keys(record.bundles)).toEqual(['local-foo']);
+      expect(await versions()).toEqual({ kiro: '2.0.0', vscode: '2.0.0' });
+      expect(await readFile(promptFile('hello.prompt.md'), 'utf8')).toBe('# Hello 2.0.0\n');
+    });
+
+    it('--target narrows the update to that tool and prints the Record line', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--target', 'repo-kiro', '--no-hub-sync']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain('local-foo (kiro): 1.0.0 → 2.0.0');
+      expect(result.stdout).not.toContain('(vscode)');
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await versions()).toEqual({ kiro: '2.0.0', vscode: '1.0.0' });
+    });
+
+    // copilot-cli targets are user-scope only, so vscode-insiders is the repository
+    // tool that shares `.github` files with vscode here.
+    it('updates a sibling sharing .github files with its own writer and reports it in alsoUpdated', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-insiders', 'vscode-insiders']], GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('ok');
+      expect(data.updates).toEqual([{ bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }]);
+      expect(data.alsoUpdated).toEqual([{ bundleId: 'local-foo', tool: 'vscode-insiders' }]);
+      expect(await versions()).toEqual({ vscode: '2.0.0', 'vscode-insiders': '2.0.0' });
+      await expect(readFile(promptFile('extra.prompt.md'), 'utf8')).rejects.toThrow();
+    });
+
+    it('moves a versioned bundle id and its sibling to the new version\'s key, so status lists one row per tool and a replay restores it', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-insiders', 'vscode-insiders']], GITHUB_SOURCE);
+      const versioned = (version: string): string => `acme-org-local-foo-local-foo-${version}`;
+      const record = await readRecordJson();
+      record.bundles = { [versioned('1.0.0')]: record.bundles['local-foo'] };
+      await writeRecord(workspace, record);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.alsoUpdated).toEqual([{ bundleId: versioned('1.0.0'), tool: 'vscode-insiders' }]);
+      expect(Object.keys((await readRecordJson()).bundles)).toEqual([versioned('2.0.0')]);
+      const status = await runRecord(['status', '-o', 'json']);
+      expect(parseJson<{ entries: { bundleId: string; tool: string; version: string }[] }>(status.stdout).data.entries
+        .map(({ bundleId, tool, version }) => `${bundleId} ${tool} ${version}`))
+        .toEqual([`${versioned('2.0.0')} vscode 2.0.0`, `${versioned('2.0.0')} vscode-insiders 2.0.0`]);
+      const replay = await runRecord(['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']);
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(Object.keys((await readRecordJson()).bundles)).toEqual([versioned('2.0.0')]);
+    });
+
+    it('reports a sibling with no target as out of date and keeps the file it still lists', async () => {
+      await installAt100([['repo-insiders', 'vscode-insiders'], ['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      expect((await runRecord(['target', 'remove', 'repo-insiders', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.updates.map((entry) => entry.tool)).toEqual(['vscode']);
+      expect(data.alsoUpdated).toEqual([]);
+      expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode-insiders', reason: expect.stringContaining('out of date (still 1.0.0)') }]);
+      expect(await versions()).toEqual({ vscode: '2.0.0', 'vscode-insiders': '1.0.0' });
+      expect(await readFile(promptFile('extra.prompt.md'), 'utf8')).toBe('# Extra\n');
+    });
+
+    it('--dry-run looks the version up from the configured source only and never reads the record\'s credentialRef', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'artifactory', url: 'https://evil.example/repo', authMode: 'bearer', credentialRef: 'RECORD_SECRET' });
+      const record = await readFile(recordPath(), 'utf8');
+      expect((await runRecord([
+        'source', 'add', '--type', 'artifactory', '--url', ART_ROOT, '--id', 'remote', '--auth', 'bearer', '--credential-ref', 'ARTIFACTORY_TOKEN', '-o', 'json'
+      ])).exitCode).toBe(0);
+      envReads.clear();
+
+      const result = await runRecord(['update', '--dry-run', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.updates).toEqual([{ bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }]);
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.every((request) => request.url.startsWith(ART_ROOT) && request.headers?.Authorization === 'Bearer reader-token')).toBe(true);
+      expect(envReads.has('RECORD_SECRET')).toBe(false);
+      expect(await readFile(recordPath(), 'utf8')).toBe(record);
+    });
+
+    it.each([
+      ['update', ['update', '--no-hub-sync', '-o', 'json']],
+      ['replay', ['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']]
+    ])('%s accepts a record written without authMode for an Artifactory source configured without one, and records it as anonymous', async (command, argv) => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'artifactory', url: ART_ROOT });
+      if (command === 'replay') {
+        // Replay restores the recorded version; the Artifactory index serves 2.0.0.
+        const record = await readRecordJson();
+        record.bundles['local-foo'].tools.vscode.version = '2.0.0';
+        await writeRecord(workspace, record);
+      }
+      expect((await runRecord(['source', 'add', '--type', 'artifactory', '--url', ART_ROOT, '--id', 'remote', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runRecord(argv);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await versions()).toEqual({ vscode: '2.0.0' });
+      expect((await readRecordJson()).sources.remote).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
+    });
+
+    it('lists the local-only files an update writes in the record\'s info/exclude in a git worktree', async () => {
+      const commonDir = await makeGitWorktree(workspace);
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+
+      const result = await runRecord(['update', '--target', 'repo-vscode', '--commit-mode', 'local-only', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await versions()).toEqual({ vscode: '2.0.0' });
+      expect(await readExcludeLines(commonDir)).toContain('.github/prompts/hello.prompt.md');
+    });
+
+    it('a user-scope update leaves the repository record byte-identical', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const record = await readFile(recordPath(), 'utf8');
+      expect((await runRecord(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
+      expect((await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runRecord(['update', '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await readFile(recordPath(), 'utf8')).toBe(record);
+    });
+
+    it('a repository-scope update leaves the user lockfile byte-identical', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      expect((await runRecord(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', path.join(workspace, 'target'), '-o', 'json'])).exitCode).toBe(0);
+      const installed = await runRecord(['install', 'local-foo', '--from', bundleDir(), '--target', 'copilot', '-o', 'json']);
+      const userLockfile = parseJson<{ lockfile: string }>(installed.stdout).data.lockfile;
+      const before = await readFile(userLockfile, 'utf8');
+
+      const result = await runRecord(['update', '--target', 'repo-vscode', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.updates.map((u) => u.tool)).toEqual(['vscode']);
+      expect(await readFile(userLockfile, 'utf8')).toBe(before);
+    });
+
+    it('looks up and downloads a source taken from the record without credentials', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      ambientToken = 'ambient-secret';
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.updates).toHaveLength(1);
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
+    });
+
+    it('exits 1 when every planned entry was skipped and nothing was updated', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'local', url: path.dirname(workspace) });
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.updates).toEqual([]);
+      expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode', reason: 'local source outside the repository' }]);
+    });
+
+    it('reports an entry whose tool is unknown as needing a reinstall', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const record = await readRecordJson();
+      record.bundles['legacy-bar'] = { tools: { unknown: { ...record.bundles['local-foo'].tools.vscode, version: '0.5.0' } } };
+      await writeRecord(workspace, record);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.skipped).toEqual([{ bundleId: 'legacy-bar', tool: 'unknown', reason: expect.stringContaining('needs reinstall') }]);
+      expect(data.updates.map((u) => u.tool)).toEqual(['vscode']);
+    });
+
+    it('reports a bundle whose source has no installable release, not as up to date', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'github', url: 'https://github.com/acme-org/no-release' });
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode', reason: expect.stringContaining('no installable release') }]);
+      expect(await versions()).toEqual({ vscode: '1.0.0' });
+    });
+
+    it('refuses a release archive of another bundle and leaves the record unchanged', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'github', url: 'https://github.com/acme-org/other-bar' });
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('does not match expected');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await readFile(promptFile('hello.prompt.md'), 'utf8')).toBe('# Hello 1.0.0\n');
+    });
+
+    it('keeps a file one bundle\'s update drops when another bundle\'s update in the same run starts writing it', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const barDir = path.join(workspace, 'bar-bundle');
+      await mkdir(path.join(barDir, 'prompts'), { recursive: true });
+      await writeFile(path.join(barDir, 'deployment-manifest.yml'),
+        'id: other-bar\nversion: 1.0.0\nname: Other Bar\nprompts:\n  - id: bar\n    file: prompts/bar.prompt.md\n    type: prompt\n');
+      await writeFile(path.join(barDir, 'prompts', 'bar.prompt.md'), '# Bar\n');
+      expect((await runRecord(['install', 'other-bar', '--from', barDir, '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
+      const record = await readRecordJson();
+      record.sources['remote-bar'] = { type: 'github', url: 'https://github.com/acme-org/other-bar' };
+      Object.assign(record.bundles['other-bar'].tools.vscode, { sourceId: 'remote-bar', sourceType: 'github' });
+      await writeRecord(workspace, record);
+      const shared = '.github/prompts/extra.prompt.md';
+      expect(record.bundles['local-foo'].tools.vscode.files.map((file) => file.path)).toContain(shared);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<UpdateData>(result.stdout).data.updates.map((u) => u.bundleId)).toEqual(['local-foo', 'other-bar']);
+      const after = await readRecordJson();
+      expect(after.bundles['local-foo'].tools.vscode.files.map((file) => file.path)).not.toContain(shared);
+      expect(after.bundles['other-bar'].tools.vscode.files.map((file) => file.path)).toContain(shared);
+      expect(await readFile(path.join(workspace, shared), 'utf8')).toBe('# other-bar extra 2.0.0\n');
+    });
+
+    it('also updates bundles only in the old prompt-registry file, on that file, and writes nothing about them to the record', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      const oldEntry = (version: string, sourceId: string) => ({ version, sourceId, sourceType: 'github', installedAt: '2026-10-01T00:00:00.000Z', files: [] });
+      await writeFile(oldPath, JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: { 'local-foo': oldEntry('0.9.0', 'foo'), 'old-only': oldEntry('0.1.0', 'old') },
+        sources: { foo: GITHUB_SOURCE, old: { type: 'github', url: 'https://github.com/acme-org/old-only' } }
+      }));
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<UpdateData & { oldFile: { lockfile: string; checked: number; updates: { bundleId: string; from: string; to: string }[] } }>(result.stdout);
+      expect(data.updates).toEqual([{ bundleId: 'local-foo', tool: 'vscode', from: '1.0.0', to: '2.0.0' }]);
+      expect(data.oldFile).toMatchObject({ lockfile: oldPath, checked: 1, updates: [{ bundleId: 'old-only', from: '0.1.0', to: '2.0.0' }] });
+      const old = JSON.parse(await readFile(oldPath, 'utf8')) as { bundles: Record<string, { version: string }> };
+      expect(old.bundles['old-only'].version).toBe('2.0.0');
+      expect(old.bundles['local-foo'].version).toBe('0.9.0');
+      expect(Object.keys((await readRecordJson()).bundles)).toEqual(['local-foo']);
+      expect(await readFile(promptFile('old.prompt.md'), 'utf8')).toBe('# old-only old 2.0.0\n');
+    });
+
+    it('status -o json lists one row per (bundle, tool) and old-file-only bundles with their old path', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], GITHUB_SOURCE);
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeFile(oldPath, JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: {
+          'local-foo': { version: '0.9.0', sourceId: 's', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] },
+          'old-only': { version: '0.1.0', sourceId: 's', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] }
+        },
+        sources: { s: { type: 'local', url: bundleDir() } }
+      }));
+
+      const result = await runRecord(['status', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<Record<string, unknown>>(result.stdout);
+      expect(data).not.toHaveProperty('lockfile');
+      expect(data).toMatchObject({
+        level: 'repository',
+        records: [recordPath(), oldPath],
+        targets: [{ name: 'repo-vscode', type: 'vscode' }, { name: 'repo-kiro', type: 'kiro' }].map((t) => expect.objectContaining(t)),
+        entries: [
+          { bundleId: 'local-foo', tool: 'kiro', level: 'repository', version: '1.0.0', record: recordPath(), needsReinstall: false },
+          { bundleId: 'local-foo', tool: 'vscode', level: 'repository', version: '1.0.0', record: recordPath(), needsReinstall: false },
+          { bundleId: 'old-only', tool: 'unknown', level: 'repository', version: '0.1.0', record: oldPath, needsReinstall: false }
+        ]
+      });
+      expect(Object.keys(data)).toEqual(expect.arrayContaining(['configPath', 'userTargetsPath', 'activeHubId', 'hubs', 'index']));
+    });
+
+    it('lets the record win over an old-file bundle of another version of the same versioned id in status and replay', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const versioned = (version: string): string => `acme-org-local-foo-local-foo-${version}`;
+      const record = await readRecordJson();
+      // Replay restores the recorded version; the release serves 2.0.0.
+      record.bundles = { [versioned('2.0.0')]: record.bundles['local-foo'] };
+      record.bundles[versioned('2.0.0')].tools.vscode.version = '2.0.0';
+      await writeRecord(workspace, record);
+      await writeFile(path.join(workspace, 'prompt-registry.lock.json'), JSON.stringify({
+        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
+        bundles: { [versioned('1.0.0')]: { version: '1.0.0', sourceId: 'foo', sourceType: 'github', installedAt: '2026-10-01T00:00:00.000Z', files: [] } },
+        sources: { foo: GITHUB_SOURCE }
+      }));
+
+      const status = await runRecord(['status', '-o', 'json']);
+      const replay = await runRecord(['install', '-o', 'json']);
+
+      expect(parseJson<{ entries: { bundleId: string; tool: string }[] }>(status.stdout).data.entries
+        .map(({ bundleId, tool }) => `${bundleId} ${tool}`)).toEqual([`${versioned('2.0.0')} vscode`]);
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(parseJson<Record<string, unknown>>(replay.stdout).data).not.toHaveProperty('oldFile');
     });
   });
 });

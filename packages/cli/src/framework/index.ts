@@ -90,19 +90,36 @@ export {
   runCommand,
 } from './golden';
 export type {
+  OldFileOnlyBundles,
+  OldFileOnlyPlan,
+  OldFileTargetInput,
+  PlannedRecordInstall,
+  PreparedRecordSelection,
   PreparedRepositoryRecord,
   PreparedRepositoryUninstall,
   RecordedRepositoryInstall,
   RecordedRepositoryUninstall,
+  RecordOutputFields,
+  RecordSelectionInput,
   RepositoryInstallToRecord,
 } from './install-record';
 export {
   CLI_RECORD_GENERATED_BY,
+  configuredSources,
+  finishRecordRun,
+  oldFileOnlyBundles,
+  prepareOldFileOnly,
+  prepareRecordSelection,
   prepareRepositoryRecord,
   prepareRepositoryUninstall,
+  recordOutputFields,
+  recordPlannedInstall,
   recordRepositoryInstall,
   recordRepositoryUninstall,
+  renderRecordLine,
+  toCommandRecordError,
   toInstallRecordError,
+  tokensForRecordSource,
 } from './install-record';
 export type {
   CreateHubManagerOptions,
