@@ -25,7 +25,7 @@ that the extension did not share.
 - `AppStoragePaths` keeps only `userRecord`; the per-profile installed-bundle
   folders move to the extension-only `ExtensionAppStorage` (narrows ADR-0005).
 - The CLI drops `target-state.json`: without `--target` it uses the only
-  configured target; `update` and `uninstall <bundle-id>` use the record's tools.
+  configured target; `update` and `uninstall --bundle <bundle-id>` use the record's tools.
 - The extension name, publisher and `promptregistry.*` command IDs are unchanged.
 
 ## Consequences

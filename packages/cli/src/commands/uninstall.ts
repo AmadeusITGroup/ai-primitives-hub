@@ -2,7 +2,7 @@
  * Uninstall command for removing bundles from targets.
  *
  * Symmetric to install: supports three modes:
- *   ai-primitives-hub uninstall <bundle-id>        (by bundle ID)
+ *   ai-primitives-hub uninstall --bundle <bundle-id>        (by bundle ID)
  *   ai-primitives-hub uninstall --lockfile <path>  (from lockfile)
  *   ai-primitives-hub uninstall --all              (all bundles for target)
  *
@@ -11,10 +11,10 @@
  * the install; bundles not recorded there fall back to the old store.
  *
  * `uninstall --lockfile <ai-primitives-hub.*.lock.json>` removes only the
- * target tool's entries, and `uninstall <id>` without `--target` is refused
+ * target tool's entries, and `uninstall --bundle <id>` without `--target` is refused
  * when the record lists the bundle for several tools.
  *
- * Without an inferred target, `uninstall <id>` lets the record decide the
+ * Without an inferred target, `uninstall --bundle <id>` lets the record decide the
  * tool; every other mode needs `--target` unless one target is configured.
  *
  * Repository-scope targets otherwise delegate to `UninstallPipeline`
@@ -142,7 +142,7 @@ const multiToolError = (bundleId: string, tools: readonly string[]): RegistryErr
 });
 
 /**
- * Refuse `uninstall <id>` without `--target` when the record lists the bundle for several tools.
+ * Refuse `uninstall --bundle <id>` without `--target` when the record lists the bundle for several tools.
  * @param rows Rows of the record decision.
  * @param bundleId Bundle to uninstall.
  * @throws {RegistryError} `USAGE.MISSING_FLAG` listing the tools; nothing was removed.
@@ -162,7 +162,7 @@ const isBundleMode = (opts: UninstallOptions): boolean => opts.bundle !== undefi
   && (opts.lockfile === undefined || opts.lockfile.length === 0);
 
 /**
- * `uninstall <bundle-id>` with no inferred target: a lone `unknown` entry is
+ * `uninstall --bundle <bundle-id>` with no inferred target: a lone `unknown` entry is
  * removed keeping its files, else the bundle goes through the target mapped to its tool.
  * @param opts Uninstall options; `opts.bundle` is set.
  * @param ctx CLI context.
@@ -305,7 +305,7 @@ export class UninstallCommand extends BaseUninstallCommand {
         code: 'USAGE.MISSING_FLAG',
         message: 'uninstall: provide <bundle-id>, --lockfile <path>, or --all',
         hint: 'Examples:\n'
-          + '  ai-primitives-hub uninstall <bundle-id> --target my-vscode\n'
+          + '  ai-primitives-hub uninstall --bundle <bundle-id> --target my-vscode\n'
           + '  ai-primitives-hub uninstall --lockfile ai-primitives-hub.lock.json\n'
           + '  ai-primitives-hub uninstall --all\n\n'
           + 'Note: Lockfile is auto-detected in current directory and parent directories.'
