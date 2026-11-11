@@ -101,7 +101,7 @@ CLI `0.2.x` and earlier extension releases do not see the new files. A teammate 
 
 ### `profile activate`
 
-CLI `profile activate` and `profile deactivate` use the install record like `install` and `uninstall`; workspace-scope targets keep the CLI's old user lockfile. Bundles a profile activated with an older release migrate as `unknown` entries, which `profile deactivate` keeps with their files. Activate the profile again to record them, or remove them with `ai-primitives-hub uninstall <bundle-id>`.
+CLI `profile activate` and `profile deactivate` use the install record like `install` and `uninstall`; workspace-scope targets keep the CLI's old user lockfile. Bundles a profile activated with an older release migrate as `unknown` entries, which `profile deactivate` keeps with their files. Activate the profile again to record them, or remove them with `ai-primitives-hub uninstall --bundle <bundle-id>`.
 
 ### Rolling back
 
