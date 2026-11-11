@@ -1105,8 +1105,9 @@ export class BundleInstaller {
             this.logger.info(`[BundleInstaller] Installing repository scope bundle to global storage: bundles/${bundle.id}`);
           }
           installDir = this.getInstallDirectory(bundle.id, options.scope, bundle.name);
-          // An update extracts into a clean folder, so a file the new version dropped is not copied back.
-          if (inPlace !== undefined) {
+          // A repository update extracts into a clean folder, so a file the new version dropped is not
+          // copied back. A user update keeps the folder: its symlinks point into it until the update is recorded.
+          if (inPlace !== undefined && options.scope === 'repository') {
             await this.removeDirectory(installDir);
           }
           await ensureDirectory(installDir);
