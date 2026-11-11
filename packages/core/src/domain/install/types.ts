@@ -53,4 +53,6 @@ export interface InstalledBundle {
   commitMode?: RepositoryCommitMode;
   /** Set when a lockfile entry exists but its files are missing on disk (repository scope only). */
   filesMissing?: boolean;
+  /** `'install-record'` when the item comes from a 3.0.0 install record. */
+  recordOrigin?: 'install-record';
 }

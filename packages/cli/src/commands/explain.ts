@@ -36,6 +36,7 @@ const KNOWN_NAMESPACES: ReadonlySet<string> = new Set([
   'AUTH',
   'FS',
   'PLUGIN',
+  'RECORD',
   'USAGE',
   'INTERNAL'
 ]);
@@ -150,6 +151,40 @@ const CATALOG: Record<string, CatalogEntry> = {
   'CONFIG.SCHEMA_VERSION_UNSUPPORTED': {
     summary: 'The config or lockfile carries a schemaVersion this build does not understand.',
     remediation: 'Upgrade ai-primitives-hub, or roll back to a build matching the schema version on disk.'
+  },
+  'RECORD.MALFORMED': {
+    summary: 'An install record (ai-primitives-hub.lock.json or ai-primitives-hub.local.lock.json) is not valid JSON, '
+      + 'does not match the 3.0.0 schema, is not a regular file, or is larger than 10 MB. The file was left unchanged and nothing was installed.',
+    remediation: 'Open the file named in the error, fix or remove it (for example restore it from git), then run the command again.'
+  },
+  'RECORD.NEWER_FORMAT': {
+    summary: 'An install record was written by a newer ai-primitives-hub release, in a format this release cannot read. The file was left unchanged.',
+    remediation: 'Upgrade ai-primitives-hub (CLI and extension) to the release that wrote the record, then run the command again.'
+  },
+  'RECORD.PATH_OUTSIDE_ROOT': {
+    summary: 'An install record lists a file outside the repository (an absolute path, a `..` segment, a `.git` path, or a symlink leaving the root). Nothing was written or deleted.',
+    remediation: 'Remove the offending entry from the record named in the error, then run the command again.'
+  },
+  'RECORD.LEGACY_UNMIGRATED': {
+    summary: 'An install record uses an older format (before 3.0.0) that this release cannot migrate yet. The file was left unchanged.',
+    remediation: 'Upgrade ai-primitives-hub to a release that migrates older records, or move the old file aside and reinstall.'
+  },
+  'RECORD.UNKNOWN_TOOL': {
+    summary: 'The install was asked to record a tool that is not a known target type.',
+    remediation: 'Use a target whose `--type` is one of the supported target types (`ai-primitives-hub target add --help`).'
+  },
+  'RECORD.WRITE_FAILED': {
+    summary: 'The install record could not be written (permissions, full disk, or a failed rename). The previous record file was left intact.',
+    remediation: 'Check that the repository folder is writable and has free space, then run the install again to record the files it wrote.'
+  },
+  'RECORD.CLI_MANAGED': {
+    summary: 'The bundle was installed with the ai-primitives-hub CLI into the shared install record, so the VS Code extension does not update, uninstall or move it yet.',
+    remediation: 'Manage this bundle with the ai-primitives-hub CLI for now.'
+  },
+  'RECORD.ENTRY_NOT_FOUND': {
+    summary: 'An uninstall asked to remove a bundle for a tool that has no entry in the repository install records '
+      + '(ai-primitives-hub.lock.json or ai-primitives-hub.local.lock.json). Nothing was removed.',
+    remediation: 'Check the bundle id and the target with `ai-primitives-hub list`, then run the uninstall again.'
   },
   'USAGE.MISSING_FLAG': {
     summary: 'A required CLI flag or argument was not provided.',

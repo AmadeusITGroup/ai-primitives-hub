@@ -168,6 +168,33 @@ export function extractBundleIdentity(bundleId: string, sourceType: SourceType):
 }
 
 /**
+ * Bundle identity of a recorded entry: its id without a trailing `-v<version>`
+ * or `-<version>` of its own version. Works for any source and version format.
+ * @example
+ * bundleIdentityOf('owner-repo-coll-1.0.0', '1.0.0') // 'owner-repo-coll'
+ * bundleIdentityOf('slug-coll-v1.2.3', '1.2.3')      // 'slug-coll'
+ * bundleIdentityOf('bundle-id', '1.0.0')             // 'bundle-id' (unchanged)
+ * @param bundleId - Bundle ID, possibly ending with the version.
+ * @param version - Version recorded for that bundle ID.
+ * @returns The bundle ID without the version suffix, or unchanged.
+ * @throws {Error} if bundleId exceeds maximum length
+ */
+export function bundleIdentityOf(bundleId: string, version: string): string {
+  if (bundleId.length > MAX_BUNDLE_ID_LENGTH) {
+    throw new Error(`Bundle ID exceeds maximum length of ${MAX_BUNDLE_ID_LENGTH}`);
+  }
+  if (version === '') {
+    return bundleId;
+  }
+  for (const suffix of [`-v${version}`, `-${version}`]) {
+    if (bundleId.length > suffix.length && bundleId.endsWith(suffix)) {
+      return bundleId.slice(0, -suffix.length);
+    }
+  }
+  return bundleId;
+}
+
+/**
  * Check if two bundle IDs represent the same bundle identity
  * Handles versioned IDs and different source types
  * @param id1 - First bundle ID

@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import {
   isBookkeepingLabel,
   labelSandboxPath,
+  RECORD_FILE_NAMES,
 } from '@ai-primitives-hub/core';
 import {
   findProjectConfigPath,
@@ -56,6 +57,15 @@ describe('bookkeeping names drift guard', () => {
   it.each([LOCKFILE_NAME, LOCAL_LOCKFILE_NAME])('labels the workspace lockfile %s as bookkeeping', (name) => {
     expect(label(path.join(SANDBOX.cwd, name))).toBe(`<workspace>/${name}`);
     expect(isBookkeepingLabel(`<workspace>/${name}`)).toBe(true);
+  });
+
+  it.each([...RECORD_FILE_NAMES])('labels the workspace install record %s as bookkeeping', (name) => {
+    expect(label(path.join(SANDBOX.cwd, name))).toBe(`<workspace>/${name}`);
+    expect(isBookkeepingLabel(`<workspace>/${name}`)).toBe(true);
+  });
+
+  it('does not treat an install record below the workspace as bookkeeping', () => {
+    expect(isBookkeepingLabel(`<workspace>/sub/${RECORD_FILE_NAMES[0]}`)).toBe(false);
   });
 
   it('labels the project config file target add writes as bookkeeping', async () => {

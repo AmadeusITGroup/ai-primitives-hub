@@ -85,7 +85,7 @@ export class BundleCommands {
     if (!bundleId) {
       return await this.updateCommands.checkAllUpdates();
     }
-    return await this.updateCommands.updateBundle(bundleId);
+    await this.updateCommands.updateBundle(bundleId);
   }
 
   /**

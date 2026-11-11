@@ -1,0 +1,202 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json",
+  "title": "AI Primitives Hub install record",
+  "description": "Schema for ai-primitives-hub.lock.json and ai-primitives-hub.local.lock.json (format 3.0.0). Bundles are keyed by bundle id, then by tool. Unknown fields are allowed and kept by readers.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "version",
+    "level",
+    "generatedAt",
+    "generatedBy",
+    "bundles",
+    "sources"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON schema reference for validation",
+      "examples": [
+        "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json"
+      ]
+    },
+    "version": {
+      "type": "string",
+      "description": "Record format version; readers stop on a major version above 3",
+      "pattern": "^3\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "examples": [
+        "3.0.0"
+      ]
+    },
+    "level": {
+      "type": "string",
+      "description": "Level this record belongs to",
+      "enum": [
+        "repository",
+        "user"
+      ]
+    },
+    "generatedAt": {
+      "type": "string",
+      "description": "ISO 8601 timestamp of the last write",
+      "format": "date-time"
+    },
+    "generatedBy": {
+      "type": "string",
+      "description": "Writer and version, e.g. ai-primitives-hub-cli@0.3.0 or ai-primitives-hub-extension@1.0.0",
+      "minLength": 1
+    },
+    "bundles": {
+      "type": "object",
+      "description": "Map of bundle IDs to their tool entries",
+      "additionalProperties": {
+        "$ref": "#/definitions/bundle"
+      }
+    },
+    "sources": {
+      "type": "object",
+      "description": "Map of source IDs to their configuration (unchanged from 2.0.0)",
+      "additionalProperties": {
+        "$ref": "#/definitions/source"
+      }
+    },
+    "hubs": {
+      "type": "object",
+      "description": "Hub configuration, carried through unchanged"
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Profile configuration, carried through unchanged"
+    }
+  },
+  "definitions": {
+    "name": {
+      "type": "string",
+      "description": "Tool or source type name; readers keep names they do not know",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "bundle": {
+      "type": "object",
+      "description": "All tool entries for one bundle",
+      "required": [
+        "tools"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "tools": {
+          "type": "object",
+          "description": "Map of tool names (target types) to entries",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/definitions/name"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/entry"
+          }
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "description": "What one tool has installed for one bundle",
+      "required": [
+        "version",
+        "sourceId",
+        "sourceType",
+        "installedAt",
+        "files"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceType": {
+          "$ref": "#/definitions/name"
+        },
+        "installedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "needsReinstall": {
+          "const": true,
+          "description": "Present only under the tool name 'unknown'"
+        },
+        "files": {
+          "type": "array",
+          "description": "Files this entry owns, sorted by path",
+          "items": {
+            "$ref": "#/definitions/file"
+          }
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "description": "One file an entry wrote",
+      "required": [
+        "path",
+        "checksum"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path relative to the level root; forward slashes; no leading '/', drive letter or '..' segment",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(?:.*[/\\\\])?\\.\\.(?:[/\\\\]|$)).+$",
+          "examples": [
+            ".github/prompts/my-prompt.prompt.md",
+            ".kiro/steering/style.md"
+          ]
+        },
+        "checksum": {
+          "type": "string",
+          "description": "sha256: followed by the lowercase hex SHA-256 of the bytes on disk",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "description": "Source configuration entry",
+      "required": [
+        "type",
+        "url"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string"
+        },
+        "collectionsPath": {
+          "type": "string"
+        },
+        "indexFile": {
+          "type": "string"
+        },
+        "authMode": {
+          "type": "string"
+        },
+        "credentialRef": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

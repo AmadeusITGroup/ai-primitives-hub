@@ -41,6 +41,11 @@ import {
   createGovernedReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  initGitRoot,
+  readRecord,
+  recordPathIn,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -182,6 +187,81 @@ describe('uninstall command', () => {
     expect(envelope.data.uninstalled).toBe(1);
 
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
+  });
+
+  describe('repository install record (ai-primitives-hub.lock.json)', () => {
+    const oldLockPath = (): string => path.join(workspace, 'prompt-registry.lock.json');
+    /**
+     * Write an old 2.0.0 `prompt-registry.lock.json`, as an install made before the record would have left it.
+     * @param bundles - Bundle id → its single prompt file, relative to the bundle.
+     */
+    const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
+      await writeFile(oldLockPath(), `${JSON.stringify({
+        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
+        version: '2.0.0',
+        generatedAt: '2026-10-01T00:00:00.000Z',
+        generatedBy: 'ai-primitives-hub-cli@0.2.1',
+        bundles: Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, {
+          version: '1.0.0',
+          sourceId: 'local-bundle',
+          sourceType: 'local',
+          installedAt: '2026-10-01T00:00:00.000Z',
+          commitMode: 'commit',
+          files: [{ path: file, checksum: '0'.repeat(64) }]
+        }])),
+        sources: { 'local-bundle': { type: 'local', url: bundleDir } }
+      }, null, 2)}\n`);
+    };
+    const recordPath = (): string => recordPathIn(workspace);
+    const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    const recordedTools = async (): Promise<string[]> =>
+      Object.keys((await readRecord(workspace)).bundles['local-foo'].tools).toSorted();
+    const exists = async (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+
+    beforeEach(async () => {
+      await initGitRoot(workspace);
+      for (const [name, type] of [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]) {
+        expect((await run([
+          'target', 'add', name, '--type', type, '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'
+        ])).exitCode).toBe(0);
+        expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', name, '-o', 'json'])).exitCode).toBe(0);
+      }
+    });
+
+    it('uninstalling one tool from the record keeps the other tool and its files', async () => {
+      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-kiro', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(recordPath());
+      expect(await recordedTools()).toEqual(['vscode']);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('falls back to the old store for a bundle that is not in the record', async () => {
+      expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
+      await mkdir(path.dirname(vscodePrompt()), { recursive: true });
+      await writeFile(vscodePrompt(), '# Hello Prompt\n');
+      await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md' });
+
+      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(oldLockPath());
+      expect(await exists(vscodePrompt())).toBe(false);
+    });
+
+    it('--all uninstalls a bundle in both the record and the old store once', async () => {
+      await writeFile(path.join(workspace, '.github', 'prompts', 'old.prompt.md'), '# Old\n');
+      await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md', 'old-only': 'prompts/old.prompt.md' });
+
+      const result = await run(['uninstall', '--all', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = parseJson<{ uninstalled: number; bundles: { id: string }[] }>(result.stdout).data;
+      expect(data.bundles.map((bundle) => bundle.id)).toEqual(['local-foo', 'old-only']);
+      expect(data.uninstalled).toBe(2);
+      expect(await recordedTools()).toEqual(['kiro']);
+    });
   });
 
   it('fails with exit 1 when neither --bundle, --lockfile, nor --all is given (and no lockfile is discoverable)', async () => {

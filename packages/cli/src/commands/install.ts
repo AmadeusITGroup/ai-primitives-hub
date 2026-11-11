@@ -46,10 +46,12 @@ import type {
   HttpClient,
   HubSourceSpec,
   RegistrySource,
+  RepositoryExclusion,
   Target,
   TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  isRecordError,
   parseBundleSpec,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -90,6 +92,8 @@ import {
   loadTargets,
   lockfilePathForTarget,
   Option,
+  prepareRepositoryRecord,
+  recordRepositoryInstall,
   requireActiveHubOrFail,
 } from '../framework';
 import {
@@ -98,8 +102,10 @@ import {
   defineCommand,
   formatOutput,
   type OutputFormat,
+  type PreparedRepositoryRecord,
   readTargetsSafely,
   RegistryError,
+  type RepositoryInstallToRecord,
   resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
@@ -356,6 +362,19 @@ const renderSkipped = (skipped: readonly SkippedBundleContent[]): string =>
  */
 const skippedWarnings = (skipped: readonly SkippedBundleContent[]): string[] | undefined =>
   skipped.length === 0 ? undefined : skipped.map((s) => `skipped ${s.path}: ${s.reason}`);
+
+/**
+ * Skipped-content warnings, then install-record warnings; `undefined` when there are none.
+ * @param skipped Skipped content.
+ * @param recordWarnings Warnings from the install record.
+ */
+const installWarnings = (
+  skipped: readonly SkippedBundleContent[],
+  recordWarnings: readonly string[]
+): string[] | undefined => {
+  const all = [...(skippedWarnings(skipped) ?? []), ...recordWarnings];
+  return all.length === 0 ? undefined : all;
+};
 
 /**
  * Command context for install/uninstall commands.
@@ -658,17 +677,37 @@ async function lookupHubSource(
 }
 
 /**
+ * Persist an install in the repository install record when one was prepared, otherwise in the old lockfile.
+ * @param prepared The prepared record, or `undefined` for the old lockfile.
+ * @param record What the install record gets.
+ * @param legacy Writes the old lockfile entry and returns its path.
+ */
+const persistInstall = async (
+  prepared: PreparedRepositoryRecord | undefined,
+  record: RepositoryInstallToRecord,
+  legacy: () => Promise<string>
+): Promise<{ lockPath: string; warnings: string[] }> => {
+  if (prepared === undefined) {
+    return { lockPath: await legacy(), warnings: [] };
+  }
+  const recorded = await recordRepositoryInstall(prepared, record);
+  return { lockPath: recorded.lockfile, warnings: recorded.warnings };
+};
+
+/**
  * Create a writer factory that routes to the appropriate
  * writer based on target scope.
  * - user scope → FileTreeTargetWriter
  * - repository scope → RepositoryScopeWriter
  * @param ctx CLI context.
  * @param opts Install options.
+ * @param exclusion Where a `local-only` repository install lists its files; defaults to `<workspace>/.git/info/exclude`.
  * @returns Writer factory function.
  */
 export const createWriterFactory = (
   ctx: Context,
-  opts: InstallOptions
+  opts: InstallOptions,
+  exclusion?: RepositoryExclusion
 ): (target: Target) => TargetWriter => {
   // Create transformer registry and hierarchical layout loader once per command.
   const transformerRegistry = TransformerRegistry.withBuiltIns();
@@ -692,7 +731,8 @@ export const createWriterFactory = (
       const writer = new RepositoryScopeWriter({
         fs: ctx.fs,
         workspaceRoot,
-        commitMode
+        commitMode,
+        exclusion
       });
       return new RepositoryScopeWriterAdapter(writer);
     }
@@ -991,35 +1031,44 @@ async function performLocalInstall(
       });
       return 0;
     }
-    const writerFactory = createWriterFactory(ctx, opts);
+    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
+    const prepared = effectiveTarget.scope === 'repository'
+      ? await prepareRepositoryRecord(ctx, effectiveTarget)
+      : undefined;
+    const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
 
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
     const localSourceId = `local-${path.basename(opts.from as string)}`;
-    const entry: LockfileBundleEntry = {
+    const localSourceUrl = path.resolve(ctx.cwd(), opts.from as string);
+    const { lockPath, warnings } = await persistInstall(prepared, {
+      bundleId: manifest.id,
       version: manifest.version,
-      sourceId: localSourceId,
-      sourceType: 'local',
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    const previousFiles = existing.bundles[manifest.id]?.files;
-    let nextLock = upsertBundleEntry(existing, manifest.id, entry);
-    nextLock = upsertSource(nextLock, localSourceId, {
-      type: 'local',
-      url: path.resolve(ctx.cwd(), opts.from as string)
+      tool: effectiveTarget.type,
+      source: { sourceId: localSourceId, type: 'local', url: localSourceUrl },
+      writtenPaths: result.written
+    }, async () => {
+      const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
+      const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: localSourceId,
+        sourceType: 'local',
+        installedAt: new Date().toISOString(),
+        files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
+      };
+      const previousFiles = existing.bundles[manifest.id]?.files;
+      let nextLock = upsertBundleEntry(existing, manifest.id, entry);
+      nextLock = upsertSource(nextLock, localSourceId, {
+        type: 'local',
+        url: localSourceUrl
+      });
+      await writeLockfile(legacyLockPath, nextLock, ctx.fs);
+      await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
+      return legacyLockPath;
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
     await updateTargetState(ctx, effectiveTarget.name, manifest.id, manifest.version);
 
@@ -1035,7 +1084,7 @@ async function performLocalInstall(
         skipped,
         lockfile: lockPath
       },
-      warnings: skippedWarnings(skipped),
+      warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
         + `(${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
@@ -1043,6 +1092,9 @@ async function performLocalInstall(
     });
     return 0;
   } catch (cause) {
+    if (isRecordError(cause)) {
+      throw cause;
+    }
     const raw = (cause as { code?: string }).code;
     const code = raw !== undefined && /^(BUNDLE|FS|NETWORK|USAGE|CONFIG)\.[A-Z0-9_]+$/.test(raw)
       ? raw
@@ -1264,31 +1316,18 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    const writerFactory = createWriterFactory(ctx, opts);
+    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
+    const prepared = effectiveTarget.scope === 'repository'
+      ? await prepareRepositoryRecord(ctx, effectiveTarget)
+      : undefined;
+    const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
-    const scope = effectiveTarget.scope;
-    const commitMode = effectiveTarget.commitMode ?? 'commit';
-    const lockPath = lockfilePathForTarget(ctx, effectiveTarget);
-    const existing = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-    const entry: LockfileBundleEntry = {
-      version: manifest.version,
-      sourceId: installable.ref.sourceId,
-      sourceType: installable.ref.sourceType,
-      checksum: dl.sha256,
-      installedAt: new Date().toISOString(),
-      files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
-    };
-    if (scope === 'repository') {
-      entry.commitMode = commitMode;
-    }
-    const previousFiles = existing.bundles[lockKey]?.files;
-    let nextLock = upsertBundleEntry(existing, lockKey, entry);
     const sourceConfig = opts.sourceConfig;
     const collectionsPath = sourceConfig?.config?.collectionsPath;
-    nextLock = upsertSource(nextLock, installable.ref.sourceId, {
+    const sourceDetails: LockfileSourceEntry = {
       type: sourceConfig?.type ?? 'github',
       url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
       ...(collectionsPath ? { collectionsPath } : {}),
@@ -1299,9 +1338,37 @@ async function performRemoteInstall(
           credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
         }
         : {})
+    };
+    const { lockPath, warnings } = await persistInstall(prepared, {
+      bundleId: lockKey,
+      version: manifest.version,
+      tool: effectiveTarget.type,
+      source: {
+        sourceId: installable.ref.sourceId,
+        ...sourceDetails,
+        ...(sourceConfig?.type !== 'artifactory' && typeof sourceConfig?.config?.branch === 'string'
+          ? { branch: sourceConfig.config.branch }
+          : {})
+      },
+      writtenPaths: result.written
+    }, async () => {
+      const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
+      const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
+      const entry: LockfileBundleEntry = {
+        version: manifest.version,
+        sourceId: installable.ref.sourceId,
+        sourceType: installable.ref.sourceType,
+        checksum: dl.sha256,
+        installedAt: new Date().toISOString(),
+        files: checksumFiles(targetFiles, result.writtenBundlePaths ?? targetFiles.keys(), result.installedPaths)
+      };
+      const previousFiles = existing.bundles[lockKey]?.files;
+      let nextLock = upsertBundleEntry(existing, lockKey, entry);
+      nextLock = upsertSource(nextLock, installable.ref.sourceId, sourceDetails);
+      await writeLockfile(legacyLockPath, nextLock, ctx.fs);
+      await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
+      return legacyLockPath;
     });
-    await writeLockfile(lockPath, nextLock, ctx.fs);
-    await removeSupersededFiles(writer, effectiveTarget, previousFiles, entry.files);
 
     formatOutput({
       ctx,
@@ -1317,7 +1384,7 @@ async function performRemoteInstall(
         skipped,
         lockfile: lockPath
       },
-      warnings: skippedWarnings(skipped),
+      warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
         + `into target "${d.target}" (${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`

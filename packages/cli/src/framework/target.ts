@@ -2,6 +2,9 @@
  * Target-related utilities for CLI commands.
  *
  * Centralizes target resolution logic to reduce duplication across commands.
+ *
+ * Lockfile paths resolved here belong to the legacy 2.0.0 store; repository
+ * `install` and `uninstall` use the install record (`framework/install-record.ts`).
  * @module framework/target
  */
 import {

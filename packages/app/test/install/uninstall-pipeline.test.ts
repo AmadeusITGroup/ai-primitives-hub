@@ -158,6 +158,19 @@ describe('UninstallPipeline.planAll / runAll', () => {
     expect(await fs.exists(getLockfilePathForMode('/repo', 'local-only'))).toBe(false);
   });
 
+  it('leaves excluded bundle ids alone', async () => {
+    const fs = new InMemoryFileSystem();
+    await seedBundle(fs, 'commit', 'bundle-a');
+    await seedBundle(fs, 'local-only', 'bundle-b');
+    const pipeline = new UninstallPipeline({ fs, target: TARGET, repositoryPath: '/repo', writerFactory: makeWriter });
+
+    const results = await pipeline.runAll({ exclude: new Set(['bundle-a']) });
+
+    expect(results.map((r) => r.bundleId)).toEqual(['bundle-b']);
+    expect(await fs.exists(getLockfilePathForMode('/repo', 'commit'))).toBe(true);
+    expect(await fs.exists(getLockfilePathForMode('/repo', 'local-only'))).toBe(false);
+  });
+
   it('runFromLockfile tolerates a missing lockfile', async () => {
     const fs = new InMemoryFileSystem();
     const pipeline = new UninstallPipeline({ fs, target: TARGET, repositoryPath: '/repo', writerFactory: makeWriter });

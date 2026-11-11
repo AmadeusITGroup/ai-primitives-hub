@@ -81,6 +81,21 @@ Repository-scope VS Code and Copilot CLI targets keep their own `.github/` write
 
 Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. The lockfile records no mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
 
+### Repository install record
+
+> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it. Until then, released versions keep using `prompt-registry.lock.json` at repository scope.
+
+At repository scope, `install` writes a format `3.0.0` install record at the git root instead of `prompt-registry.lock.json`:
+
+- `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
+- Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
+- An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
+- `prompt-registry.lock.json` and user-scope installs are left as they are.
+
+`uninstall` removes the target's entry and its files, keeps files another entry lists, and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`, which `update`, `status` and `install --lockfile` still use.
+
+The VS Code extension lists these bundles at repository scope but refuses to uninstall, update, move or switch them (`RECORD.CLI_MANAGED`).
+
 ## Plugin Create (CLI)
 
 `ai-primitives-hub plugin create <name> [--path <dir>] [--collection <id>] [--description <text>] [--version <version>] [--author <name>]`

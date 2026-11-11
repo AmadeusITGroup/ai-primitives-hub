@@ -31,6 +31,10 @@
  * IDE type nominally triggered the install (see
  * `writers/repo-scope-writer.ts`'s `RepositoryScopeWriterAdapter`,
  * which ignores its `Target` parameter entirely).
+ *
+ * Repository-scope CLI `install` and `uninstall` use the 3.0.0 install
+ * record instead; uninstall still falls back to this store for older
+ * installs, and `update`, `status` and replay still use it.
  * @module stores/json-lockfile-store
  */
 import {

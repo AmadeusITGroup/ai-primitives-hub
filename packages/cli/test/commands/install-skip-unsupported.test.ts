@@ -300,13 +300,18 @@ describe('install --skip-unsupported', () => {
     await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
     await expect(readFile(path.join(workspace, '.github', 'agents', 'hello.agent.md'), 'utf8')).rejects.toThrow();
-    const entry = (await readLock(envelope.data.lockfile)).bundles['sample-repo'];
-    expect(entry.files.map((f) => f.path)).toEqual(['prompts/hello.prompt.md']);
+    // Repository scope records root-relative paths under `bundles.<id>.tools.<type>`.
+    expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.local.lock.json'));
+    const record = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
+      bundles: Record<string, { tools: Record<string, { files: { path: string }[] }> }>;
+    };
+    expect(record.bundles['sample-repo'].tools.vscode.files.map((f) => f.path))
+      .toEqual(['.github/prompts/hello.prompt.md']);
 
     const removed = await run(['uninstall', '--bundle', 'sample-repo', '--target', 'repo-prompts', '-o', 'json']);
 
     expect(removed.exitCode, removed.stdout).toBe(0);
-    expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['prompts/hello.prompt.md']);
+    expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['.github/prompts/hello.prompt.md']);
     await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
 

@@ -9,8 +9,9 @@
  * @module diagnostics/find-ancestor-file
  */
 import * as path from 'node:path';
-import type {
-  FileSystem,
+import {
+  type FileSystem,
+  RECORD_FILE_NAMES,
 } from '@ai-primitives-hub/core';
 import {
   LAYOUTS_CONFIG_FILE,
@@ -26,7 +27,8 @@ export const PRIMITIVE_DIAGNOSTICS_PREFLIGHT_FILES: readonly string[] = [
   'ai-primitives-hub.yaml',
   LAYOUTS_CONFIG_FILE,
   LOCKFILE_NAME,
-  LOCAL_LOCKFILE_NAME
+  LOCAL_LOCKFILE_NAME,
+  ...RECORD_FILE_NAMES
 ];
 
 /**
