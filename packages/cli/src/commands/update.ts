@@ -54,6 +54,7 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
+  IMPORTED_USER_LOCKFILE_FIELD,
   isRecordError,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -269,7 +270,10 @@ export class UpdateCommand extends BaseUpdateCommand {
       const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope, write: this.dryRun !== true }, target);
       if (prepared.selection.locations.length > 0) {
         const rows = await prepared.service.listEntries(prepared.selection.locations);
-        if (rows.length > 0) {
+        // Once the user record imported the old user lockfile, an empty record never falls back to that file.
+        const imported = prepared.selection.level === 'user'
+          && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
+        if (rows.length > 0 || imported) {
           if (!this.noHubSync) {
             await syncActiveHub(ctx);
           }

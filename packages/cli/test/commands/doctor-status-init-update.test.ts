@@ -1050,5 +1050,26 @@ profiles: []
       expect(JSON.parse(await readFile(oldUserLockfile(), 'utf8'))).toMatchObject({ bundles: {} });
       expect(Object.keys((await readInstallRecord(userRecord)).bundles['local-foo'].tools)).toEqual(['copilot-cli']);
     });
+
+    it('update on a user record emptied after the import never falls back to the old user lockfile', async () => {
+      const bundleDir = path.join(workspace, 'bundle');
+      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+      await writeFile(path.join(bundleDir, 'deployment-manifest.yml'),
+        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n');
+      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
+      expect((await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const record = await readInstallRecord(userRecordPath(env()));
+      expect(Object.keys(record.bundles)).toEqual([]);
+      expect(record).toHaveProperty('importedUserLockfileAt');
+      // An old user lockfile written after the import, as a workspace-scope install or an older CLI does.
+      const before = await writeOldLockfile(oldUserLockfile(), OLD_ENTRY);
+
+      const result = await run(['update', '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ level: string }>(result.stdout).data).toMatchObject({ level: 'user' });
+      expect(await readFile(oldUserLockfile(), 'utf8')).toBe(before);
+    });
   });
 });
