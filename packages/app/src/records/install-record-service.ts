@@ -329,6 +329,29 @@ const remapInRecord = (record: InstallRecord, from: string, to: string, source: 
   return changed;
 };
 
+/** The pending record change of each root, in this process. */
+const pendingChanges = new Map<string, Promise<unknown>>();
+
+/**
+ * Run record changes of one root one at a time in this process, so two
+ * concurrent installs cannot load the same record and lose each other's entry.
+ * A failed change does not stop the next one.
+ * @param root - Record root.
+ * @param change - Load, change and save of the record files at the root.
+ */
+const serializeByRoot = async <T>(root: string, change: () => Promise<T>): Promise<T> => {
+  const current = (pendingChanges.get(root) ?? Promise.resolve()).catch(() => undefined).then(change);
+  const settled = current.catch(() => undefined);
+  pendingChanges.set(root, settled);
+  try {
+    return await current;
+  } finally {
+    if (pendingChanges.get(root) === settled) {
+      pendingChanges.delete(root);
+    }
+  }
+};
+
 /** Records installs and uninstalls in the shared install record. */
 export class InstallRecordService {
   private readonly store: RecordStore;
@@ -593,7 +616,11 @@ export class InstallRecordService {
    * @returns The change, with the superseded files to delete after the save and the siblings found.
    * @throws {RegistryError} A `RECORD.*` error; the record is unchanged when the target save fails.
    */
-  public async recordInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
+  public recordInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
+    return serializeByRoot(input.location.root, () => this.applyInstall(input));
+  }
+
+  private async applyInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
     this.validateInput(input);
     const source: SourceRecord = sanitizeSource(input.source);
     const { location, bundleId, tool } = input;
@@ -674,7 +701,11 @@ export class InstallRecordService {
    * @param input.tool - The target's type.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` when neither file has the entry.
    */
-  public async recordUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
+  public recordUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
+    return serializeByRoot(input.location.root, () => this.applyUninstall(input));
+  }
+
+  private async applyUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
     const { location, bundleId, tool } = input;
     const first = await this.store.load(location);
     const otherLocation = otherRepositoryLocation(location);
@@ -767,7 +798,11 @@ export class InstallRecordService {
    * @returns Both files, with the replaced entries' files to delete after the save.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or `RECORD.MALFORMED`, or any `RECORD.*` load or save error.
    */
-  public async moveEntry(input: MoveEntryInput): Promise<MoveEntryResult> {
+  public moveEntry(input: MoveEntryInput): Promise<MoveEntryResult> {
+    return serializeByRoot(input.location.root, () => this.applyMove(input));
+  }
+
+  private async applyMove(input: MoveEntryInput): Promise<MoveEntryResult> {
     const { location, bundleId, tool } = input;
     const targetLocation = otherRepositoryLocation(location);
     if (targetLocation === undefined) {

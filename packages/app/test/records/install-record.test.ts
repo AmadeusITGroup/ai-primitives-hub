@@ -233,6 +233,17 @@ describe('repository install record', () => {
     expect(toolsIn(committed)).toEqual(['kiro']);
   });
 
+  it('keeps both entries when two installs at one root are recorded at the same time', async () => {
+    await Promise.all([
+      install('vscode', ['.github/prompts/a.prompt.md']),
+      install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'other-tools' }),
+      install('kiro', ['.kiro/steering/a.md'])
+    ]);
+
+    expect(Object.keys(read(committed).bundles).toSorted()).toEqual([BUNDLE, 'other-tools']);
+    expect(toolsIn(committed)).toEqual(['kiro', 'vscode']);
+  });
+
   it('uninstalling the last local-only entry deletes the file and its info/exclude line', async () => {
     await install('vscode', ['.github/prompts/a.prompt.md'], { location: localOnly });
 
