@@ -71,7 +71,7 @@ const NEW_ID = 'source-new';
  * @param scope Installation scope whose records file is wanted.
  */
 function recordsFile(paths: AppStoragePaths, scope: InstallationScope): string {
-  const dir = scope === 'user' ? paths.userInstalled : path.join(paths.installed, scope);
+  const dir = path.join(paths.root, 'installed', scope);
   return path.join(dir, 'records.json');
 }
 

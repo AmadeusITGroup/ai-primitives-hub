@@ -60,6 +60,9 @@ import {
 import {
   runCommand,
 } from '../../src/framework';
+import {
+  writeLocalFooBundle,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -119,13 +122,8 @@ describe('apply/explain/config/plugins-list/skill-validate commands', () => {
       targetDir = path.join(workspace, 'target');
       hubConfigFile = path.join(workspace, 'hub-config.yml');
 
-      await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+      await writeLocalFooBundle(bundleDir);
       await mkdir(targetDir, { recursive: true });
-      await writeFile(
-        path.join(bundleDir, 'deployment-manifest.yml'),
-        'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-      );
-      await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
       await writeFile(
         hubConfigFile,
         `version: 1.0.0

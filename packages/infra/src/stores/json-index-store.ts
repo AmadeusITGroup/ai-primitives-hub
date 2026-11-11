@@ -2,13 +2,7 @@
  * JSON persistence for the primitive index.
  *
  * Ported unchanged from the reference branch's
- * `infra/src/stores/json-index-store.ts`. Note: this is the only file
- * ported from the reference's `stores/*` module for now — the rest
- * (`active-hub-store.ts`, `json-lockfile-store.ts`, `layout-config-store.ts`,
- * `profile-activation-store.ts`, `target-state-store.ts`, `target-store.ts`,
- * `yaml-hub-store.ts`) are hub/profile/lockfile/target-state concerns for
- * later phases (install pipeline, target writers), out of scope for the
- * Phase 3b harvest/search port.
+ * `infra/src/stores/json-index-store.ts`.
  * @module stores/json-index-store
  */
 

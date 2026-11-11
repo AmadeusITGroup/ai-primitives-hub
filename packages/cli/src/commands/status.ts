@@ -6,7 +6,7 @@
  * that a project is correctly configured before activating profiles.
  *
  * It lists one row per (bundle, tool) of the repository record, or of the user
- * lockfile when there is none; bundles only in an old file show under tool `unknown`.
+ * record when there is none; bundles only in an old file show under tool `unknown`.
  * @module commands/status
  */
 import {

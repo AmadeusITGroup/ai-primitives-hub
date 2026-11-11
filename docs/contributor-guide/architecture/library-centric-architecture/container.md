@@ -136,7 +136,8 @@ Infrastructure adapters for external integrations:
 - **GitHub Client**: API integration with rate limiting, retry, and ETag caching
 - **Harvester**: Bundle discovery from hub sources
 - **Search Engine**: BM25 full-text search with faceted filtering
-- **Storage**: Index store (JSON), blob cache, JSON lockfile, target-state, layout-config stores
+- **Storage**: Index store (JSON), blob cache, layout-config and hub/profile stores
+- **Install records**: `NodeRecordFs` and `RecordSchemaValidator`, used by `app`'s `RecordStore`
 - **AppStorage**: XDG Base Directory-compliant storage abstraction
 - **Template Engine**: Scaffolding templates for all primitive types
 - **Downloaders**: Asset downloading from GitHub releases

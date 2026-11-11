@@ -54,13 +54,26 @@ the legacy npm collection builder or Artifactory replication.
 
 ## Bundle Install (CLI)
 
-`ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`
+`ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] [--target <target>] [--skip-unsupported]`
 
 - `--from <dir>` installs a local bundle. Without a bundle id, the manifest `id` is accepted as-is; with a bundle id, it must match the manifest.
 - `--source <value>` is looked up first as a source id (or name) in the active hub, then as a hub id (the hub's profiles name the source that carries the bundle), and only then used as a GitHub `owner/repo`. When none matches, the command fails with `BUNDLE.NOT_FOUND` and names the three lookups it tried. When none matches and the active hub (or the hub named by `--source`) exists but its configuration cannot be loaded, the command fails with `HUB.LOAD_FAILED`, naming the hub and the load error.
 - GitHub bundle ids may use the hub form `{owner}-{repo}-{manifestId}`, with or without a `-{version}` / `-v{version}` suffix. The repo prefix is compared case-insensitively; in this form the bundle name and any pinned version must match the manifest exactly. For compatibility, the earlier rule still applies too: an id equal to the manifest `id`, or ending in `-{manifestId}-{version}` / `-{manifestId}-v{version}` after any prefix, is accepted, so this check does not by itself confirm which repository a bundle came from. `profile activate` and `install --lockfile` (for GitHub lockfile sources) apply the same rule.
-- An install is all-or-nothing by default: when the target cannot hold part of the bundle, it fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing. `--skip-unsupported` installs the items the target supports and lists each skipped item with its reason, in text output under `Skipped:` and in `-o json` as `data.skipped[]` (`path`, `code`, `reason`). The result has status `warning` and exits 0. When the target supports none of the bundle, the install still fails with `BUNDLE.UNSUPPORTED_CONTENT`. Skipped items are not recorded in the lockfile, so `uninstall` removes only what was installed. The flag works with `<bundle-id>`, `--from` and `--source <hub-id> --interactive`. It is refused with `--lockfile` (`USAGE.INVALID_FLAG`), because replay installs every recorded bundle in full, and has no effect with `--dry-run`. `profile activate` and `update` stay all-or-nothing: to pick up a new version of a partially installed bundle, run `install` again with `--skip-unsupported`.
+- An install is all-or-nothing by default: when the target cannot hold part of the bundle, it fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing. `--skip-unsupported` installs the items the target supports and lists each skipped item with its reason, in text output under `Skipped:` and in `-o json` as `data.skipped[]` (`path`, `code`, `reason`). The result has status `warning` and exits 0. When the target supports none of the bundle, the install still fails with `BUNDLE.UNSUPPORTED_CONTENT`. Skipped items are not recorded in the install record, so `uninstall` removes only what was installed. The flag works with `<bundle-id>`, `--from` and `--source <hub-id> --interactive`. It is refused with `--lockfile` (`USAGE.INVALID_FLAG`), because replay installs every recorded bundle in full, and has no effect with `--dry-run`. `profile activate` and `update` stay all-or-nothing: to pick up a new version of a partially installed bundle, run `install` again with `--skip-unsupported`.
 - `profile activate` fails with `HUB.REQUIRED_BUNDLE_MISSING` when a bundle the profile marks `required: true` is installed on none of the targets. The error names each such bundle with its install error, the activation is rolled back, and no profile is left active (the previously active profile stays deactivated). A failed bundle marked `required: false`, or a required bundle that failed on only some targets, is listed under `Failures:` and the command exits 1 with the profile active.
+
+### Choosing a target
+
+`install`, `uninstall` and `update` take `--target <name>`. Without it they use the only configured target. With none or several, `install` fails with `USAGE.MISSING_FLAG` listing the targets, before writing anything, while `update` and `uninstall --bundle` let the install record decide (below). `.ai-primitives-hub/target-state.json` (the last used target) is no longer used; while it exists, the hint says so.
+
+When no target is inferred, the install record decides:
+
+- **`update`** updates every recorded tool at the level through its own configured target; a tool with no target is reported in `skipped`.
+- **`uninstall --bundle <bundle-id>`** uses the configured target of the bundle's tool (the first by name, noted in `warnings`). It fails with `USAGE.MISSING_FLAG` when there is none, and is refused for a bundle recorded for several tools. A lone `unknown` entry is removed and its files are kept.
+
+The level comes from `--lockfile` (`update` only), then `--scope`, then the default rule of `status`: the repository record at the git root (or an older `prompt-registry.*` file there), else the user record. **In a repository with neither, they act on the user level**; pass `--scope repository` or `--target`. With no entry for the action, `--target` is required. Bundles only in a not-yet-migrated older file do not decide: pass `--target` once to migrate the level (`update` reports them as failed when the record has other entries). A record replay (`install --lockfile <record>`, or a bare `install`) needs no target.
+
+`init` creates no install record; until the first repository install, `status` and a bare `install` use the user record.
 
 ### Where files land
 
@@ -71,34 +84,32 @@ the legacy npm collection builder or Artifactory replication.
 - Entries that are not files, such as `mcpServers`, are not placed this way. Entries whose `type:` is not one of the five above, and bundle files no item lists, keep the path-based routing below.
 - When the target cannot place an item (its type is excluded by the target's `--allowed-kinds`, the layout has no route for it, or an earlier item already uses its destination, such as ids `alpha` and `alpha.instructions` of type `instructions`), the install fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing, unless `--skip-unsupported` is set, which skips the item instead (see above).
 - A skill item's `file:` may name the skill directory (`skills/<name>`) or a file in it (`skills/<name>/SKILL.md`); either way only that skill's directory is copied.
-- Re-installing or updating a bundle that is already in the lockfile removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
+- Re-installing or updating a bundle that is already in the install record removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
 
 Bundles whose manifest lists no items keep path-based routing: a file is installed under the target route matching its bundle path prefix (for example `prompts/`, `skills/`), with its name unchanged.
 
-The lockfile keeps bundle-relative `path` entries with their checksums. For items placed by the manifest it also records `installedPath`, the location relative to the target's base directory, which `uninstall` and `profile deactivate` remove. Entries without `installedPath`, including those written by earlier releases, are removed by path routing as before.
+The install record lists each written file by its path relative to the level root (the git root, or your home folder) with its checksum; `uninstall` removes them, except files you edited or another entry still lists. The older 2.0.0 lockfile (workspace scope, `profile activate`) keeps bundle-relative `path` entries and, for manifest-placed items, `installedPath`, which `uninstall` and `profile deactivate` remove; entries without it are removed by path routing.
 
 Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
 
-Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. The lockfile records no mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
+Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. Install records store no file mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
 
 ### Repository install record
 
-> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it. Until then, released versions keep using `prompt-registry.lock.json` at repository scope.
-
-At repository scope, `install` writes a format `3.0.0` install record at the git root instead of `prompt-registry.lock.json`:
+At repository scope, `install` records the bundle in a format `3.0.0` install record at the git root:
 
 - `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
 - Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - An older `prompt-registry.lock.json` or `prompt-registry.local.lock.json` at the git root is migrated into the new record before the first change; see [Migrating older records](#migrating-older-records). User-scope installs use the [user install record](#user-install-record).
 
-`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. A bundle only an older `prompt-registry.lock.json` lists is migrated first, then uninstalled from the new record.
+`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. It also removes an older key of the same bundle that the record still holds for that tool, for example after a merge. A bundle only an older `prompt-registry.lock.json` lists is migrated first, then uninstalled from the new record.
 
 Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
 
 - `update` updates every tool that has the bundle, each with its own target. Only `--target` narrows it to one tool. Tools that share files (for example `vscode` and `vscode-insiders` in `.github/`) move to the same version and are listed in `alsoUpdated`. A bundle id that ends with its version, such as a GitHub release id, is recorded under the new version's id and the old id is removed. Entries it cannot update are listed in `skipped`, with status `warning`: `unknown` tool entries, which need a reinstall, and sources with no installable release. A release whose archive is another bundle or version is refused.
 - `install --lockfile <ai-primitives-hub.*.lock.json>`, or a bare `install` in a repository with a record or only an older `prompt-registry` file at the git root (migrated first), reinstalls every recorded tool at its recorded version. `unknown` tool entries are listed in `needsReinstall`, and entries with no matching target in `skipped`. Each mapped target writes in the commit mode of the file that holds the entry, and must be in `--allow-target` when it is given. `--dry-run` is refused (`USAGE.INVALID_FLAG`) because the replay migrates and writes; run `status` instead.
-- `uninstall <id>` without `--target` is refused when several tools have the bundle. `uninstall --lockfile <ai-primitives-hub.*.lock.json> --target <name>` removes only that target's entries.
+- `uninstall --bundle <id>` without `--target` is refused when several tools have the bundle. `uninstall --lockfile <ai-primitives-hub.*.lock.json> --target <name>` removes only that target's entries.
 - `status` lists one row per bundle and tool; `-o json` replaces `lockfile` with `level`, `records` and `entries`. Bundles only in `prompt-registry.lock.json` are still shown, unless the record has the same bundle at another version.
 - A recorded source is used only through the matching configured source (the active hub's first, then `source add`), with its URL and credentials. Otherwise the recorded copy is used without its `credentialRef`, and a `local` folder outside the repository is skipped. This also applies to `update --dry-run`.
 
@@ -112,14 +123,12 @@ The VS Code extension uses the same record, under the tool of the editor it runs
 
 ### User install record
 
-> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
-
 User-scope installs are recorded in one file per machine, shared by the CLI and every VS Code profile: `ai-primitives-hub.user.lock.json` in `$XDG_CONFIG_HOME/ai-primitives-hub/` (default `~/.config/ai-primitives-hub/`; on Windows `%USERPROFILE%\.config\ai-primitives-hub\`). It has the repository record's format, with paths relative to your home folder (`HOME`, else `USERPROFILE`).
 
 - User-scope `install`, `uninstall`, `update` and `install --lockfile` use it, and so do `status` and a bare `install` outside a repository with a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
 - A bundle installed from one VS Code profile is installed for every profile.
 - A target folder outside your home folder, or a tool folder symlinked outside it, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written.
-- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is imported into the user record once, before the first user-scope change, and is never changed or deleted. Workspace-scope targets keep using it.
+- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is imported into the user record once, before the first user-scope change, and is never changed or deleted. Workspace-scope targets and `profile activate` keep using it.
 - Uninstall keeps files you edited after the install, with a warning. An extension link into its bundle cache that still points at the installed content counts as unchanged.
 - As at repository scope, installing, updating or downgrading a bundle leaves each tool one version of it in this file, also for a bundle id that ends with its version; `update` records it under the new version's id. In the extension, the old version's bundle cache and an older per-profile install of the bundle are removed too, and the user view lists one item per bundle.
 - In the extension, the current profile's older user-scope installs move into the user record before the first user-scope change. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
@@ -129,15 +138,16 @@ User-scope installs are recorded in one file per machine, shared by the CLI and 
 
 ### Migrating older records
 
-> **Unreleased.** This change is part of a stack of pull requests and ships in the release that completes it.
+For upgrading and rollback, see [Upgrading to 0.3.0: install records](../migration-guide.md#upgrading-to-030-install-records).
 
 Before the first command that changes a record, the CLI and the extension move the older records of that level into the new ones. Commands that only read (`status`, `doctor`, `update --dry-run`, `install --lockfile <older file>`, and the extension's listings and local-modification check) never migrate and leave the older files untouched.
 
-- **Repository level.** `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are written as (or merged into) `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json`, then deleted. No backup is kept; the files are in git history. Each bundle gets at most one entry, also when its id ends with its version: an entry the new record already has, at any version, wins, and otherwise the higher version in the older files is kept and the other is listed in `versionConflicts`. Older files outside the git root are ignored.
-- **User level.** The CLI's earlier user lockfile is imported once, marked by the user record's `importedUserLockfileAt` field, and stays as it is for workspace scope. The extension moves the current profile's user installs into the user record under its tool, next to other tools' entries, and removes them from the profile; an entry the record already has for its tool, at any version, is kept, and of two profile versions the higher one moves. Linked `local-skills` installs stay, and in a WSL remote window nothing moves.
+- **Repository level.** `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are written as (or merged into) `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json`, then deleted. No backup is kept; only the committed file can be restored from git history. Each bundle gets at most one entry, also when its id ends with its version: an entry the new record already has, at any version, wins, and otherwise the higher version in the older files is kept and the other is listed in `versionConflicts`. Older files outside the git root are ignored.
+- **User level.** The CLI's earlier user lockfile is imported once, marked by the user record's `importedUserLockfileAt` field, and stays as it is for workspace scope. Its workspace-scope installs can appear once as `unknown` user-level entries; `uninstall --bundle <bundle-id> --scope user` removes them and keeps their files. The extension moves the current profile's user installs into the user record under its tool, next to other tools' entries, and removes them from the profile; an entry the record already has for its tool, at any version, is kept, and of two profile versions the higher one moves. Linked `local-skills` installs stay, and in a WSL remote window nothing moves.
 - **The `unknown` tool.** Older entries do not say which tool they were for, so they are recorded under `unknown` and listed as needing a reinstall. Installing the bundle for a tool, at any version, or updating it in the extension, replaces that entry and keeps its files. Uninstalling a bundle whose only entries, at any version, are `unknown` removes them and keeps their files. The extension refuses to move or switch the commit mode of such a bundle until it is reinstalled.
 - **Report.** CLI text output prints a `Migrated <level> record:` block before `Record:`, and `-o json` adds `data.migration`. The extension logs the report and shows one notification, with **Show details**.
 - **Errors.** An older file that cannot be read stops the command with `RECORD.MALFORMED` and nothing is written. If an older file cannot be deleted after the new record is saved, the command fails with `RECORD.WRITE_FAILED`; the next change deletes it.
+- **`profile activate` (known limitation).** CLI `profile activate` and `profile deactivate` still write the older files: `prompt-registry.*` for repository targets, migrated as `unknown` on the next change, and the old user lockfile for user targets, which is not read at user level once imported. Reinstall those bundles with `install`.
 
 ## Plugin Create (CLI)
 
@@ -201,7 +211,7 @@ Commands for managing bundle installation scope. These are available via context
 | `promptRegistry.moveToUser` | Move to User | Move a repository-scoped bundle to user scope |
 | `promptRegistry.switchToLocalOnly` | Switch to Local Only | Change a repository bundle from commit to local-only mode |
 | `promptRegistry.switchToCommit` | Switch to Commit | Change a repository bundle from local-only to commit mode |
-| `promptRegistry.cleanupStaleLockfileEntries` | Clean Up Stale Repository Bundles | Remove lockfile entries where files no longer exist |
+| `promptRegistry.cleanupStaleLockfileEntries` | Clean Up Stale Repository Bundles | Remove install record entries whose files no longer exist |
 
 ### Move to Repository
 
@@ -240,14 +250,14 @@ Changes how a repository-scoped bundle interacts with Git.
 
 ### Clean Up Stale Repository Bundles
 
-Removes lockfile entries where the corresponding files no longer exist in the repository.
+Removes repository install record entries whose files no longer exist in the repository.
 
 **Command:** `promptRegistry.cleanupStaleLockfileEntries`
 
-This is useful when bundle files have been manually deleted but the lockfile still references them. The command:
-1. Scans the lockfile for bundles with missing files
+This is useful when bundle files have been manually deleted but the install record still lists them. The command:
+1. Migrates older `prompt-registry` files first, then finds entries whose files are all missing (never `unknown` or file-less entries)
 2. Shows a confirmation dialog with the count of stale entries
-3. Removes confirmed stale entries from the lockfile
+3. Removes confirmed stale entries from the install record, without deleting files
 
 ## Source Management
 

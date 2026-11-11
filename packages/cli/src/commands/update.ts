@@ -1,13 +1,9 @@
 /**
  * `update` command — checks installed bundles for newer versions and upgrades them.
  *
- * Reference's version keys each lockfile entry by its own `target` field and
- * resolves a target per-entry. Our `LockfileBundleEntry` has no `target`
- * field (see `app/stores/json-lockfile-store.ts`'s module doc — repository
- * scope always writes to `.github/`, invariant of target), so `update`
- * instead resolves a single target for the whole run — same
- * flag/auto-detect pattern as `install`/`uninstall` — and updates every
- * bundle tracked by that target's lockfile.
+ * `update` selects one install record level and updates every (bundle, tool)
+ * entry there through the target mapped to its tool; `--target` narrows it to
+ * one tool. Bundles only an older 2.0.0 file lists are updated on that file.
  */
 import * as path from 'node:path';
 import {
@@ -76,7 +72,6 @@ import {
   RepositoryScopeWriterAdapter,
   SourceDispatcher,
   StaticTokenProvider,
-  TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
@@ -90,23 +85,27 @@ import {
   findProjectLockfile,
   finishRecordRun,
   formatOutput,
+  inferTargetName,
   loadInquirer,
   loadTargets,
   lockfilePathForTarget,
+  migrateDecision,
   Option,
   type OutputFormat,
   type PreparedRecordSelection,
   prepareOldFileOnly,
-  prepareRecordSelection,
+  prepareRecordDecision,
   readTargetsSafely,
+  type RecordDecision,
   recordOutputFields,
   recordPlannedInstall,
+  type RecordSelectionInput,
   RegistryError,
   renderMigration,
   renderRecordLine,
+  resolveCommandTarget,
   resolveEffectiveTarget,
-  resolveTarget,
-  resolveTargetName,
+  type TargetOverrides,
   tokensForRecordSource,
   writerEnv,
 } from '../framework';
@@ -214,8 +213,8 @@ export class UpdateCommand extends BaseUpdateCommand {
     details: `
       Usage: ai-primitives-hub update [options]
 
-      Reads the lockfile, checks each remote bundle against its upstream source,
-      and installs available upgrades.
+      Reads the install record, checks each remote bundle against its upstream
+      source, and installs available upgrades.
 
       Options:
         --lockfile <path>       Path to a lockfile
@@ -262,36 +261,38 @@ export class UpdateCommand extends BaseUpdateCommand {
     await detectUpdateContext(opts, ctx);
 
     try {
-      const targetName = await resolveTargetName(opts.target, 'update', ctx, () => loadTargets(ctx));
-      const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => loadTargets(ctx));
-      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
+      // Without an inferred target the record decides; read-only first, so a failing run changes nothing.
+      const input = { command: 'update', lockfile: this.lockfile, scope: opts.scope };
+      const run: RecordUpdateBase = {
+        ctx, fmt, http, tokens, overrides: opts, dryRun: this.dryRun, interactive: this.interactive, noHubSync: this.noHubSync
+      };
+      const targetName = await inferTargetName(ctx, opts.target);
+      if (targetName === undefined) {
+        const decided = await runRecordUpdate(run, await prepareRecordWithoutTarget(ctx, input, this.dryRun));
+        if (decided !== undefined) {
+          return decided;
+        }
+      }
+
+      const target = await resolveCommandTarget(ctx, 'update', targetName, opts);
 
       // Select the record first, so a bad record stops before anything is fetched or written; a dry run never migrates.
-      const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope, write: this.dryRun !== true }, target);
-      if (prepared.selection.locations.length > 0) {
-        const rows = await prepared.service.listEntries(prepared.selection.locations);
-        // Once the user record imported the old user lockfile, an empty record never falls back to that file;
-        // a workspace-scope target still uses it.
-        const imported = prepared.selection.level === 'user' && target.scope === 'user' && !(this.lockfile?.length)
-          && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
-        if (rows.length > 0) {
-          if (!this.noHubSync) {
-            await syncActiveHub(ctx);
-          }
-          return await updateFromRecord({
-            ctx, fmt, http, tokens, prepared, target,
-            explicit: this.target !== undefined && this.target.length > 0 ? target : undefined,
-            dryRun: this.dryRun,
-            interactive: this.interactive
-          });
-        }
-        if (imported) {
-          return failWith(ctx, fmt, 'update', new RegistryError({
-            code: 'USAGE.MISSING_FLAG',
-            message: 'update: nothing is installed at the user level',
-            hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
-          }));
-        }
+      const decision = await prepareRecordDecision(ctx, input, { write: this.dryRun !== true, target });
+      const recorded = await runRecordUpdate(run, decision, this.target !== undefined && this.target.length > 0 ? target : undefined);
+      if (recorded !== undefined) {
+        return recorded;
+      }
+      // Once the user record imported the old user lockfile, an empty record never falls back to that file;
+      // a workspace-scope target and an explicit --lockfile still use it.
+      const prepared = decision?.prepared;
+      if (prepared !== undefined && prepared.selection.level === 'user' && prepared.selection.locations.length > 0
+        && target.scope === 'user' && !(this.lockfile?.length)
+        && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined) {
+        return failWith(ctx, fmt, 'update', new RegistryError({
+          code: 'USAGE.MISSING_FLAG',
+          message: 'update: nothing is installed at the user level',
+          hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
+        }));
       }
 
       const commitMode = target.commitMode ?? 'commit';
@@ -357,7 +358,7 @@ export class UpdateCommand extends BaseUpdateCommand {
 
 /**
  * Detect update context from the project environment (symmetric with install/uninstall).
- * Fills in `opts.target` when it can be inferred.
+ * Fills in `opts.lockfile` when it can be inferred; the target is inferred later.
  * @param opts Update options (mutated in-place).
  * @param ctx CLI context.
  */
@@ -366,12 +367,6 @@ async function detectUpdateContext(opts: UpdateOptions, ctx: Context): Promise<v
     const found = await findProjectLockfile(ctx);
     if (found !== null) {
       opts.lockfile = found;
-    }
-  }
-  if (!opts.target || opts.target.length === 0) {
-    const targets = await readTargetsSafely(loadTargets(ctx));
-    if (targets.length === 1) {
-      opts.target = targets[0].name;
     }
   }
 }
@@ -384,6 +379,48 @@ const remoteBundleIds = (lock: Lockfile, bundleIds: readonly string[]): string[]
   const src = lock.sources[lock.bundles[bundleId].sourceId];
   return src !== undefined && isRemoteSource(src.type);
 });
+
+/**
+ * The record `update` acts on with no inferred target, migrated unless `--dry-run`;
+ * `undefined` when it has no entries.
+ * @param ctx CLI context.
+ * @param input Command name and the typed `--lockfile` / `--scope`.
+ * @param dryRun `true` for `--dry-run`.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+async function prepareRecordWithoutTarget(
+  ctx: Context,
+  input: Omit<RecordSelectionInput, 'write'>,
+  dryRun: boolean
+): Promise<RecordDecision | undefined> {
+  const decision = await prepareRecordDecision(ctx, input);
+  return decision.rows.length === 0 ? undefined : migrateDecision(ctx, decision, { dryRun });
+}
+
+/** What every record-driven update run shares, whatever its target. */
+type RecordUpdateBase = Omit<RecordUpdateRun, 'prepared' | 'explicit'> & { noHubSync: boolean };
+
+/**
+ * Sync the active hub unless `--no-hub-sync`, then update from the record.
+ * @param run Context, clients, overrides and flags of the update.
+ * @param decision The selected record and its entries, if any.
+ * @param explicit The target named by `--target`.
+ * @returns Exit code, or `undefined` when the record has no entry.
+ */
+async function runRecordUpdate(
+  run: RecordUpdateBase,
+  decision: RecordDecision | undefined,
+  explicit?: Target
+): Promise<number | undefined> {
+  if (decision === undefined || decision.rows.length === 0) {
+    return undefined;
+  }
+  const { noHubSync, ...base } = run;
+  if (!noHubSync) {
+    await syncActiveHub(base.ctx);
+  }
+  return updateFromRecord({ ...base, ...(explicit === undefined ? {} : { explicit }), prepared: decision.prepared });
+}
 
 /**
  * Build a `RegistrySource`-shaped object from a lockfile source entry,
@@ -702,7 +739,6 @@ async function applyUpdate(
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
   await removeSupersededFiles(writer, target, previousFiles, entry.files);
-  await saveTargetState(ctx, target, lockKey, manifest.version);
 }
 
 async function downloadCandidate(
@@ -733,20 +769,6 @@ async function downloadCandidate(
       sourceRepoSlug: githubRepoSlugForSource(expect.source)
     });
   return { dl, files, manifest };
-}
-
-async function saveTargetState(ctx: Context, target: Target, bundleId: string, version: string): Promise<void> {
-  const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
-  const existingState = await stateStore.load(target.name);
-  const bundles = existingState?.lastInstalledBundles ?? [];
-  const idx = bundles.findIndex((b) => b.bundleId === bundleId);
-  const bundleState = { bundleId, version, installedAt: new Date().toISOString() };
-  if (idx === -1) {
-    bundles.push(bundleState);
-  } else {
-    bundles[idx] = bundleState;
-  }
-  await stateStore.save({ targetName: target.name, lastInstalledBundles: bundles, lastUsedAt: new Date().toISOString() });
 }
 
 // ---------------------------------------------------------------------------
@@ -783,10 +805,10 @@ interface RecordUpdateRun {
   http: HttpClient;
   tokens: TokenProvider;
   prepared: PreparedRecordSelection;
-  /** The resolved target; it writes the old-file-only bundles. */
-  target: Target;
   /** The target named by `--target`; only it narrows the plan to one tool. */
   explicit?: Target;
+  /** `--scope` / `--commit-mode` for the target inferred for old-file-only bundles. */
+  overrides: TargetOverrides;
   dryRun: boolean;
   interactive: boolean;
 }
@@ -948,7 +970,6 @@ async function applyRecordUpdate(
       failed.push({ tool: sibling.tool, reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  await saveTargetState(ctx, item.target, bundleId, manifest.version);
   return { version: manifest.version, changes, synced, outOfDate, failed };
 }
 
@@ -1089,12 +1110,13 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
 
 /**
  * Update the bundles only the old `prompt-registry.*` file has, with the old code and on that file.
+ * They go to the `--target` or only configured target, with the overrides applied, else fail per bundle.
  * @param run Update inputs.
  * @returns `undefined` when there is no old-file-only bundle.
  */
 async function updateOldFileOnly(run: RecordUpdateRun): Promise<OldFileUpdate | undefined> {
   const { ctx, http, tokens } = run;
-  const old = await prepareOldFileOnly(ctx, run.prepared, { command: 'update', target: run.target });
+  const old = await prepareOldFileOnly(ctx, run.prepared, { command: 'update', target: run.explicit, overrides: run.overrides });
   if (old === undefined) {
     return undefined;
   }

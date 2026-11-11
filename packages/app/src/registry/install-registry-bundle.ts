@@ -92,8 +92,8 @@ export async function installRegistryBundle(
 
   // Record installation FIRST (before cleanup) to ensure metadata is safe.
   // If anything fails here, old versions remain and can be used as fallback.
-  // Note: Repository scope bundles are tracked via LockfileManager, not RegistryStorage;
-  // the lockfile is already updated by the installer during installation.
+  // Note: Repository scope bundles are tracked in the install record, not RegistryStorage;
+  // the record is already updated by the installer during installation.
   if (options.scope !== 'repository') {
     await ports.recordInstallation(installation);
   }
