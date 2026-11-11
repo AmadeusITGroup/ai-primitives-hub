@@ -332,7 +332,9 @@ export class InstallRecordService {
     try {
       await this.fs.unlink(other.location.path);
     } catch (error) {
-      return [`Could not remove the empty record ${name}: ${error instanceof Error ? error.message : String(error)}`];
+      // Keep the record true to disk: save it empty, so it lists no file the caller then deletes.
+      const saved = await this.store.save(other.location, other.record);
+      return [`Could not remove the empty record ${name}: ${error instanceof Error ? error.message : String(error)}`, ...saved.warnings];
     }
     if (other.location.level === 'repository' && other.location.commitMode === 'local-only') {
       const excluded = await removeExcluded(this.fs, other.location.root, name);

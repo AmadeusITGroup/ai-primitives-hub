@@ -12,7 +12,7 @@ import {
 const OPTIONAL_SOURCE_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef'] as const;
 
 /** Query parameter names that look like a credential. */
-const TOKEN_PARAM_PATTERN = /token|^sig$|^signature$|^key$|^api[-_]?key$|secret|password/i;
+const TOKEN_PARAM_PATTERN = /token|^sig$|^signature$|^key$|^api[-_]?key$|secret|password|^auth|credential/i;
 
 /** A `scheme://` prefix. */
 const SCHEME_PATTERN = /^[a-z][\d+.a-z-]*:\/\//i;

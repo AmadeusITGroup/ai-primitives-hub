@@ -282,14 +282,15 @@ export class RecordStore {
     const stamped = this.stamp(location, record);
     this.validator.validate(stamped, file);
     const text = serializeRecord(stamped);
-    await this.writeAtomically(location, text, file);
     const warnings: string[] = [];
+    // Exclude a local-only file before it exists, so it is never on disk unexcluded.
     if (location.level === 'repository' && location.commitMode === 'local-only') {
       const exclude = await ensureExcluded(this.fs, location.root, path.basename(location.path));
       if (exclude.warning !== undefined) {
         warnings.push(exclude.warning);
       }
     }
+    await this.writeAtomically(location, text, file);
     return { warnings };
   }
 }

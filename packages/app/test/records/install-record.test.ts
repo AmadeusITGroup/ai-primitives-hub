@@ -40,6 +40,13 @@ class FailingRenameFs extends NodeRecordFs {
   }
 }
 
+/** `NodeRecordFs` whose `unlink` always fails, to simulate a record file that cannot be removed. */
+class FailingUnlinkFs extends NodeRecordFs {
+  public override unlink(): Promise<void> {
+    return Promise.reject(new Error('EBUSY: unlink failed'));
+  }
+}
+
 describe('repository install record', () => {
   let base: string;
   let root: string;
@@ -185,6 +192,34 @@ describe('repository install record', () => {
     expect(excludeText()).not.toContain('ai-primitives-hub.local.lock.json');
   });
 
+  it('saves the last entry\'s record empty when it cannot be removed, so it lists no deleted file', async () => {
+    await install('vscode', ['.github/prompts/a.prompt.md']);
+    await build(new FailingUnlinkFs());
+
+    const change = await service.recordUninstall({ location: committed, bundleId: BUNDLE, tool: 'vscode' });
+
+    expect(change.deletedFiles).toEqual(['.github/prompts/a.prompt.md']);
+    expect(change.warnings.join('\n')).toContain('Could not remove the empty record');
+    expect(read(committed).bundles).toEqual({});
+  });
+
+  it('adds the local-only file to info/exclude before writing it', async () => {
+    let excludedFirst: boolean | undefined;
+    class WatchingFs extends NodeRecordFs {
+      public override async rename(from: string, to: string): Promise<void> {
+        if (to === localOnly.path) {
+          excludedFirst = excludeText().includes('ai-primitives-hub.local.lock.json');
+        }
+        await super.rename(from, to);
+      }
+    }
+    await build(new WatchingFs());
+
+    await install('vscode', ['.github/prompts/a.prompt.md'], { location: localOnly });
+
+    expect(excludedFirst).toBe(true);
+  });
+
   it('adds the local-only file to info/exclude once', async () => {
     await install('vscode', ['.github/prompts/a.prompt.md'], { location: localOnly });
     await install('kiro', ['.kiro/steering/a.md'], { location: localOnly });
@@ -274,6 +309,7 @@ describe('repository install record', () => {
   it.each([
     ['https://user:pass@github.com/acme/tools', 'https://github.com/acme/tools'],
     ['https://github.com/acme/tools?token=abc&ref=main', 'https://github.com/acme/tools?ref=main'],
+    ['https://host.example/repo?auth=Bearer%20x&Authorization=y&credential=z&ref=main', 'https://host.example/repo?ref=main'],
     ['deploy@host.example:acme/tools.git', 'host.example:acme/tools.git'],
     ['git@github.com:acme/tools.git', 'git@github.com:acme/tools.git'],
     [String.raw`C:\Users\a@b\x`, String.raw`C:\Users\a@b\x`]
