@@ -61,10 +61,45 @@ export type RecordToolName = TargetType | typeof UNKNOWN_TOOL_NAME;
 
 /** One file a tool entry wrote. */
 export interface RecordedFile {
-  /** Path relative to the level root, with forward slashes. */
+  /** Path relative to the entry's `root` (default: the level root), with forward slashes. */
   path: string;
   /** `sha256:` plus 64 lowercase hex digits of the bytes on disk. */
   checksum: string;
+  /** Path of the file inside the bundle. */
+  sourcePath?: string;
+  /** File mode such as `0755`, only when not the default. */
+  mode?: string;
+  [key: string]: unknown;
+}
+
+/** One Agent Plugin (a `plugin.json` folder) a tool entry installed; its files are also in `files`. */
+export interface RecordedPlugin {
+  name: string;
+  version?: string;
+  /** `sha256:` of the plugin manifest. */
+  manifestDigest?: string;
+  /** Plugin folder, relative like `files[].path`. */
+  root: string;
+  /** Skill folders the plugin projects. */
+  skills?: string[];
+  /** Names of the MCP servers the plugin projects, as in `mcpServers[].name`. */
+  mcpServers?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * One MCP server a tool entry owns. The definition stays in the tool's own MCP
+ * file; `${env:VAR}` stays unresolved and no secret is recorded.
+ */
+export interface RecordedMcpServer {
+  /** The tool's MCP file, such as `.vscode/mcp.json`. */
+  config: string;
+  /** Server name in that file. */
+  name: string;
+  /** Bundle item the server came from. */
+  item?: string;
+  /** `sha256:` of the server definition as written. */
+  checksum?: string;
   [key: string]: unknown;
 }
 
@@ -76,15 +111,25 @@ export interface ToolEntry {
   sourceType: string;
   /** ISO 8601 UTC time the entry was written. */
   installedAt: string;
+  /** Stable id of this install, `inst-<hex>`. */
+  installationId?: string;
+  /** `sha256:` of the downloaded bundle content: each bundle path with its file's sha256, sorted. */
+  integrity?: string;
+  /** Folder the tool writes to when it is not the level root, `~`-relative; `files[].path` is relative to it. */
+  root?: string;
   /** Present, and `true`, only under the `'unknown'` tool key. */
   needsReinstall?: true;
   /** Files this entry owns, sorted by `path`. */
   files: RecordedFile[];
+  plugins?: RecordedPlugin[];
+  mcpServers?: RecordedMcpServer[];
   [key: string]: unknown;
 }
 
 /** All tool entries for one bundle at one level; never empty. */
 export interface BundleRecord {
+  /** Collection, manifest or index id of the bundle, without a version. */
+  name?: string;
   tools: Record<string, ToolEntry>;
   [key: string]: unknown;
 }
