@@ -487,8 +487,8 @@ export const recordRepositoryUninstall = async (
       location: prepared.location,
       bundleId,
       tool: prepared.tool,
-      // Files the old user lockfile still lists stay on disk for it.
-      keep: prepared.keepPaths?.get(bundleId)
+      // A file any old user lockfile entry lists stays on disk for it, whichever bundle that entry is.
+      keep: prepared.keepPaths === undefined ? undefined : new Set([...prepared.keepPaths.values()].flatMap((paths) => [...paths]))
     });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
