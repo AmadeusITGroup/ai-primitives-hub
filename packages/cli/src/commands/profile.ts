@@ -82,6 +82,7 @@ import {
   type OutputFormat,
   type PreparedRepositoryRecord,
   prepareRecordForTarget,
+  prepareRecordSelection,
   prepareUninstallForTarget,
   recordRepositoryInstall,
   recordRepositoryUninstall,
@@ -631,6 +632,8 @@ export async function runProfileActivation(
   targets: Target[]
 ): Promise<ProfileActivationResult> {
   const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
+  // Before the prior profile is cleaned up, so a refused activation changes nothing.
+  await refuseSameToolTargets(ctx, effectiveTargets);
   const lifecycle: ProfileLifecycleStores = { store: built.hubs, activationStore: built.activations };
   // The CLI's record of what is active is the activation store, not the hub
   // `active` flag that app's lifecycle scans (`hub sync` rewrites hub configs
@@ -690,7 +693,7 @@ export async function runProfileActivation(
     state,
     written: sync.report.written,
     failures: sync.report.failures,
-    records: sync.report.records,
+    records: [...prior.flatMap((removed) => removed.records), ...sync.report.records],
     migrations: [...prior.flatMap((removed) => removed.migrations), ...sync.report.migrations],
     warnings: [
       ...prior.flatMap((removed) => [...removed.warnings, ...removed.unknown.map((kept) => unknownBundleWarning(kept))]),
@@ -831,6 +834,33 @@ function createTargetProfileSync(
 }
 
 /**
+ * Refuse two targets of one tool at one level before anything changes, the
+ * prior profile's cleanup included; nothing is migrated or written.
+ * @param ctx - CLI context
+ * @param targets - effective targets
+ * @throws {RegistryError} `USAGE.INVALID_FLAG` naming both targets, or a `RECORD.*` error from loading.
+ */
+async function refuseSameToolTargets(ctx: Context, targets: readonly Target[]): Promise<void> {
+  const owners = new Map<string, string>();
+  for (const target of targets.filter((candidate) => usesInstallRecord(candidate))) {
+    const { selection } = await prepareRecordSelection(ctx, { command: 'profile activate' }, target);
+    const key = `${selection.level}\u0000${selection.root}\u0000${target.type}`;
+    const owner = owners.get(key);
+    if (owner !== undefined) {
+      throw sameToolTargetsError(owner, target, selection.locations[0]?.path ?? selection.root);
+    }
+    owners.set(key, target.name);
+  }
+}
+
+const sameToolTargetsError = (owner: string, target: Target, record: string): RegistryError => new RegistryError({
+  code: 'USAGE.INVALID_FLAG',
+  message: `profile activate: targets "${owner}" and "${target.name}" both record ${target.type} bundles in ${record}`,
+  hint: 'The install record keeps one entry per bundle and tool at a level. Pick one of them with --target.',
+  context: { targets: [owner, target.name], tool: target.type, record }
+});
+
+/**
  * Prepare the install record of every repository and user target before any bundle is written.
  * Refuses two targets of one tool at one level, since the record keeps one entry per bundle and tool.
  * @param ctx - CLI context
@@ -848,12 +878,7 @@ async function prepareProfileRecords(ctx: Context, targets: readonly Target[]): 
     const key = `${record.location.level}\u0000${record.location.root}\u0000${target.type}`;
     const owner = owners.get(key);
     if (owner !== undefined) {
-      throw new RegistryError({
-        code: 'USAGE.INVALID_FLAG',
-        message: `profile activate: targets "${owner}" and "${target.name}" both record ${target.type} bundles in ${record.location.path}`,
-        hint: 'The install record keeps one entry per bundle and tool at a level. Pick one of them with --target.',
-        context: { targets: [owner, target.name], tool: target.type, record: record.location.path }
-      });
+      throw sameToolTargetsError(owner, target, record.location.path);
     }
     owners.set(key, target.name);
     prepared.set(target.name, record);

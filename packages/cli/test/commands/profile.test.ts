@@ -392,6 +392,21 @@ profiles:
       expect(await exists(path.join(otherDir, 'prompts', 'hello.prompt.md'))).toBe(false);
     });
 
+    it('refuses two same-tool targets before it cleans up the active profile', async () => {
+      expect((await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const installed = path.join(targetDir, 'prompts', 'hello.prompt.md');
+      expect(await exists(installed)).toBe(true);
+      const otherDir = path.join(workspace, 'other-target');
+      await mkdir(otherDir, { recursive: true });
+      expect((await run(['target', 'add', 'copilot-2', '--type', 'copilot-cli', '--path', otherDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'copilot,copilot-2', '-o', 'json']);
+
+      expect(activated.exitCode).toBe(1);
+      expect(activated.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await exists(installed)).toBe(true);
+    });
+
     it('keeps one entry per bundle and tool when a profile pins another version of a versioned id', async () => {
       const keys = async (): Promise<string[]> => Object.entries((await readInstallRecord(recordPath())).bundles)
         .map(([key, bundle]) => `${key} ${Object.keys(bundle.tools).join(',')} ${bundle.tools.vscode?.version}`);
