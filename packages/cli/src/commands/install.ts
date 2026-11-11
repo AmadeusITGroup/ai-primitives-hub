@@ -1578,13 +1578,14 @@ async function performRemoteInstall(
     }
     // Check the record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
+    // Optional hub metadata, looked up before any file is written; a failed lookup records no hub.
+    const hub = prepared === undefined ? undefined : await recordHubOf(ctx, opts.sourceConfig).catch(() => undefined);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
     // No configured source: the GitHub repository the bundle was resolved from.
-    const hub = prepared === undefined ? undefined : await recordHubOf(ctx, opts.sourceConfig);
     const recordSource = opts.sourceConfig === undefined
       ? { type: 'github', url: `https://github.com/${repoSlug}` }
       : toRecordSource(opts.sourceConfig, installable.ref.sourceId, hub);
