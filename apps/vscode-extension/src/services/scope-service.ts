@@ -20,6 +20,11 @@ export interface SyncBundleOptions {
    * Only applicable for RepositoryScopeService.
    */
   commitMode?: 'commit' | 'local-only';
+  /**
+   * User scope: absolute paths the replaced user record entry wrote and that are
+   * unchanged since; they are rewritten instead of skipped as unmanaged files.
+   */
+  owned?: ReadonlySet<string>;
 }
 
 /**

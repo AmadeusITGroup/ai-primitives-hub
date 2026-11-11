@@ -429,9 +429,10 @@ export class UserScopeService implements IScopeService {
    * Uses lstat() to detect symlinks (including broken ones) since fs.existsSync()
    * returns false for broken symlinks.
    * @param file
+   * @param owned - Paths the replaced record entry owns; an existing regular file there is rewritten.
    * @returns Whether the target was written (symlink or copy).
    */
-  private async createCopilotFile(file: CopilotFile): Promise<boolean> {
+  private async createCopilotFile(file: CopilotFile, owned?: ReadonlySet<string>): Promise<boolean> {
     try {
       // Check if target already exists using lstat() to detect broken symlinks
       // fs.existsSync() returns false for broken symlinks, but lstat() can still read them
@@ -442,10 +443,10 @@ export class UserScopeService implements IScopeService {
           // Always remove existing symlink and recreate - simpler and more robust
           await unlink(file.targetPath);
           this.logger.debug(`Removed existing symlink: ${file.targetPath}`);
-        } else if (this.isRunningInWSL()) {
-          // WSL uses copies (not symlinks), so existing regular files are ours — overwrite
+        } else if (this.isRunningInWSL() || owned?.has(path.resolve(file.targetPath)) === true) {
+          // WSL copies, and a copy the replaced record entry wrote, are ours — overwrite
           await unlink(file.targetPath);
-          this.logger.debug(`Removed existing copy for re-sync (WSL): ${file.targetPath}`);
+          this.logger.debug(`Removed existing copy for re-sync: ${file.targetPath}`);
         } else {
           // It's a regular file on non-WSL - might be user's custom file, skip
           this.logger.warn(`File already exists (not managed): ${file.targetPath}`);
@@ -581,10 +582,10 @@ export class UserScopeService implements IScopeService {
    * Implements IScopeService.syncBundle
    * @param bundleId - The unique identifier of the bundle
    * @param bundlePath - The path to the installed bundle directory
-   * @param _options - Ignored for user scope (commitMode only applies to repository scope)
+   * @param options - `owned`: paths the replaced user record entry wrote; `commitMode` is ignored for user scope.
    * @returns Absolute paths written; after a logged failure, those written so far.
    */
-  public async syncBundle(bundleId: string, bundlePath: string, _options?: SyncBundleOptions): Promise<string[]> {
+  public async syncBundle(bundleId: string, bundlePath: string, options?: SyncBundleOptions): Promise<string[]> {
     const written: string[] = [];
     try {
       this.logger.debug(`Syncing bundle: ${bundleId}`);
@@ -639,7 +640,7 @@ export class UserScopeService implements IScopeService {
         }
 
         // Create symlink or copy
-        if (await this.createCopilotFile(copilotFile)) {
+        if (await this.createCopilotFile(copilotFile, options?.owned)) {
           written.push(copilotFile.targetPath);
         }
       }
