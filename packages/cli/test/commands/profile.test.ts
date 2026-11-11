@@ -25,7 +25,6 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
@@ -804,13 +803,13 @@ profiles:
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
 
-    const lockfilePath = resolveUserConfigPaths({
+    const lockfilePath = userRecordPath({
       HOME: workspace,
       XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
       XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-    }).userLockfile;
-    const persisted = await readLockfile(lockfilePath, new NodeFileSystem());
-    expect(persisted?.sources.replicated).toEqual({
+    });
+    const persisted = await readInstallRecord<{ sources: Record<string, unknown> }>(lockfilePath);
+    expect(persisted.sources.replicated).toMatchObject({
       type: 'artifactory',
       url: sourceRoot,
       indexFile: 'index-v1.json',
