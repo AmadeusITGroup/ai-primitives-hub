@@ -270,10 +270,11 @@ export class UpdateCommand extends BaseUpdateCommand {
       const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope, write: this.dryRun !== true }, target);
       if (prepared.selection.locations.length > 0) {
         const rows = await prepared.service.listEntries(prepared.selection.locations);
-        // Once the user record imported the old user lockfile, an empty record never falls back to that file.
-        const imported = prepared.selection.level === 'user'
+        // Once the user record imported the old user lockfile, an empty record never falls back to that file;
+        // a workspace-scope target still uses it.
+        const imported = prepared.selection.level === 'user' && target.scope === 'user' && !(this.lockfile?.length)
           && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
-        if (rows.length > 0 || imported) {
+        if (rows.length > 0) {
           if (!this.noHubSync) {
             await syncActiveHub(ctx);
           }
@@ -283,6 +284,13 @@ export class UpdateCommand extends BaseUpdateCommand {
             dryRun: this.dryRun,
             interactive: this.interactive
           });
+        }
+        if (imported) {
+          return failWith(ctx, fmt, 'update', new RegistryError({
+            code: 'USAGE.MISSING_FLAG',
+            message: 'update: nothing is installed at the user level',
+            hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
+          }));
         }
       }
 
