@@ -107,6 +107,18 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
     assert.ok(String(showInfo.lastCall.args[0]).includes('Successfully removed 1'));
   });
 
+  test('does not offer an entry in both record files when the other copy still has its files', async () => {
+    const entry = (file: string) => ({ 'split-bundle': { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file } } });
+    writeInstallRecord(root, RECORD_FILE, entry('.github/prompts/gone.prompt.md'));
+    writeInstallRecord(root, LOCAL_RECORD_FILE, entry('.github/prompts/kept.prompt.md'));
+    fs.rmSync(path.join(root, '.github/prompts/gone.prompt.md'));
+
+    await commands.cleanupStaleLockfileEntries();
+
+    assert.ok(showWarning.notCalled, String(showWarning.firstCall?.args[0]));
+    assert.ok(exists(RECORD_FILE) && exists(LOCAL_RECORD_FILE), 'both copies are kept');
+  });
+
   test('a malformed record file mid-batch stops the batch and reports removed and not-attempted rows', async () => {
     await recordBundle('first', 'vscode', ['.github/prompts/first.prompt.md']);
     await recordBundle('second', 'kiro', ['.kiro/steering/second.md']);
