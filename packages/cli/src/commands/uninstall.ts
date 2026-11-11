@@ -646,8 +646,9 @@ async function performRecordLockfileUninstall(run: UninstallRun, prepared: Prepa
       hint: 'Pass a --target whose scope and repository match the record.'
     });
   }
-  // Use the selected file's git root info/exclude, as the install did.
-  const uninstall = await prepareRepositoryUninstall(ctx, target, { locations: selection.locations });
+  // The user record keeps the files its old user lockfile lists; a repository file uses its git root's info/exclude, as the install did.
+  const uninstall = (selection.level === 'user' ? await prepareUninstallForTarget(ctx, target) : undefined)
+    ?? await prepareRepositoryUninstall(ctx, target, { locations: selection.locations });
   const { location, entries } = uninstall;
   const fields = await recordOutputFields(selection, fs);
   const bundleIds = [...entries.keys()];
