@@ -1494,6 +1494,18 @@ agents:
       expect(await exists(oldPath)).toBe(false);
     });
 
+    it('bare install with only an empty prompt-registry.lock.json stays at the repository level', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, {}, {});
+
+      const result = await run(['install', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<ReplayData>(result.stdout).data).toMatchObject({ level: 'repository', replayed: [] });
+      expect(await exists(oldPath)).toBe(false);
+    });
+
     it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing', async () => {
       await rm(recordPath());
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');

@@ -667,7 +667,14 @@ export const prepareRecordSelection = async (
       // A `--lockfile` record outside the git root is never migrated.
       if (targets[0].root === selection.root) {
         migration = await migrateLevel({ store, fs, targets, env: ctx.env });
-        selection = await select();
+        const migrated = await select();
+        // An old file with no bundles leaves no record to infer the level from: keep the level and root selected.
+        if (migrated.level === selection.level) {
+          selection = migrated;
+        } else {
+          const { oldLockfile: _migrated, ...kept } = selection;
+          selection = kept;
+        }
       }
     }
     const exclusion = selection.level === 'repository' && selection.locations.length > 0
