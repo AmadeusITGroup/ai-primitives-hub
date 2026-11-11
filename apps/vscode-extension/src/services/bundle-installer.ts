@@ -142,6 +142,8 @@ interface PreparedUserInstall {
   previousBundleId?: string;
   /** Home-relative paths of the replaced host entries that were modified or missing before the write. */
   modified: ReadonlySet<string>;
+  /** Absolute paths of the replaced host entries' files that are unchanged, which the sync may rewrite. */
+  owned: ReadonlySet<string>;
   /** Ids of the replaced host entries, any version of the bundle. */
   replacedBundleIds: string[];
   /** Ids whose profile installation the install replaces, any version of the bundle. */
@@ -399,6 +401,9 @@ export class BundleInstaller {
       for (const located of replaced) {
         (await this.modifiedFilesOf(located)).forEach((file) => modified.add(file));
       }
+      const owned = new Set(replaced.flatMap((located) => located.entry.files
+        .filter((file) => !modified.has(file.path))
+        .map((file) => path.resolve(located.location.root, ...file.path.split('/')))));
       const identity = recordIdentityOf(bundle.id, bundle.version);
       const profileEntryIds = (await this.storage.getInstalledBundles('user'))
         .filter((stored) => stored.bundleId === bundle.id || stored.bundleId === previousBundleId
@@ -409,6 +414,7 @@ export class BundleInstaller {
         source,
         previousBundleId: replaced.some((located) => located.bundleId === previousBundleId) ? previousBundleId : undefined,
         modified,
+        owned,
         replacedBundleIds: [...new Set(replaced.map((located) => located.bundleId))],
         profileEntryIds: [...new Set(profileEntryIds)]
       };
@@ -1188,7 +1194,7 @@ export class BundleInstaller {
           await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
         } else if (user) {
           // The user record is the store of this install: RegistryStorage is not written.
-          const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
+          const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode, owned: user.owned });
           await this.recordUserInstall(bundle, user, written);
           installed.recordOrigin = 'install-record';
         } else {

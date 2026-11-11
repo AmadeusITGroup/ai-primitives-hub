@@ -596,6 +596,20 @@ suite('user record', function () {
     assert.deepStrictEqual(await storage.getInstalledBundles('user'), []);
   });
 
+  test('a repeat user-scope install keeps a copy it wrote earlier as a regular file', async () => {
+    await installUser();
+    // A copy, as a transformed file or a failed symlink leaves it.
+    const hello = userPath(USER_HELLO);
+    fs.rmSync(hello);
+    fs.writeFileSync(hello, V1.files['prompts/hello.prompt.md']);
+
+    await manager.getBundleInstaller().installFromBuffer(v1Bundle(), zipOf(V1), { scope: 'user' }, 'local');
+
+    assert.strictEqual(fs.readFileSync(hello, 'utf8'), V1.files['prompts/hello.prompt.md'], 'the copy is not deleted');
+    const paths = readUserRecord().bundles[BUNDLE_ID].tools.vscode.files.map((file: { path: string }) => file.path);
+    assert.ok(paths.includes(USER_HELLO), paths.join(', '));
+  });
+
   test('an action on a bundle only copilot-cli holds in the user record is refused with RECORD.CLI_MANAGED; the record is unchanged', async () => {
     const adapter = new ExtensionRecordAdapter({
       sources: { listSources: () => Promise.resolve([localSource]) },
