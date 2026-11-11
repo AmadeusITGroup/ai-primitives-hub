@@ -1787,6 +1787,20 @@ export class RegistryManager {
   }
 
   /**
+   * Version of the host tool's own repository entry of a bundle, which the merged listing may not show.
+   * @param bundleId - Bundle id.
+   * @returns `undefined` without a workspace or a host entry.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async getHostVersion(bundleId: string): Promise<string | undefined> {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    return (await this.recordAdapter.findHostEntry(workspaceRoot, bundleId))?.entry.version;
+  }
+
+  /**
    * Refuse an action on a repository bundle whose record entries all belong to
    * another tool; other scopes are never refused.
    * @param bundleId - Bundle the action targets.
