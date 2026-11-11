@@ -83,8 +83,8 @@ Release `0.3.0` of the `@ai-primitives-hub/*` packages (CLI included) and the ex
 
 - Migrated bundles are recorded under the tool `unknown` and listed as needing a reinstall in the migration report and in `status`.
 - Install one again for your tool (`ai-primitives-hub install <bundle-id> --target <name>`, or **Install** / **Update** in the extension) to replace the entry; its files are kept.
-- To drop one, `ai-primitives-hub uninstall <bundle-id>` (or **Uninstall**) removes a lone `unknown` entry and keeps its files.
-- The CLI's workspace-scope installs can appear once as `unknown` user-level entries; `ai-primitives-hub uninstall <bundle-id> --scope user` removes them and keeps their files.
+- To drop one, `ai-primitives-hub uninstall --bundle <bundle-id>` (or **Uninstall**) removes a lone `unknown` entry and keeps its files.
+- The CLI's workspace-scope installs can appear once as `unknown` user-level entries; `ai-primitives-hub uninstall --bundle <bundle-id> --scope user` removes them and keeps their files.
 - The extension does not move or switch the commit mode of an `unknown` bundle until it is reinstalled.
 
 ### Older releases
@@ -95,7 +95,7 @@ CLI `0.2.x` and earlier extension releases do not see the new files. A teammate 
 
 - `.ai-primitives-hub/target-state.json` (the last used target) is no longer read or written and can be deleted.
 - Without `--target`, a command uses the only configured target. With two or more, it fails with `USAGE.MISSING_FLAG` before writing anything.
-- `update` and `uninstall <bundle-id>` take the tools from the record instead: the repository record at the git root when there is one, else the user record. **Inside a git repository with no record, they act on the user level**; pass `--scope repository` or `--target`. A bundle listed only in a not-yet-migrated older file needs `--target` once. See [Choosing a target](./reference/commands.md#choosing-a-target).
+- `update` and `uninstall --bundle <bundle-id>` take the tools from the record instead: the repository record at the git root when there is one, else the user record. **Inside a git repository with no record, they act on the user level**; pass `--scope repository` or `--target`. A bundle listed only in a not-yet-migrated older file needs `--target` once. See [Choosing a target](./reference/commands.md#choosing-a-target).
 - A record replay (`install --lockfile <record>`, or a bare `install`) needs no target.
 - `init` no longer creates a lockfile; the first repository install creates `ai-primitives-hub.lock.json`.
 
