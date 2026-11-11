@@ -1,13 +1,17 @@
 /**
  * Install record listing for the extension's repository view. Reads both
  * repository records at the git root and merges them with the old
- * prompt-registry lockfiles; the install record wins for the same bundle id.
- * Problems are shown once per file and content, and logged on every refresh.
+ * prompt-registry lockfiles; the install record wins for any version of a
+ * bundle. A bundle split across the two files is one item, and a tool's older
+ * version under another versioned key is not listed. Problems are shown once
+ * per file and content, and logged on every refresh.
  * @module services/install-record-listing
  */
 import * as path from 'node:path';
 import {
   createInstallRecordServices,
+  isAnyFileMissing,
+  recordIdentityOf,
   type RecordStore,
   toLockfileBundleEntry,
 } from '@ai-primitives-hub/app';
@@ -33,13 +37,16 @@ import {
 } from '../utils/logger';
 import {
   createInstalledBundleFromLockfile,
-} from './lockfile-manager';
+} from './installed-bundle-from-entry';
+
+/** Marketplace id of this extension (`<publisher>.<name>`, unchanged by ADR-0004). */
+export const EXTENSION_ID = 'AmadeusITGroup.prompt-registry';
 
 /** Writer stamp for records the extension writes: `ai-primitives-hub-extension@<version>`. */
 export const getExtensionRecordGeneratedBy = (): string => {
   let extensionVersion = '0.0.0';
   try {
-    const extension = vscode.extensions.getExtension('prompt-registry');
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
     if (extension) {
       const { version } = extension.packageJSON as { version?: string };
       extensionVersion = version || '0.0.0';
@@ -54,6 +61,8 @@ export const getExtensionRecordGeneratedBy = (): string => {
 export interface InstallRecordListingOptions {
   /** Filesystem port; `NodeRecordFs` by default. */
   fs?: RecordFs;
+  /** Record store to read with; one over `fs` by default. */
+  store?: RecordStore;
   /** Shows a listing problem to the user; a warning notification by default. */
   showProblem?: (message: string) => void;
 }
@@ -67,10 +76,18 @@ interface ListingProblem {
 
 const UNREADABLE = 'unreadable';
 
-/** A tool entry with the record file it was read from. */
+/** A tool entry with its key, tool and the record file it was read from. */
 interface LocatedEntry {
+  bundleId: string;
+  tool: string;
   entry: ToolEntry;
   location: RecordLocation;
+}
+
+/** The record's listing items, and the identity of every entry for the old-file merge. */
+interface RecordItems {
+  items: Map<string, InstalledBundle>;
+  identities: Set<string>;
 }
 
 /**
@@ -98,45 +115,58 @@ export class InstallRecordListing {
 
   public constructor(options: InstallRecordListingOptions = {}) {
     this.fs = options.fs ?? new NodeRecordFs();
-    this.store = createInstallRecordServices({ fs: this.fs, generatedBy: getExtensionRecordGeneratedBy() }).store;
+    this.store = options.store ?? createInstallRecordServices({ fs: this.fs, generatedBy: getExtensionRecordGeneratedBy() }).store;
     this.showProblem = options.showProblem ?? ((message) => {
       void vscode.window.showWarningMessage(message);
     });
   }
 
-  private async readRecords(workspaceRoot: string): Promise<Map<string, InstalledBundle>> {
+  private async readRecords(workspaceRoot: string): Promise<RecordItems> {
     const items = new Map<string, InstalledBundle>();
+    const identities = new Set<string>();
     let locations: [RecordLocation, RecordLocation];
     try {
       locations = await this.store.resolveRepository({ start: workspaceRoot });
     } catch (error) {
       this.logger.warn('Failed to resolve the repository root for install records:', error instanceof Error ? error : undefined);
-      return items;
+      return { items, identities };
     }
     const [committed, localOnly] = locations;
     const committedBundles = await this.loadBundles(committed);
     const localBundles = await this.loadBundles(localOnly);
+    const candidates: LocatedEntry[] = [];
     for (const bundleId of new Set([...committedBundles.keys(), ...localBundles.keys()])) {
       // Tools may be split across the files; the same tool in both is a conflict and the committed entry wins.
       const committedTools = committedBundles.get(bundleId)?.tools ?? {};
-      const candidates: LocatedEntry[] = Object.values(committedTools).map((entry) => ({ entry, location: committed }));
+      candidates.push(...Object.entries(committedTools).map(([tool, entry]) => ({ bundleId, tool, entry, location: committed })));
       const duplicateTools: string[] = [];
       for (const [tool, entry] of Object.entries(localBundles.get(bundleId)?.tools ?? {})) {
         if (Object.hasOwn(committedTools, tool)) {
           duplicateTools.push(tool);
           continue;
         }
-        candidates.push({ entry, location: localOnly });
+        candidates.push({ bundleId, tool, entry, location: localOnly });
       }
       if (duplicateTools.length > 0) {
         this.report(await this.conflictProblem(bundleId, duplicateTools, committed, localOnly));
       }
-      const latest = latestEntry(candidates);
+    }
+    // A tool lists one version of a bundle: its latest install across the versioned keys.
+    const byIdentity = new Map<string, LocatedEntry[]>();
+    for (const candidate of candidates) {
+      const identity = recordIdentityOf(candidate.bundleId, candidate.entry.version);
+      identities.add(identity);
+      const key = JSON.stringify([identity, candidate.tool]);
+      byIdentity.set(key, [...(byIdentity.get(key) ?? []), candidate]);
+    }
+    const listed = new Set([...byIdentity.values()].map((group) => latestEntry(group)));
+    for (const bundleId of new Set(candidates.map((candidate) => candidate.bundleId))) {
+      const latest = latestEntry(candidates.filter((candidate) => candidate.bundleId === bundleId && listed.has(candidate)));
       if (latest !== undefined) {
         await this.addItem(items, latest.location, bundleId, latest.entry);
       }
     }
-    return items;
+    return { items, identities };
   }
 
   /**
@@ -164,7 +194,7 @@ export class InstallRecordListing {
    * @param entry - The bundle's latest tool entry.
    */
   private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry): Promise<void> {
-    // Use `.github`, as LockfileManager does: never the git root, which uninstall would delete recursively.
+    // Use `.github`: never the git root, which uninstall would delete recursively.
     const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(entry), {
       installPath: path.join(location.root, '.github'),
       filesMissing: await this.filesMissing(location.root, entry),
@@ -174,23 +204,10 @@ export class InstallRecordListing {
     items.set(bundleId, item);
   }
 
-  /**
-   * Whether any file of the entry is missing on disk.
-   * @param root - Record root.
-   * @param entry - Tool entry.
-   */
-  private async filesMissing(root: string, entry: ToolEntry): Promise<boolean> {
-    for (const file of entry.files) {
-      try {
-        if (await this.fs.lstat(path.join(root, ...file.path.split('/'))) === undefined) {
-          return true;
-        }
-      } catch (error) {
-        // Same policy as LockfileManager: on an I/O error other than "missing", assume the file exists.
-        this.logger.warn(`Failed to check file existence for ${file.path}:`, error instanceof Error ? error : undefined);
-      }
-    }
-    return false;
+  // An I/O error other than "missing" is logged and counts as present.
+  private filesMissing(root: string, entry: ToolEntry): Promise<boolean> {
+    return isAnyFileMissing(this.fs, root, entry.files.map((file) => file.path), (recordedPath, error) =>
+      this.logger.warn(`Failed to check file existence for ${recordedPath}:`, error instanceof Error ? error : undefined));
   }
 
   private async contentHash(file: string): Promise<string> {
@@ -237,31 +254,32 @@ export class InstallRecordListing {
   }
 
   /**
-   * Repository root the records live at: the git root above `start`, or `start` without one.
-   * @param start - Workspace root.
-   */
-  public async resolveRoot(start: string): Promise<string> {
-    const [committed] = await this.store.resolveRepository({ start });
-    return committed.root;
-  }
-
-  /**
-   * List repository bundles: install records first, then old lockfile items with other ids.
+   * List repository bundles: install records first, then old lockfile items of other bundles.
    * @param workspaceRoot - Workspace root the git-root walk starts from.
-   * @param legacy - Reads the prompt-registry lockfiles.
+   * @param legacy - Reads the old prompt-registry lockfiles.
    */
   public async listRepositoryBundles(
     workspaceRoot: string,
     legacy: () => Promise<InstalledBundle[]>
   ): Promise<InstalledBundle[]> {
-    const fromRecords = await this.readRecords(workspaceRoot);
+    const { items, identities } = await this.readRecords(workspaceRoot);
     let old: InstalledBundle[] = [];
     try {
       old = await legacy();
     } catch (error) {
       this.logger.warn('Failed to query repository bundles from lockfile:', error instanceof Error ? error : undefined);
     }
-    return [...fromRecords.values(), ...old.filter((bundle) => !fromRecords.has(bundle.bundleId))];
+    // The record wins over an old item of any version; old items list one version, the latest installed.
+    const oldByIdentity = new Map<string, InstalledBundle>();
+    for (const bundle of old) {
+      const identity = recordIdentityOf(bundle.bundleId, bundle.version);
+      const kept = oldByIdentity.get(identity);
+      if (!items.has(bundle.bundleId) && !identities.has(identity)
+        && (kept === undefined || Date.parse(bundle.installedAt) > Date.parse(kept.installedAt))) {
+        oldByIdentity.set(identity, bundle);
+      }
+    }
+    return [...items.values(), ...oldByIdentity.values()];
   }
 }
 
@@ -270,10 +288,19 @@ export class InstallRecordListing {
  * @param root - Repository root.
  * @param onChange - Refreshes the listing.
  */
-export const watchInstallRecords = (root: string, onChange: () => void): vscode.Disposable => {
-  const watcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(root, `{${RECORD_FILE_NAMES.join(',')}}`)
-  );
+export const watchInstallRecords = (root: string, onChange: () => void): vscode.Disposable =>
+  watchFiles(root, `{${RECORD_FILE_NAMES.join(',')}}`, onChange);
+
+/**
+ * Call `onChange` when an old `prompt-registry*.lock.json` file of a folder is created, changed or deleted.
+ * @param workspaceFolder - Folder the old files live in.
+ * @param onChange - Refreshes the listing.
+ */
+export const watchOldLockfiles = (workspaceFolder: string, onChange: () => void): vscode.Disposable =>
+  watchFiles(workspaceFolder, 'prompt-registry*.lock.json', onChange);
+
+const watchFiles = (base: string, pattern: string, onChange: () => void): vscode.Disposable => {
+  const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, pattern));
   const subscriptions = [watcher.onDidCreate(onChange), watcher.onDidChange(onChange), watcher.onDidDelete(onChange)];
   return {
     dispose: () => {

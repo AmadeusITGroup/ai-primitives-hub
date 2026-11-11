@@ -13,6 +13,7 @@ import {
   type InstallRecordServices,
   type Lockfile,
   type LockfileSourceEntry,
+  orderConfiguredSources,
   readLockfile,
   recordIdentityOf,
   type RecordInstallInput,
@@ -25,7 +26,6 @@ import {
   selectRecord,
 } from '@ai-primitives-hub/app';
 import {
-  DEFAULT_LOCAL_HUB_ID,
   describeRecordError,
   type InstallationScope,
   isRecordError,
@@ -159,7 +159,8 @@ interface RepositoryRecords extends InstallRecordServices {
 }
 
 /**
- * Build the record services and locate the repository record files. Loads nothing.
+ * Build the record services and locate the repository record files. Without
+ * `given`, both files at the git root are loaded and checked first.
  * @param ctx - CLI context.
  * @param target - Repository-scope target.
  * @param fs - Filesystem port.
@@ -173,16 +174,9 @@ const openRepositoryRecords = async (
 ): Promise<RepositoryRecords> => {
   const services = createRecordServices(fs);
   const workspaceRoot = target.rootPath ?? ctx.cwd();
-  let locations: readonly RecordLocation[];
-  let location: RecordLocation;
-  if (given === undefined || given.length === 0) {
-    const [committed, localOnly] = await services.store.resolveRepository({ start: workspaceRoot });
-    locations = [committed, localOnly];
-    location = target.commitMode === 'local-only' ? localOnly : committed;
-  } else {
-    locations = given;
-    location = given[0];
-  }
+  const { locations, location } = given === undefined || given.length === 0
+    ? await services.store.loadRepository({ start: workspaceRoot, commitMode: target.commitMode })
+    : { locations: given, location: given[0] };
   return {
     ...services,
     workspaceRoot,
@@ -206,9 +200,6 @@ export const prepareRepositoryRecord = async (
 ): Promise<PreparedRepositoryRecord> => {
   try {
     const records = await openRepositoryRecords(ctx, target, fs);
-    for (const location of records.locations) {
-      await records.store.load(location);
-    }
     return {
       location: records.location,
       service: records.service,
@@ -273,7 +264,7 @@ export interface RecordedRepositoryUninstall {
   lockfile: string;
   /** Root-relative files that were removed. */
   removed: string[];
-  /** Root-relative files kept because another entry still lists them. */
+  /** Root-relative files kept: another entry still lists them, or they were changed or missing since the install. */
   kept: string[];
   /** Non-fatal problems: skipped deletions or a record file that could not be removed. */
   warnings: string[];
@@ -310,7 +301,8 @@ export const prepareRepositoryUninstall = async (
 };
 
 /**
- * Remove one bundle's entry for the target's type, then delete its files except those another entry lists.
+ * Remove one bundle's entry for the target's type, then delete its files except
+ * those another entry lists or that changed since the install (each kept with a warning).
  * @param prepared - From {@link prepareRepositoryUninstall}.
  * @param bundleId - Bundle to uninstall.
  * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or another `RECORD.*` error naming the file.
@@ -319,26 +311,26 @@ export const recordRepositoryUninstall = async (
   prepared: PreparedRepositoryUninstall,
   bundleId: string
 ): Promise<RecordedRepositoryUninstall> => {
-  let change;
+  let result;
   try {
-    change = await prepared.service.recordUninstall({ location: prepared.location, bundleId, tool: prepared.tool });
+    result = await prepared.service.uninstallEntry({ location: prepared.location, bundleId, tool: prepared.tool });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
-  const removal = await prepared.service.deleteSuperseded(change);
-  const warnings = [...change.warnings, ...removal.warnings];
-  if (change.location.commitMode === 'local-only' && removal.deleted.length > 0) {
+  const { change, deleted } = result;
+  const warnings = [...result.warnings, ...result.modified.map((file) => `Did not remove ${file}: it was changed after install.`)];
+  if (change.location.commitMode === 'local-only' && deleted.length > 0) {
     // Drop the removed files' `info/exclude` entries, as the old uninstall did.
     try {
-      await prepared.exclusion.remove(removal.deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
+      await prepared.exclusion.remove(deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
     } catch (error) {
       warnings.push(`Could not update .git/info/exclude: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return {
     lockfile: change.location.path,
-    removed: removal.deleted,
-    kept: change.keptSharedFiles,
+    removed: deleted,
+    kept: result.kept,
     warnings
   };
 };
@@ -401,25 +393,16 @@ export const prepareRecordSelection = async (
 };
 
 /**
- * Configured sources by id for the source trust gate: the active hub's first, then detached sources.
+ * Configured sources by id for the source trust gate, in `orderConfiguredSources`
+ * order. A hub that cannot be read contributes no source.
  * @param ctx - CLI context.
  */
 export const configuredSources = async (ctx: Context): Promise<Map<string, RegistrySource>> => {
   const manager = createHubManager({ ctx });
-  const sources = new Map<string, RegistrySource>();
-  let active: RegistrySource[] = [];
-  try {
-    active = await manager.listSources();
-  } catch {
-    // No readable active hub: no configured source from it.
-  }
-  const detached = (await manager.listSourcesAcrossAllHubs()).filter((source) => source.hubId === DEFAULT_LOCAL_HUB_ID);
-  for (const source of [...active, ...detached]) {
-    if (!sources.has(source.id)) {
-      sources.set(source.id, source);
-    }
-  }
-  return sources;
+  // No readable active hub pointer: no source counts as the active hub's.
+  const activeHubId = await manager.getActiveHubId().catch(() => null);
+  const ordered = orderConfiguredSources(await manager.listSourcesAcrossAllHubs(), activeHubId);
+  return new Map(ordered.map((source) => [source.id, source]));
 };
 
 /** Token provider that never returns a token. */

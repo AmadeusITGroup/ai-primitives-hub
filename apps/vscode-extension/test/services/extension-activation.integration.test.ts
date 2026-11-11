@@ -13,11 +13,11 @@ import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  ExtensionRecordAdapter,
+} from '../../src/services/extension-record-adapter';
+import {
   HubManager,
 } from '../../src/services/hub-manager';
-import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
 import {
   RepositoryActivationService,
 } from '../../src/services/repository-activation-service';
@@ -36,6 +36,12 @@ suite('Extension Activation Integration', () => {
   const writeLockfile = (lockfile: any): void => {
     fs.writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
   };
+
+  /** The extension's record adapter over the test storage's sources. */
+  const createRecords = (): ExtensionRecordAdapter => new ExtensionRecordAdapter({
+    sources: { listSources: () => testContext.storage.getSources() },
+    hostTool: 'vscode'
+  });
 
   setup(async function () {
     this.timeout(30_000);
@@ -57,91 +63,14 @@ suite('Extension Activation Integration', () => {
     mockHubManager = sandbox.createStubInstance(HubManager);
 
     // Reset singletons for each test
-    LockfileManager.resetInstance();
     RepositoryActivationService.resetInstance();
   });
 
   teardown(async function () {
     this.timeout(10_000);
     sandbox.restore();
-    LockfileManager.resetInstance();
     RepositoryActivationService.resetInstance();
     await testContext.cleanup();
-  });
-
-  suite('Lockfile Detection on Activation', () => {
-    /**
-     * Requirement 5.1: WHEN a workspace is opened, THE Extension SHALL check for
-     * `prompt-registry.lock.json` at the repository root
-     */
-    test('should detect lockfile when workspace is opened', async () => {
-      // Arrange
-      const mockLockfile = {
-        $schema: 'https://example.com/lockfile.schema.json',
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        generatedBy: 'prompt-registry@1.0.0',
-        bundles: {
-          'test-bundle': {
-            version: '1.0.0',
-            sourceId: 'test-source',
-            sourceType: 'github',
-            installedAt: new Date().toISOString(),
-            commitMode: 'commit' as const,
-            files: []
-          }
-        },
-        sources: {
-          'test-source': {
-            type: 'github',
-            url: 'https://github.com/test/repo'
-          }
-        }
-      };
-
-      // Write lockfile to temp directory
-      writeLockfile(mockLockfile);
-
-      // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
-      const lockfile = await lockfileManager.read();
-
-      // Assert
-      assert.ok(lockfile, 'Lockfile should be detected');
-      assert.strictEqual(lockfile?.version, '1.0.0');
-      assert.ok(lockfile?.bundles['test-bundle'], 'Bundle should be in lockfile');
-    });
-
-    /**
-     * Requirement 5.1: WHEN a workspace is opened, THE Extension SHALL check for
-     * `prompt-registry.lock.json` at the repository root
-     */
-    test('should handle missing lockfile gracefully', async () => {
-      // Arrange - no lockfile written
-
-      // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
-      const lockfile = await lockfileManager.read();
-
-      // Assert
-      assert.strictEqual(lockfile, null, 'Should return null when lockfile does not exist');
-    });
-
-    /**
-     * Requirement 5.1: WHEN a workspace is opened, THE Extension SHALL check for
-     * `prompt-registry.lock.json` at the repository root
-     */
-    test('should not check for lockfile when no workspace is open', async () => {
-      // Arrange
-      mockWorkspaceFolders = undefined;
-
-      // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
-      const lockfile = await lockfileManager.read();
-
-      // Assert
-      assert.strictEqual(lockfile, null, 'Should return null when no workspace is open');
-    });
   });
 
   suite('Activation Prompt Flow', () => {
@@ -195,11 +124,9 @@ suite('Extension Activation Integration', () => {
       mockHubManager.listHubs.resolves([]);
 
       // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
-
       const activationService = RepositoryActivationService.getInstance(
         testContext.tempStoragePath,
-        lockfileManager,
+        createRecords(),
         mockHubManager,
         testContext.storage
       );
@@ -246,10 +173,9 @@ suite('Extension Activation Integration', () => {
       const mockShowInformationMessage = sandbox.stub(vscode.window, 'showInformationMessage');
 
       // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
       const activationService = RepositoryActivationService.getInstance(
         testContext.tempStoragePath,
-        lockfileManager,
+        createRecords(),
         mockHubManager,
         testContext.storage
       );
@@ -270,10 +196,9 @@ suite('Extension Activation Integration', () => {
       const mockShowInformationMessage = sandbox.stub(vscode.window, 'showInformationMessage');
 
       // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
       const activationService = RepositoryActivationService.getInstance(
         testContext.tempStoragePath,
-        lockfileManager,
+        createRecords(),
         mockHubManager,
         testContext.storage
       );
@@ -321,10 +246,9 @@ suite('Extension Activation Integration', () => {
       mockHubManager.listHubs.resolves([]);
 
       // Act
-      const lockfileManager = LockfileManager.getInstance(testContext.tempStoragePath);
       const activationService = RepositoryActivationService.getInstance(
         testContext.tempStoragePath,
-        lockfileManager,
+        createRecords(),
         mockHubManager,
         testContext.storage
       );

@@ -13,9 +13,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as sinon from 'sinon';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
 import {
@@ -194,8 +191,6 @@ suite('RepositoryScopeService', () => {
 
   teardown(() => {
     sandbox.restore();
-    // Reset LockfileManager instance for this workspace
-    LockfileManager.resetInstance(workspaceRoot);
     // Cleanup temp directories
     if (fs.existsSync(tempDir)) {
       fs.rmSync(tempDir, { recursive: true, force: true });

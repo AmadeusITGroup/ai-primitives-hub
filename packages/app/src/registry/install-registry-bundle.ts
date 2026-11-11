@@ -125,6 +125,7 @@ async function checkExistingInstallation(
 ): Promise<InstallOptions> {
   const existing = await ports.getInstalledBundle(bundleId, options.scope);
 
+  // Repository installs are not in installation storage, so they always proceed; the install record replaces the old version.
   if (!existing || options.force) {
     return options;
   }
@@ -225,7 +226,7 @@ async function cleanupOldVersions(
   ports: InstallRegistryBundlePorts,
   onLog: OnLogEvent | undefined
 ): Promise<void> {
-  // Repository scope cleanup is handled by LockfileManager
+  // Repository scope: the install record keeps one version per bundle and tool (recordInstall).
   if (scope === 'repository') {
     return;
   }

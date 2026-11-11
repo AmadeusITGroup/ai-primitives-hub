@@ -1,7 +1,8 @@
 /**
  * Install record service: records a tool's install or uninstall of a bundle in
  * the shared record and keeps sibling tools that share its files in step. It
- * deletes nothing itself; superseded files come back in `deletedFiles` for
+ * also moves entries between the two repository files and remaps source ids.
+ * It deletes nothing itself; superseded files come back in `deletedFiles` for
  * `deleteSuperseded` to remove after the save.
  * @module records/install-record-service
  */
@@ -11,6 +12,7 @@ import {
   compareCodeUnits,
   FORBIDDEN_KEYS,
   type InstallRecord,
+  otherRepositoryLocation,
   type RecordChange,
   type RecordedFile,
   recordError,
@@ -39,6 +41,9 @@ import {
 import {
   removeExcluded,
 } from './git-root';
+import {
+  findModifiedFiles,
+} from './modified-files';
 import {
   recordIdentityOf,
 } from './record-identity';
@@ -136,11 +141,92 @@ export interface StatusRow {
   needsReinstall: boolean;
 }
 
+/** One tool entry of a bundle, with the record file holding it. */
+export interface LocatedToolEntry {
+  location: RecordLocation;
+  bundleId: string;
+  tool: string;
+  entry: ToolEntry;
+}
+
+/** Input of {@link InstallRecordService.uninstallEntry}. */
+export interface UninstallEntryInput {
+  /** A record file holding the entry; for a repository file both files at its root are read. */
+  location: RecordLocation;
+  bundleId: string;
+  tool: string;
+  /** More root-relative paths to keep. */
+  keep?: ReadonlySet<string>;
+}
+
+/** Outcome of {@link InstallRecordService.uninstallEntry}. */
+export interface UninstallEntryResult {
+  change: RecordInstallResult;
+  /** Root-relative files removed. */
+  deleted: string[];
+  /** Root-relative files kept: listed by another entry, modified, missing or in `keep`. */
+  kept: string[];
+  /** Kept files still on disk whose content changed since the install, sorted. */
+  modified: string[];
+  warnings: string[];
+}
+
 /** Outcome of {@link InstallRecordService.deleteSuperseded}. */
 export interface DeleteSupersededResult {
   /** Root-relative paths that were removed. */
   deleted: string[];
   /** One message per path that was skipped or could not be removed. */
+  warnings: string[];
+}
+
+/** Input of {@link InstallRecordService.moveEntry}. */
+export interface MoveEntryInput {
+  /** The repository file holding the entry now. */
+  location: RecordLocation;
+  bundleId: string;
+  tool: string;
+}
+
+/** Outcome of {@link InstallRecordService.moveEntry}. */
+export interface MoveEntryResult {
+  from: RecordLocation;
+  to: RecordLocation;
+  /** Root-relative files only the replaced entries listed, for `deleteSuperseded` at `to`; sorted. */
+  deletedFiles: string[];
+  /** Root-relative files of the replaced entries another entry still lists; sorted. */
+  keptSharedFiles: string[];
+  warnings: string[];
+}
+
+/** The configured source a remapped id points to: `RecordSourceInput` without the key. */
+export interface RecordSourceDescriptor {
+  /** A `SourceType` value. */
+  type: string;
+  /** Source URL; credentials are removed before it is recorded. */
+  url: string;
+  branch?: string;
+  collectionsPath?: string;
+  indexFile?: string;
+  authMode?: string;
+  credentialRef?: string;
+  /** Any other field is dropped, never recorded. */
+  [key: string]: unknown;
+}
+
+/** Input of {@link InstallRecordService.remapSource}. */
+export interface RemapSourceInput {
+  /** Repository root whose two record files are rewritten. */
+  root: string;
+  from: string;
+  to: string;
+  /** Fields recorded under `sources.<to>`. */
+  descriptor: RecordSourceDescriptor;
+}
+
+/** Outcome of {@link InstallRecordService.remapSource}. */
+export interface RemapSourceResult {
+  /** Record files that changed and were saved, committed first. */
+  changed: RecordLocation[];
   warnings: string[];
 }
 
@@ -191,7 +277,11 @@ const copyRecordedFile = (file: RecordedFile): RecordedFile => {
   return copy;
 };
 
-const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
+/**
+ * Every installed path listed by any entry of the given records.
+ * @param records - Records to scan.
+ */
+export const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
   const listed = new Set<string>();
   for (const record of records) {
     for (const bundle of Object.values(record.bundles)) {
@@ -203,6 +293,63 @@ const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
     }
   }
   return listed;
+};
+
+const isSameSource = (left: SourceRecord, right: SourceRecord): boolean => {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => left[key] === right[key]);
+};
+
+const remapInRecord = (record: InstallRecord, from: string, to: string, source: SourceRecord): boolean => {
+  if (!Object.hasOwn(record.sources, from)) {
+    return false;
+  }
+  let changed = false;
+  for (const bundle of Object.values(record.bundles)) {
+    for (const entry of Object.values(bundle.tools)) {
+      if (entry.sourceId !== from && entry.sourceId !== to) {
+        continue;
+      }
+      if (entry.sourceId !== to || entry.sourceType !== source.type) {
+        changed = true;
+      }
+      entry.sourceId = to;
+      entry.sourceType = source.type;
+    }
+  }
+  if (from !== to) {
+    delete record.sources[from];
+    changed = true;
+  }
+  const current = Object.hasOwn(record.sources, to) ? record.sources[to] : undefined;
+  if (current === undefined || !isSameSource(current, source)) {
+    record.sources[to] = source;
+    changed = true;
+  }
+  return changed;
+};
+
+/** The pending record change of each root, in this process. */
+const pendingChanges = new Map<string, Promise<unknown>>();
+
+/**
+ * Run record changes of one root one at a time in this process, so two
+ * concurrent installs cannot load the same record and lose each other's entry.
+ * A failed change does not stop the next one.
+ * @param root - Record root.
+ * @param change - Load, change and save of the record files at the root.
+ */
+const serializeByRoot = async <T>(root: string, change: () => Promise<T>): Promise<T> => {
+  const current = (pendingChanges.get(root) ?? Promise.resolve()).catch(() => undefined).then(change);
+  const settled = current.catch(() => undefined);
+  pendingChanges.set(root, settled);
+  try {
+    return await current;
+  } finally {
+    if (pendingChanges.get(root) === settled) {
+      pendingChanges.delete(root);
+    }
+  }
 };
 
 /** Records installs and uninstalls in the shared install record. */
@@ -234,14 +381,6 @@ export class InstallRecordService {
         throw recordError('RECORD.MALFORMED', { detail: `${name} ${JSON.stringify(value)} cannot be recorded` });
       }
     }
-  }
-
-  private otherLocation(location: RecordLocation): RecordLocation | undefined {
-    if (location.level !== 'repository') {
-      return undefined;
-    }
-    const [committed, localOnly] = repositoryLocations(location.root);
-    return location.commitMode === 'local-only' ? committed : localOnly;
   }
 
   /**
@@ -443,6 +582,32 @@ export class InstallRecordService {
   }
 
   /**
+   * Tool entries of the given record files, one per level, root, bundle and
+   * tool; an entry in both repository files at one root comes from the committed file.
+   * @param locations - Record files to read.
+   * @param bundleId - Only this bundle's entries, when given.
+   * @param tool - Only this tool's entries, when given.
+   */
+  private async locateEntries(locations: readonly RecordLocation[], bundleId?: string, tool?: string): Promise<LocatedToolEntry[]> {
+    const found = new Map<string, LocatedToolEntry>();
+    for (const location of locations) {
+      const { record } = await this.store.load(location);
+      const bundles = Object.entries(record.bundles).filter(([id]) => bundleId === undefined || id === bundleId);
+      for (const [id, bundle] of bundles) {
+        for (const [key, entry] of Object.entries(bundle.tools).filter(([name]) => tool === undefined || name === tool)) {
+          const dedupeKey = JSON.stringify([location.level, location.root, id, key]);
+          const existing = found.get(dedupeKey);
+          if (existing !== undefined && (existing.location.commitMode !== 'local-only' || location.commitMode === 'local-only')) {
+            continue;
+          }
+          found.set(dedupeKey, { location, bundleId: id, tool: key, entry });
+        }
+      }
+    }
+    return [...found.values()];
+  }
+
+  /**
    * Record that a tool installed a bundle, moving the entry out of the other
    * repository file and syncing siblings. The tool's entries with the same
    * bundle identity in either file are replaced. Saves the target file first;
@@ -451,12 +616,17 @@ export class InstallRecordService {
    * @returns The change, with the superseded files to delete after the save and the siblings found.
    * @throws {RegistryError} A `RECORD.*` error; the record is unchanged when the target save fails.
    */
-  public async recordInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
+  public recordInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
+    return serializeByRoot(input.location.root, () => this.applyInstall(input));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
+  private async applyInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
     this.validateInput(input);
     const source: SourceRecord = sanitizeSource(input.source);
     const { location, bundleId, tool } = input;
     const target = await this.store.load(location);
-    const otherLocation = this.otherLocation(location);
+    const otherLocation = otherRepositoryLocation(location);
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
     const files = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot);
 
@@ -532,10 +702,15 @@ export class InstallRecordService {
    * @param input.tool - The target's type.
    * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` when neither file has the entry.
    */
-  public async recordUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
+  public recordUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
+    return serializeByRoot(input.location.root, () => this.applyUninstall(input));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
+  private async applyUninstall(input: { location: RecordLocation; bundleId: string; tool: string }): Promise<RecordInstallResult> {
     const { location, bundleId, tool } = input;
     const first = await this.store.load(location);
-    const otherLocation = this.otherLocation(location);
+    const otherLocation = otherRepositoryLocation(location);
     const loaded = otherLocation === undefined ? [first] : [first, await this.store.load(otherLocation)];
 
     const changed: { file: LoadedRecord; entry: ToolEntry }[] = [];
@@ -578,29 +753,175 @@ export class InstallRecordService {
   }
 
   /**
+   * Uninstall one tool's entry and delete its files, keeping files another
+   * entry lists, files changed or missing since the install, and `keep`.
+   * @param input - The file holding the entry, the bundle id, the tool and extra paths to keep.
+   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND`, or any `RECORD.*` load or save error.
+   */
+  public async uninstallEntry(input: UninstallEntryInput): Promise<UninstallEntryResult> {
+    const { location, bundleId, tool } = input;
+    const other = otherRepositoryLocation(location);
+    const recorded: RecordedFile[] = [];
+    for (const file of other === undefined ? [location] : [location, other]) {
+      const { record } = await this.store.load(file);
+      const bundle = Object.hasOwn(record.bundles, bundleId) ? record.bundles[bundleId] : undefined;
+      recorded.push(...(bundle !== undefined && Object.hasOwn(bundle.tools, tool) ? bundle.tools[tool].files : []));
+    }
+    const changedOrMissing = new Set(await findModifiedFiles(this.fs, location.root, recorded));
+    const change = await this.recordUninstall({ location, bundleId, tool });
+    const isKept = (recordedPath: string): boolean => changedOrMissing.has(recordedPath) || input.keep?.has(recordedPath) === true;
+    const removal = await this.deleteSuperseded({
+      location: change.location,
+      deletedFiles: change.deletedFiles.filter((recordedPath) => !isKept(recordedPath))
+    });
+    const keptOwn = change.deletedFiles.filter((recordedPath) => isKept(recordedPath));
+    const modified: string[] = [];
+    for (const recordedPath of keptOwn.filter((candidate) => changedOrMissing.has(candidate))) {
+      const stat = await this.fs.lstat(path.join(change.location.root, ...recordedPath.split('/'))).catch(() => undefined);
+      if (stat !== undefined) {
+        modified.push(recordedPath);
+      }
+    }
+    return {
+      change,
+      deleted: removal.deleted,
+      kept: [...change.keptSharedFiles, ...keptOwn],
+      modified,
+      warnings: [...change.warnings, ...removal.warnings]
+    };
+  }
+
+  /**
+   * Move one tool's entry, unchanged, between the committed and the local-only
+   * repository file. The tool's entries with the same bundle identity in the
+   * target are replaced, so its copy from an interrupted move is too. The
+   * target is saved first; deletes nothing.
+   * @param input - The file holding the entry, the bundle id and the tool.
+   * @returns Both files, with the replaced entries' files to delete after the save.
+   * @throws {RegistryError} `RECORD.ENTRY_NOT_FOUND` or `RECORD.MALFORMED`, or any `RECORD.*` load or save error.
+   */
+  public moveEntry(input: MoveEntryInput): Promise<MoveEntryResult> {
+    return serializeByRoot(input.location.root, () => this.applyMove(input));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
+  private async applyMove(input: MoveEntryInput): Promise<MoveEntryResult> {
+    const { location, bundleId, tool } = input;
+    const targetLocation = otherRepositoryLocation(location);
+    if (targetLocation === undefined) {
+      throw recordError('RECORD.MALFORMED', { file: path.basename(location.path), detail: 'only a repository entry can change commit mode' });
+    }
+    const from = await this.store.load(location);
+    const to = await this.store.load(targetLocation);
+    const entry = this.removeEntry(from.record, bundleId, tool);
+    if (entry === undefined) {
+      throw recordError('RECORD.ENTRY_NOT_FOUND', {
+        file: path.basename(location.path),
+        detail: `no entry for bundle ${JSON.stringify(bundleId)} and tool ${JSON.stringify(tool)}`,
+        context: { bundleId, tool }
+      });
+    }
+    // The store's load checked that the source exists.
+    const source = from.record.sources[entry.sourceId];
+    this.dropUnusedSource(from.record, entry.sourceId);
+    const replaced = this.removeSameIdentity(to.record, bundleId, recordIdentityOf(bundleId, entry.version), tool);
+    if (!Object.hasOwn(to.record.bundles, bundleId)) {
+      to.record.bundles[bundleId] = createBundle();
+    }
+    to.record.bundles[bundleId].tools[tool] = entry;
+    to.record.sources[entry.sourceId] = source;
+    for (const prior of replaced) {
+      this.dropUnusedSource(to.record, prior.sourceId);
+    }
+
+    const movedPaths = new Set(entry.files.map((file) => file.path));
+    const stillListed = listedPaths([to.record, from.record]);
+    const deletedFiles = new Set<string>();
+    const keptSharedFiles = new Set<string>();
+    for (const old of replaced.flatMap((prior) => prior.files)) {
+      if (!movedPaths.has(old.path)) {
+        (stillListed.has(old.path) ? keptSharedFiles : deletedFiles).add(old.path);
+      }
+    }
+
+    const saved = await this.store.save(targetLocation, to.record);
+    const warnings = [...saved.warnings, ...(await this.saveOther(from))];
+    return {
+      from: location,
+      to: targetLocation,
+      deletedFiles: [...deletedFiles].toSorted(compareCodeUnits),
+      keptSharedFiles: [...keptSharedFiles].toSorted(compareCodeUnits),
+      warnings
+    };
+  }
+
+  /**
+   * Rewrite a source id, and the matching entries' `sourceType`, in both
+   * repository files at a root. Both files load before anything is saved, and
+   * running it again is a no-op.
+   * @param input - Root, the two ids and the source fields for `to`.
+   * @throws {RegistryError} `RECORD.MALFORMED` for a bad id or source, or any `RECORD.*` load or save error.
+   */
+  public async remapSource(input: RemapSourceInput): Promise<RemapSourceResult> {
+    const { root, from, to } = input;
+    for (const [name, value] of [['from', from], ['to', to]] as const) {
+      if (typeof value !== 'string' || value === '' || FORBIDDEN_KEYS.has(value)) {
+        throw recordError('RECORD.MALFORMED', { detail: `source id ${name} ${JSON.stringify(value)} cannot be recorded` });
+      }
+    }
+    if (!(RECORD_SOURCE_TYPES as readonly string[]).includes(input.descriptor.type)) {
+      throw recordError('RECORD.MALFORMED', { detail: `source type ${JSON.stringify(input.descriptor.type)} is not a source type` });
+    }
+    const source = sanitizeSource(input.descriptor);
+    const [committedLocation, localOnlyLocation] = repositoryLocations(root);
+    const committedFile = await this.store.load(committedLocation);
+    const loaded = [committedFile, await this.store.load(localOnlyLocation)];
+
+    const changed = loaded.filter((file) => remapInRecord(file.record, from, to, source));
+    const warnings: string[] = [];
+    for (const file of changed) {
+      warnings.push(...(await this.store.save(file.location, file.record)).warnings);
+    }
+    return { changed: changed.map((file) => file.location), warnings };
+  }
+
+  /**
    * One status row per (bundle, tool) entry of the given record files, sorted.
+   * An entry in both repository files at one root is listed once.
    * @param locations - Record files to list.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async listEntries(locations: readonly RecordLocation[]): Promise<StatusRow[]> {
-    const rows: StatusRow[] = [];
-    for (const location of locations) {
-      const { record } = await this.store.load(location);
-      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
-        for (const [tool, entry] of Object.entries(bundle.tools)) {
-          rows.push({
-            bundleId,
-            tool,
-            level: location.level,
-            version: entry.version,
-            record: location.path,
-            needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
-          });
-        }
-      }
-    }
+    const rows: StatusRow[] = (await this.listToolEntries(locations)).map(({ location, bundleId, tool, entry }) => ({
+      bundleId,
+      tool,
+      level: location.level,
+      version: entry.version,
+      record: location.path,
+      needsReinstall: tool === UNKNOWN_TOOL_NAME || entry.needsReinstall === true
+    }));
     return rows.toSorted((left, right) =>
       compareCodeUnits(left.bundleId, right.bundleId) || compareCodeUnits(left.tool, right.tool) || compareCodeUnits(left.record, right.record));
+  }
+
+  /**
+   * A bundle's tool entries in the given record files, in file order.
+   * @param locations - Record files to search, committed first.
+   * @param bundleId - Bundle id.
+   * @param tool - Only this tool's entry, when given.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public findEntries(locations: readonly RecordLocation[], bundleId: string, tool?: string): Promise<LocatedToolEntry[]> {
+    return this.locateEntries(locations, bundleId, tool);
+  }
+
+  /**
+   * Every tool entry of every bundle in the given record files, in file order.
+   * @param locations - Record files to list.
+   * @throws {RegistryError} Any `RECORD.*` error from loading a file.
+   */
+  public listToolEntries(locations: readonly RecordLocation[]): Promise<LocatedToolEntry[]> {
+    return this.locateEntries(locations);
   }
 
   /**
@@ -608,17 +929,11 @@ export class InstallRecordService {
    * @param locations - Record files to search, committed first.
    * @param bundleId - Bundle id.
    * @param tool - Tool key.
-   * @returns The first file holding the entry, or `undefined` when none does.
+   * @returns The file holding the entry, the committed one when both do.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
   public async holdingLocation(locations: readonly RecordLocation[], bundleId: string, tool: string): Promise<RecordLocation | undefined> {
-    for (const location of locations) {
-      const { record } = await this.store.load(location);
-      if (Object.hasOwn(record.bundles, bundleId) && Object.hasOwn(record.bundles[bundleId].tools, tool)) {
-        return location;
-      }
-    }
-    return undefined;
+    return (await this.findEntries(locations, bundleId, tool))[0]?.location;
   }
 
   /**
@@ -681,7 +996,7 @@ export class InstallRecordService {
     for (const change of changes) {
       let listed = listedByRecord.get(change.location.path);
       if (listed === undefined) {
-        const other = this.otherLocation(change.location);
+        const other = otherRepositoryLocation(change.location);
         const locations = other === undefined ? [change.location] : [change.location, other];
         const records: InstallRecord[] = [];
         for (const location of locations) {

@@ -27,15 +27,19 @@ import {
   it,
 } from 'vitest';
 import {
+  findModifiedFiles,
   InstallRecordService,
+  isLocalSourceInsideRoot,
   LOCAL_SOURCE_OUTSIDE_REASON,
   mapToolToTarget,
+  orderConfiguredSources,
   type RecordInstallInput,
   RecordStore,
   resolveRecordSource,
   selectRecord,
   type SelectRecordOptions,
   toRecordSource,
+  writerGroupFor,
 } from '../../src/records';
 import {
   findLockfile,
@@ -56,6 +60,21 @@ class FailingRenameFs extends NodeRecordFs {
 class FailingUnlinkFs extends NodeRecordFs {
   public override unlink(): Promise<void> {
     return Promise.reject(new Error('EBUSY: unlink failed'));
+  }
+}
+
+/** `NodeRecordFs` whose second rename onto a record file fails, to interrupt a two-file save. */
+class SecondRecordSaveFailsFs extends NodeRecordFs {
+  private recordRenames = 0;
+
+  public override rename(from: string, to: string): Promise<void> {
+    if (to.endsWith('.lock.json')) {
+      this.recordRenames += 1;
+      if (this.recordRenames === 2) {
+        return Promise.reject(new Error('ENOSPC: second save failed'));
+      }
+    }
+    return super.rename(from, to);
   }
 }
 
@@ -193,6 +212,36 @@ describe('repository install record', () => {
 
     expect(change.deletedFiles).toEqual(['.kiro/steering/a.md']);
     expect(toolsIn(committed)).toEqual(['vscode']);
+  });
+
+  it('uninstallEntry deletes the entry\'s files but keeps a shared, an edited, a missing and a caller-kept one', async () => {
+    await install('kiro', ['docs/shared.md']);
+    await install('vscode', ['docs/shared.md', 'docs/edited.md', 'docs/gone.md', 'docs/held.md', 'docs/plain.md'], { location: localOnly });
+    fs.writeFileSync(path.join(root, 'docs', 'edited.md'), 'my own edits\n');
+    fs.rmSync(path.join(root, 'docs', 'gone.md'));
+
+    const result = await service.uninstallEntry({ location: localOnly, bundleId: BUNDLE, tool: 'vscode', keep: new Set(['docs/held.md']) });
+
+    expect(result).toMatchObject({
+      deleted: ['docs/plain.md'],
+      kept: ['docs/shared.md', 'docs/edited.md', 'docs/gone.md', 'docs/held.md'],
+      modified: ['docs/edited.md']
+    });
+    expect(fs.existsSync(path.join(root, 'docs', 'plain.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'docs', 'edited.md'))).toBe(true);
+    expect(fs.existsSync(localOnly.path)).toBe(false);
+    expect(toolsIn(committed)).toEqual(['kiro']);
+  });
+
+  it('keeps both entries when two installs at one root are recorded at the same time', async () => {
+    await Promise.all([
+      install('vscode', ['.github/prompts/a.prompt.md']),
+      install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'other-tools' }),
+      install('kiro', ['.kiro/steering/a.md'])
+    ]);
+
+    expect(Object.keys(read(committed).bundles).toSorted()).toEqual([BUNDLE, 'other-tools']);
+    expect(toolsIn(committed)).toEqual(['kiro', 'vscode']);
   });
 
   it('uninstalling the last local-only entry deletes the file and its info/exclude line', async () => {
@@ -442,6 +491,20 @@ describe('repository install record', () => {
 
       expect(entries(committed)).toEqual([`${BUNDLE} vscode 2.0.0`]);
     });
+
+    it('moveEntry replaces the tool\'s older version in the target file and returns the files only that version listed', async () => {
+      await installVersion('kiro', '1.0.0', ['.kiro/steering/a.md'], { syncSiblings: false });
+      await installVersion('vscode', '1.0.0', ['docs/shared.md', 'docs/old.md']);
+      const committedWithOldVersion = fs.readFileSync(committed.path, 'utf8');
+      await installVersion('vscode', '2.0.0', ['docs/shared.md', 'docs/new.md'], { location: localOnly });
+      fs.writeFileSync(committed.path, committedWithOldVersion);
+
+      const moved = await service.moveEntry({ location: localOnly, bundleId: `${COLL}-2.0.0`, tool: 'vscode' });
+
+      expect(entries(committed)).toEqual([`${COLL}-1.0.0 kiro 1.0.0`, `${COLL}-2.0.0 vscode 2.0.0`]);
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(moved).toMatchObject({ to: committed, deletedFiles: ['docs/old.md'], keptSharedFiles: [] });
+    });
   });
 
   describe('record selection, target mapping and source gate', () => {
@@ -625,6 +688,16 @@ describe('repository install record', () => {
       });
     });
 
+    it.each([
+      ['active hub, then detached sources; other hubs left out', {}, ['shared@hub-a', 'only-a@hub-a', 'detached@default-local']],
+      ['other hubs last when included', { includeOtherHubs: true }, ['shared@hub-a', 'only-a@hub-a', 'detached@default-local', 'only-b@hub-b']]
+    ])('orderConfiguredSources: %s, first id wins', (_label, options, expected) => {
+      const source = (id: string, hubId: string): RegistrySource => ({ id, name: id, type: 'github', url: `https://github.com/acme/${id}`, enabled: true, priority: 0, hubId });
+      const sources = [source('shared', 'hub-b'), source('only-b', 'hub-b'), source('detached', 'default-local'), source('shared', 'hub-a'), source('only-a', 'hub-a')];
+
+      expect(orderConfiguredSources(sources, 'hub-a', options).map((ordered) => `${ordered.id}@${ordered.hubId}`)).toEqual(expected);
+    });
+
     it('lists one row per bundle and tool over both files, sorted, with their record path', async () => {
       await install('vscode', ['.github/prompts/a.prompt.md']);
       await install('kiro', ['.kiro/steering/a.md'], { location: localOnly });
@@ -685,6 +758,131 @@ describe('repository install record', () => {
       expect(holding).toEqual(localOnly);
       expect(fs.existsSync(committed.path)).toBe(false);
       expect(read(localOnly).bundles[BUNDLE].tools.vscode.version).toBe('2.0.0');
+    });
+  });
+
+  describe('commit-mode move, source remap and extension helpers', () => {
+    const recordFs = new NodeRecordFs();
+    const LOCAL_NAME = 'ai-primitives-hub.local.lock.json';
+    const move = (location: RecordLocation, tool = 'vscode'): ReturnType<InstallRecordService['moveEntry']> =>
+      service.moveEntry({ location, bundleId: BUNDLE, tool });
+
+    it('moveEntry moves an entry with a user-modified file unchanged to the local-only file and back, with its source', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      fs.writeFileSync(path.join(root, '.github', 'prompts', 'a.prompt.md'), 'edited by the user\n');
+      const recorded = read(committed);
+
+      const there = await move(committed);
+      const moved = read(localOnly);
+      const back = await move(localOnly);
+
+      expect(there).toEqual({ from: committed, to: localOnly, deletedFiles: [], keptSharedFiles: [], warnings: [] });
+      expect(moved.bundles[BUNDLE].tools.vscode).toEqual(recorded.bundles[BUNDLE].tools.vscode);
+      expect(moved.sources).toEqual(recorded.sources);
+      expect(back).toEqual({ from: localOnly, to: committed, deletedFiles: [], keptSharedFiles: [], warnings: [] });
+      expect(read(committed).bundles[BUNDLE].tools.vscode).toEqual(recorded.bundles[BUNDLE].tools.vscode);
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(excludeText()).not.toContain(LOCAL_NAME);
+    });
+
+    it('moveEntry interrupted after the first save leaves the entry in both files; the committed copy wins and the next move leaves one', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      await install('kiro', ['.kiro/steering/a.md']);
+      await build(new SecondRecordSaveFailsFs());
+
+      await expectCode(move(committed), 'RECORD.WRITE_FAILED');
+      const both = [toolsIn(committed), toolsIn(localOnly)];
+      const holding = await service.holdingLocation([committed, localOnly], BUNDLE, 'vscode');
+      const listedWhileInBoth = (await service.listEntries([localOnly, committed])).map((row) => `${row.tool}@${path.basename(row.record)}`);
+      await build();
+      await move(committed);
+
+      expect(both).toEqual([['kiro', 'vscode'], ['vscode']]);
+      expect(holding).toEqual(committed);
+      expect(listedWhileInBoth).toEqual(['kiro@ai-primitives-hub.lock.json', 'vscode@ai-primitives-hub.lock.json']);
+      expect([toolsIn(committed), toolsIn(localOnly)]).toEqual([['kiro'], ['vscode']]);
+      expect((await service.listEntries([committed, localOnly])).map((row) => `${row.tool}@${path.basename(row.record)}`))
+        .toEqual(['kiro@ai-primitives-hub.lock.json', `vscode@${LOCAL_NAME}`]);
+    });
+
+    it('remapSource rewrites sources and every sourceId and sourceType in both files, sanitized, and is a no-op the second time', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      await install('kiro', ['.kiro/steering/a.md'], { location: localOnly });
+      const input = {
+        root, from: 'acme-github', to: 'acme-moved',
+        descriptor: { type: 'skills', url: 'https://user:pass@github.com/acme/moved', branch: 'main', token: 'ghp_secret' }
+      };
+
+      const first = await service.remapSource(input);
+      const bytes = [fs.readFileSync(committed.path, 'utf8'), fs.readFileSync(localOnly.path, 'utf8')];
+      const second = await service.remapSource(input);
+
+      expect(first).toEqual({ changed: [committed, localOnly], warnings: [] });
+      for (const [location, tool] of [[committed, 'vscode'], [localOnly, 'kiro']] as const) {
+        expect(read(location).sources).toEqual({ 'acme-moved': { type: 'skills', url: 'https://github.com/acme/moved', branch: 'main' } });
+        expect(read(location).bundles[BUNDLE].tools[tool].sourceId).toBe('acme-moved');
+        expect(read(location).bundles[BUNDLE].tools[tool].sourceType).toBe('skills');
+      }
+      expect(second).toEqual({ changed: [], warnings: [] });
+      expect([fs.readFileSync(committed.path, 'utf8'), fs.readFileSync(localOnly.path, 'utf8')]).toEqual(bytes);
+    });
+
+    it('remapSource changes neither file when the local-only file is malformed', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      const before = fs.readFileSync(committed.path, 'utf8');
+      fs.writeFileSync(localOnly.path, '{ "version": "3.0.0", ');
+
+      await expectCode(service.remapSource({ root, from: 'acme-github', to: 'acme-moved', descriptor: { type: 'github', url: 'https://github.com/acme/moved' } }), 'RECORD.MALFORMED');
+
+      expect(fs.readFileSync(committed.path, 'utf8')).toBe(before);
+      expect(fs.readFileSync(localOnly.path, 'utf8')).toBe('{ "version": "3.0.0", ');
+    });
+
+    it.each([
+      ['unchanged', 'prefixed', (): void => undefined, []],
+      ['unchanged, recorded with a bare-hex checksum (old file)', 'bare', (): void => undefined, []],
+      ['edited', 'prefixed', (file: string): void => fs.writeFileSync(file, 'edited by the user\n'), ['docs/a.md']],
+      ['missing', 'prefixed', (file: string): void => fs.rmSync(file), ['docs/a.md']],
+      ['recorded without a checksum', 'none', (): void => undefined, ['docs/a.md']]
+    ] as const)('findModifiedFiles reports a file that is %s', async (_label, checksumForm, change, expected) => {
+      const [absolute] = write('docs/a.md');
+      const hashed = await recordFs.hashFile(absolute);
+      const checksum = checksumForm === 'bare' ? hashed.replace(/^sha256:/, '') : hashed;
+      change(absolute);
+
+      const modified = await findModifiedFiles(recordFs, root, [{ path: 'docs/a.md', ...(checksumForm === 'none' ? {} : { checksum }) }]);
+
+      expect(modified).toEqual(expected);
+    });
+
+    it.each([
+      ['vscode', ['prompts/', 'agents/', 'skills/'], ['copilot-cli', 'vscode', 'vscode-insiders']],
+      ['vscode', ['prompts/', 'chat-modes/'], ['vscode', 'vscode-insiders']],
+      ['kiro', ['prompts', 'instructions/', 'skills/'], ['kiro', 'kiro-cli']],
+      ['windsurf', ['prompts/', 'agents/'], ['windsurf']]
+    ])('writerGroupFor(%s, %j) is %j', (hostTool, kinds, expected) => {
+      expect(writerGroupFor(hostTool, kinds)).toEqual(expected);
+    });
+
+    describe('isLocalSourceInsideRoot', () => {
+      beforeEach(() => {
+        fs.mkdirSync(path.join(root, 'sources', 'local'), { recursive: true });
+        fs.mkdirSync(path.join(base, 'outside'), { recursive: true });
+      });
+
+      it.each([
+        ['a relative folder inside the root', (): string => 'sources/local', true],
+        ['a folder leaving the root through ..', (): string => '../outside', false],
+        ['an absolute folder outside the root', (): string => path.join(base, 'outside'), false]
+      ])('%s', async (_label, localPath, expected) => {
+        expect(await isLocalSourceInsideRoot(recordFs, root, localPath())).toBe(expected);
+      });
+
+      it.skipIf(POSIX_ONLY)('a symlink inside the root pointing outside it', async () => {
+        fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'sources', 'link'), 'dir');
+
+        expect(await isLocalSourceInsideRoot(recordFs, root, 'sources/link')).toBe(false);
+      });
     });
   });
 });

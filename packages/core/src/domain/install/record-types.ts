@@ -132,6 +132,19 @@ export const repositoryLocations = (root: string): [RecordLocation, RecordLocati
   { level: 'repository', root, path: path.join(root, LOCAL_RECORD_FILE_NAME), commitMode: 'local-only' }
 ];
 
+/**
+ * The other repository record file at the same root.
+ * @param location - A record location.
+ * @returns `undefined` when the location is not a repository file.
+ */
+export const otherRepositoryLocation = (location: RecordLocation): RecordLocation | undefined => {
+  if (location.level !== 'repository') {
+    return undefined;
+  }
+  const [committed, localOnly] = repositoryLocations(location.root);
+  return location.commitMode === 'local-only' ? committed : localOnly;
+};
+
 /** Identifies one tool entry of one bundle. */
 export interface RecordEntryKey {
   bundleId: string;

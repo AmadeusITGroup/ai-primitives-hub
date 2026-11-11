@@ -17,11 +17,11 @@ import * as assert from 'node:assert';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  ExtensionRecordAdapter,
+} from '../../src/services/extension-record-adapter';
+import {
   HubManager,
 } from '../../src/services/hub-manager';
-import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
 import {
   RepositoryActivationService,
 } from '../../src/services/repository-activation-service';
@@ -492,28 +492,16 @@ suite('E2E: Setup State Flows', () => {
      * - Detection triggers after setup completes
      */
 
-    let mockLockfileManager: sinon.SinonStubbedInstance<LockfileManager>;
+    let readSources: sinon.SinonStub;
+    let records: ExtensionRecordAdapter;
     let mockStorage: sinon.SinonStubbedInstance<RegistryStorage>;
     let repositoryActivationService: RepositoryActivationService;
     const testWorkspaceRoot = '/test/workspace';
 
     /**
-     * Create a mock lockfile for testing
+     * Sources a repository records, as read on workspace open
      */
     const createMockLockfile = () => ({
-      $schema: 'https://example.com/lockfile.schema.json',
-      version: '1.0.0',
-      generatedAt: new Date().toISOString(),
-      generatedBy: 'prompt-registry@0.0.2',
-      bundles: {
-        'test-bundle': {
-          version: '1.0.0',
-          sourceId: 'test-source',
-          sourceType: 'github',
-          installedAt: new Date().toISOString(),
-          files: []
-        }
-      },
       sources: {
         'test-source': {
           type: 'github',
@@ -526,9 +514,9 @@ suite('E2E: Setup State Flows', () => {
       // Reset RepositoryActivationService instances
       RepositoryActivationService.resetInstance();
 
-      // Create mock LockfileManager
-      mockLockfileManager = sandbox.createStubInstance(LockfileManager);
-      mockLockfileManager.getLockfilePath.returns(`${testWorkspaceRoot}/prompt-registry.lock.json`);
+      // Record reads are observed at the service's public read; the adapter is not reached
+      records = sandbox.createStubInstance(ExtensionRecordAdapter);
+      readSources = sandbox.stub(RepositoryActivationService.prototype, 'readRepositorySources').resolves(createMockLockfile());
 
       // Create mock RegistryStorage
       mockStorage = sandbox.createStubInstance(RegistryStorage);
@@ -552,12 +540,11 @@ suite('E2E: Setup State Flows', () => {
       assert.strictEqual(isComplete, false, 'Setup should not be complete');
 
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Create RepositoryActivationService with SetupStateManager
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -569,7 +556,7 @@ suite('E2E: Setup State Flows', () => {
 
       // Assert: Lockfile should NOT have been read (detection was deferred)
       // The method returns early before reading the lockfile when setup is incomplete
-      assert.strictEqual(mockLockfileManager.read.called, false,
+      assert.strictEqual(readSources.called, false,
         'Lockfile should not be read when setup is incomplete');
     });
 
@@ -584,12 +571,11 @@ suite('E2E: Setup State Flows', () => {
       assert.strictEqual(isComplete, true, 'Setup should be complete');
 
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Create RepositoryActivationService with SetupStateManager
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -600,7 +586,7 @@ suite('E2E: Setup State Flows', () => {
       await repositoryActivationService.checkAndPromptActivation();
 
       // Assert: Lockfile should have been read (detection proceeded)
-      assert.strictEqual(mockLockfileManager.read.called, true,
+      assert.strictEqual(readSources.called, true,
         'Lockfile should be read when setup is complete');
     });
 
@@ -615,12 +601,11 @@ suite('E2E: Setup State Flows', () => {
       await setupStateManager.markStarted();
 
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Create RepositoryActivationService with SetupStateManager
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -631,7 +616,7 @@ suite('E2E: Setup State Flows', () => {
       await repositoryActivationService.checkAndPromptActivation();
 
       // Assert 1: Detection was deferred
-      assert.strictEqual(mockLockfileManager.read.called, false,
+      assert.strictEqual(readSources.called, false,
         'Detection should be deferred while setup is incomplete');
 
       // Act 2: Complete setup
@@ -642,7 +627,7 @@ suite('E2E: Setup State Flows', () => {
       await repositoryActivationService.checkAndPromptActivation();
 
       // Assert 2: Detection now proceeds
-      assert.strictEqual(mockLockfileManager.read.called, true,
+      assert.strictEqual(readSources.called, true,
         'Detection should proceed after setup completes');
     });
 
@@ -657,12 +642,11 @@ suite('E2E: Setup State Flows', () => {
       assert.strictEqual(state, SetupState.INCOMPLETE, 'State should be INCOMPLETE');
 
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Create RepositoryActivationService with SetupStateManager
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -673,7 +657,7 @@ suite('E2E: Setup State Flows', () => {
       await repositoryActivationService.checkAndPromptActivation();
 
       // Assert: Detection was skipped
-      assert.strictEqual(mockLockfileManager.read.called, false,
+      assert.strictEqual(readSources.called, false,
         'Detection should be skipped when setup is INCOMPLETE');
     });
 
@@ -682,13 +666,12 @@ suite('E2E: Setup State Flows', () => {
      */
     test('should proceed with detection when SetupStateManager is not provided (fail-open)', async () => {
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Create RepositoryActivationService WITHOUT SetupStateManager
       RepositoryActivationService.resetInstance(testWorkspaceRoot);
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -699,7 +682,7 @@ suite('E2E: Setup State Flows', () => {
       await repositoryActivationService.checkAndPromptActivation();
 
       // Assert: Detection proceeded (fail-open behavior)
-      assert.strictEqual(mockLockfileManager.read.called, true,
+      assert.strictEqual(readSources.called, true,
         'Detection should proceed when SetupStateManager is not provided');
     });
 
@@ -708,7 +691,6 @@ suite('E2E: Setup State Flows', () => {
      */
     test('should complete full flow: fresh install → setup incomplete → setup complete → detection', async () => {
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Phase 1: Fresh install - setup not started
       const state = await setupStateManager.getState();
@@ -717,7 +699,7 @@ suite('E2E: Setup State Flows', () => {
       // Create RepositoryActivationService
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -727,14 +709,14 @@ suite('E2E: Setup State Flows', () => {
       // Phase 2: Extension activates, setup starts
       await setupStateManager.markStarted();
       await repositoryActivationService.checkAndPromptActivation();
-      assert.strictEqual(mockLockfileManager.read.called, false,
+      assert.strictEqual(readSources.called, false,
         'Detection should be deferred during setup');
 
       // Phase 3: User cancels hub selection
       await setupStateManager.markIncomplete();
-      mockLockfileManager.read.resetHistory();
+      readSources.resetHistory();
       await repositoryActivationService.checkAndPromptActivation();
-      assert.strictEqual(mockLockfileManager.read.called, false,
+      assert.strictEqual(readSources.called, false,
         'Detection should be deferred when setup is incomplete');
 
       // Phase 4: User resumes and completes setup
@@ -742,9 +724,9 @@ suite('E2E: Setup State Flows', () => {
       simulateHubConfigured();
       await setupStateManager.markComplete();
 
-      mockLockfileManager.read.resetHistory();
+      readSources.resetHistory();
       await repositoryActivationService.checkAndPromptActivation();
-      assert.strictEqual(mockLockfileManager.read.called, true,
+      assert.strictEqual(readSources.called, true,
         'Detection should proceed after setup completes');
     });
 
@@ -757,12 +739,11 @@ suite('E2E: Setup State Flows', () => {
       assert.strictEqual(state, SetupState.NOT_STARTED, 'State should be NOT_STARTED');
 
       // Setup: Lockfile exists
-      mockLockfileManager.read.resolves(createMockLockfile());
 
       // Create RepositoryActivationService with SetupStateManager
       repositoryActivationService = RepositoryActivationService.getInstance(
         testWorkspaceRoot,
-        mockLockfileManager,
+        records,
         mockHubManager,
         mockStorage,
         undefined,
@@ -773,7 +754,7 @@ suite('E2E: Setup State Flows', () => {
       await repositoryActivationService.checkAndPromptActivation();
 
       // Assert: Detection was deferred (NOT_STARTED means setup hasn't completed)
-      assert.strictEqual(mockLockfileManager.read.called, false,
+      assert.strictEqual(readSources.called, false,
         'Detection should be deferred when setup is NOT_STARTED');
     });
   });

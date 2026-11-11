@@ -92,7 +92,7 @@ At repository scope, `install` writes a format `3.0.0` install record at the git
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - `prompt-registry.lock.json` and user-scope installs are left as they are.
 
-`uninstall` removes the target's entry and its files, keeps files another entry lists, and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
+`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. Older installs are still uninstalled from `prompt-registry.lock.json`.
 
 Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
 
@@ -102,7 +102,13 @@ Commands that use the record end their text output with `Record: <level> <path>`
 - `status` lists one row per bundle and tool; `-o json` replaces `lockfile` with `level`, `records` and `entries`. Bundles only in `prompt-registry.lock.json` are still shown, unless the record has the same bundle at another version.
 - A recorded source is used only through the matching configured source (the active hub's first, then `source add`), with its URL and credentials. Otherwise the recorded copy is used without its `credentialRef`, and a `local` folder outside the repository is skipped. This also applies to `update --dry-run`.
 
-The VS Code extension lists these bundles at repository scope but refuses to uninstall, update, move or switch them (`RECORD.CLI_MANAGED`).
+The VS Code extension uses the same record, under the tool of the editor it runs in (`vscode`, `vscode-insiders`, `kiro` or `windsurf`):
+
+- It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. Other tools' entries are listed read-only; changing one shows `RECORD.CLI_MANAGED` with the CLI command to use.
+- An update keeps files you edited and moves tools that share the same files (for example `vscode`, `vscode-insiders` and `copilot-cli` in `.github/`) to the new version.
+- Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the tool that installed it last.
+- Rewriting a bundle that an old `prompt-registry.lock.json` also lists, at any version, removes that old entry.
+- "Clean Up Stale Repository Bundles" lists one row per bundle and tool, offers only entries whose files are all missing, and removes the entries without deleting files.
 
 ## Plugin Create (CLI)
 

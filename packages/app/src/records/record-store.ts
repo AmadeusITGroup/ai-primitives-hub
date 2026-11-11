@@ -246,6 +246,25 @@ export class RecordStore {
   }
 
   /**
+   * Both repository record files for a start folder, loaded and checked, with
+   * the one the commit mode records in.
+   * @param input - Where the git-root walk starts and the install's commit mode.
+   * @param input.start - The target's root path, or the current folder.
+   * @param input.commitMode - `local-only` picks the local-only file; anything else the committed one.
+   * @throws {RegistryError} Any `RECORD.*` error from loading either file.
+   */
+  public async loadRepository(input: { start: string; commitMode?: RecordLocation['commitMode'] }): Promise<{
+    locations: [RecordLocation, RecordLocation];
+    location: RecordLocation;
+  }> {
+    const locations = await this.resolveRepository(input);
+    for (const location of locations) {
+      await this.load(location);
+    }
+    return { locations, location: input.commitMode === 'local-only' ? locations[1] : locations[0] };
+  }
+
+  /**
    * Load and check a record file. A missing file gives an empty record.
    * @param location - Record location.
    * @throws {RegistryError} A `RECORD.*` error; the file is left untouched.

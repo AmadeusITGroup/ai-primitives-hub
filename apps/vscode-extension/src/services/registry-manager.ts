@@ -38,6 +38,10 @@ import type {
   BundleProvider,
   PrimitiveIndexKey,
   ProfileBundleSyncResult,
+  RegistryError,
+} from '@ai-primitives-hub/core';
+import {
+  isRecordError,
 } from '@ai-primitives-hub/core';
 import {
   BlobCache,
@@ -76,6 +80,7 @@ import {
   InstallOptions,
   Profile,
   RegistrySource,
+  RepositoryCommitMode,
   SearchQuery,
   SourceSyncedEvent,
   SourceType,
@@ -90,7 +95,6 @@ import {
 } from '../utils/bundle-identity-matcher';
 import {
   type CliManagedAction,
-  cliManagedError,
   isCliManagedError,
   showCliManagedBatchWarning,
 } from '../utils/cli-managed';
@@ -120,6 +124,9 @@ import {
   BundleInstaller,
 } from './bundle-installer';
 import {
+  ExtensionRecordAdapter,
+} from './extension-record-adapter';
+import {
   HubManager,
 } from './hub-manager';
 import {
@@ -128,9 +135,6 @@ import {
 import {
   LocalModificationWarningService,
 } from './local-modification-warning-service';
-import {
-  LockfileManager,
-} from './lockfile-manager';
 import {
   SourceTokenVault,
 } from './source-token-vault';
@@ -205,6 +209,27 @@ function createFallbackBundleProvider(
 }
 
 /**
+ * The one warning of a batch uninstall stopped by a `RECORD.*` error.
+ * @param failure - The item whose error stopped the batch.
+ * @param failure.id - Its bundle id.
+ * @param failure.error - The error.
+ * @param done - Ids uninstalled before the stop.
+ * @param skipped - Ids another tool's entry holds.
+ * @param notAttempted - Ids never started.
+ */
+const batchUninstallStoppedMessage = (
+  failure: { id: string; error: RegistryError },
+  done: readonly string[],
+  skipped: readonly string[],
+  notAttempted: readonly string[]
+): string => {
+  const file = typeof failure.error.context?.file === 'string' ? ` in ${failure.error.context.file}` : '';
+  const list = (ids: readonly string[]): string => (ids.length === 0 ? 'none' : ids.join(', '));
+  return `Uninstall stopped at ${failure.id}: ${failure.error.code}${file}. Uninstalled: ${list(done)}. `
+    + `Skipped (installed for another tool): ${list(skipped)}. Not attempted: ${list(notAttempted)}.`;
+};
+
+/**
  * Registry Manager
  * Main entry point for all registry operations
  */
@@ -238,6 +263,7 @@ export class RegistryManager {
   private hubManager?: HubManager;
   private _autoUpdateService?: AutoUpdateService;
   private readonly installer: BundleInstaller;
+  private readonly recordAdapter: ExtensionRecordAdapter;
   private readonly logger: Logger;
   private readonly adapters = new Map<string, IRepositoryAdapter>();
   private readonly versionConsolidator: VersionConsolidator;
@@ -302,7 +328,13 @@ export class RegistryManager {
       store: async () => undefined,
       delete: async () => undefined
     });
-    this.installer = new BundleInstaller(context);
+    this.recordAdapter = new ExtensionRecordAdapter({
+      sources: {
+        listSources: () => this.storage.getSources(),
+        getActiveHubId: async () => (await this.hubManager?.getActiveHubId()) ?? null
+      }
+    });
+    this.installer = new BundleInstaller(context, this.recordAdapter.hostTool, this.recordAdapter);
     this.logger = Logger.getInstance();
 
     // Initialize version consolidator with source type resolver
@@ -741,8 +773,7 @@ export class RegistryManager {
       return;
     }
 
-    const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-    const warningService = new LocalModificationWarningService(lockfileManager);
+    const warningService = new LocalModificationWarningService(this.recordAdapter, workspaceRoot);
 
     // Get bundle repository URL for "Contribute Changes" action
     const bundleRepoUrl = current.manifest?.metadata?.repository?.url
@@ -1088,8 +1119,7 @@ export class RegistryManager {
       {
         listSources: () => this.storage.getSources(),
         remapLockfileSourceId: workspaceRoot
-          ? (oldId, newId, descriptor) =>
-            LockfileManager.getInstance(workspaceRoot).remapSourceId(oldId, newId, descriptor)
+          ? (oldId, newId, descriptor) => this.recordAdapter.remapSource(workspaceRoot, oldId, newId, descriptor)
           : undefined,
         getInstalledBundles: (scope) => this.storage.getInstalledBundles(scope),
         // `core`'s `DeploymentManifest.mcpServers` is intentionally looser
@@ -1550,8 +1580,8 @@ export class RegistryManager {
    * @param silent
    */
   public async uninstallBundle(bundleId: string, scope: InstallationScope = 'user', silent = false): Promise<void> {
-    // Refuse CLI-installed repository items before anything touches disk.
-    await this.assertNotCliManaged(bundleId, scope, 'uninstall');
+    // Refuse entries only another tool holds before anything touches disk.
+    await this.assertHostTool(bundleId, scope, 'uninstall');
     const installed = await uninstallInstalledBundle(
       bundleId,
       scope,
@@ -1562,16 +1592,15 @@ export class RegistryManager {
           if (!workspaceRoot) {
             throw new Error('Cannot uninstall repository-scoped bundle: no workspace is open');
           }
-          // Use getInstalledBundles() to search both main and local lockfiles
-          const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-          return lockfileManager.getInstalledBundles();
+          // Install records merged with the old lockfiles, the record winning
+          return this.listRepositoryBundles(workspaceRoot);
         },
         listSources: () => this.storage.getSources(),
         // `core`'s `DeploymentManifest.mcpServers` is intentionally looser
         // (`Record<string, unknown>`) than this extension's `McpServersManifest`
         // (see `listInstalledBundles`'s identical, already-documented cast above) —
         // the data itself is always this extension's own shape here too, since it
-        // only ever flows from `RegistryStorage`/`LockfileManager` above.
+        // only ever flows from `RegistryStorage` and the install record above.
         uninstall: (installedBundle) => this.installer.uninstall(installedBundle as InstalledBundle),
         uninstallSkillSymlink: (installedBundle) => this.installer.uninstallSkillSymlink(installedBundle as InstalledBundle),
         removeInstallation: (id, s) => this.storage.removeInstallation(id, s)
@@ -1585,43 +1614,54 @@ export class RegistryManager {
   }
 
   /**
-   * Uninstall multiple bundles in parallel
+   * Uninstall multiple bundles in parallel. Repository bundles share the record
+   * files, so they go one at a time and the batch stops at the first `RECORD.*` error.
    * @param bundleIds
    * @param scope
    */
   public async uninstallBundles(bundleIds: string[], scope: InstallationScope = 'user'): Promise<void> {
     const uninstalled: string[] = [];
     const refused: string[] = [];
-    const CONCURRENCY_LIMIT = CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT;
+    let recordFailure: { id: string; error: RegistryError } | undefined;
+    const CONCURRENCY_LIMIT = scope === 'repository' ? 1 : CONCURRENCY_CONSTANTS.REGISTRY_BATCH_LIMIT;
 
     this.logger.info(`Batch uninstalling ${bundleIds.length} bundles...`);
 
-    for (let i = 0; i < bundleIds.length; i += CONCURRENCY_LIMIT) {
-      const chunk = bundleIds.slice(i, i + CONCURRENCY_LIMIT);
+    const uninstallOne = async (id: string): Promise<{ id: string; error?: unknown }> => {
+      try {
+        await this.uninstallBundle(id, scope, true);
+        return { id };
+      } catch (error) {
+        return { id, error };
+      }
+    };
 
-      const results = await Promise.all(chunk.map(async (id) => {
-        try {
-          await this.uninstallBundle(id, scope, true);
-          return id;
-        } catch (error) {
-          if (isCliManagedError(error)) {
-            this.logger.warn(`Skipped uninstalling bundle ${id}: ${error.message}`);
-            refused.push(id);
-            return null;
-          }
+    let next = 0;
+    while (next < bundleIds.length && recordFailure === undefined) {
+      const chunk = bundleIds.slice(next, next + CONCURRENCY_LIMIT);
+      next += chunk.length;
+
+      for (const { id, error } of await Promise.all(chunk.map((bundleId) => uninstallOne(bundleId)))) {
+        if (error === undefined) {
+          uninstalled.push(id);
+        } else if (isCliManagedError(error)) {
+          this.logger.warn(`Skipped uninstalling bundle ${id}: ${error.message}`);
+          refused.push(id);
+        } else {
           this.logger.error(`Failed to uninstall bundle ${id}`, error as Error);
-          return null;
-        }
-      }));
-
-      for (const result of results) {
-        if (result) {
-          uninstalled.push(result);
+          if (isRecordError(error)) {
+            recordFailure ??= { id, error };
+          }
         }
       }
     }
 
-    showCliManagedBatchWarning(refused, 'uninstall');
+    if (recordFailure === undefined) {
+      showCliManagedBatchWarning(refused, 'uninstall');
+    } else {
+      this.recordAdapter.showRecordError(recordFailure.error);
+      void vscode.window.showWarningMessage(batchUninstallStoppedMessage(recordFailure, uninstalled, refused, bundleIds.slice(next)));
+    }
 
     if (uninstalled.length > 0) {
       this._onBundlesUninstalled.fire(uninstalled);
@@ -1638,8 +1678,12 @@ export class RegistryManager {
     // Guard the item updateRegistryBundle picks (storage first), so a user-scope install with the same id is never refused.
     const target = (await this.listInstalledBundles()).find((bundle) => bundle.bundleId === bundleId);
     if (target) {
-      await this.assertNotCliManaged(bundleId, target.scope, 'update');
+      await this.assertHostTool(bundleId, target.scope, 'update');
     }
+    // A repository entry updates from the source an install would record.
+    const listSources = target?.scope === 'repository'
+      ? () => this.recordAdapter.configuredSources()
+      : () => this.storage.getSources();
     // See installBundle's identical, documented `as InstalledBundle` cast:
     // core's DeploymentManifest.mcpServers is intentionally looser than this
     // extension's McpServersManifest; the data itself is always this
@@ -1652,7 +1696,7 @@ export class RegistryManager {
         listInstalledBundles: () => this.listInstalledBundles(),
         checkLocalModifications: (id, current) => this.checkLocalModificationsBeforeUpdate(id, current as InstalledBundle),
         getBundleDetails: (id) => this.getBundleDetails(id),
-        listSources: () => this.storage.getSources(),
+        listSources,
         getAdapter: (source) => this.getAdapter(source),
         updateInstalledBundle: (current, bundle, buffer, sourceType) =>
           this.installer.update(current as InstalledBundle, bundle, buffer, sourceType),
@@ -1670,7 +1714,7 @@ export class RegistryManager {
    *
    * Thin delegator to `@ai-primitives-hub/app`'s `listInstalledBundles`
    * — queries the appropriate source based on scope:
-   * - 'repository': Query the install records and LockfileManager (install record wins)
+   * - 'repository': Query the install records and the old lockfiles (install record wins)
    * - 'user' or 'workspace': Query RegistryStorage only
    * - undefined (no scope): Combine results from both sources
    *
@@ -1689,10 +1733,7 @@ export class RegistryManager {
         }
         // The install record wins over the old lockfile for the same id.
         try {
-          return await this.getInstallRecordListing().listRepositoryBundles(
-            workspaceRoot,
-            () => LockfileManager.getInstance(workspaceRoot).getInstalledBundles()
-          );
+          return await this.listRepositoryBundles(workspaceRoot);
         } catch (error) {
           this.logger.warn('Failed to query repository bundles:', error instanceof Error ? error : undefined);
           return [];
@@ -1704,31 +1745,78 @@ export class RegistryManager {
     // pending a dedicated `domain/mcp` module (see that field's JSDoc in
     // `packages/core/src/domain/collection/types.ts`) — the data itself is
     // always this extension's own shape, since it only ever flows through
-    // `RegistryStorage`/`LockfileManager` above and back out.
+    // `RegistryStorage` and the install record above and back out.
     return bundles as InstalledBundle[];
   }
 
   /** Shared reader of the repository install records; keeps problems shown once across refreshes. */
   public getInstallRecordListing(): InstallRecordListing {
-    this.installRecordListing ??= new InstallRecordListing();
+    this.installRecordListing ??= new InstallRecordListing({ fs: this.recordAdapter.fs, store: this.recordAdapter.store });
     return this.installRecordListing;
   }
 
+  /** The extension's composition of the shared install record. */
+  public getRecordAdapter(): ExtensionRecordAdapter {
+    return this.recordAdapter;
+  }
+
   /**
-   * Refuse an action on a repository item the CLI installed; other scopes are never refused.
+   * Repository bundles of a workspace folder, the install record winning over the old lockfile.
+   * @param workspaceRoot - Workspace folder.
+   */
+  public listRepositoryBundles(workspaceRoot: string): Promise<InstalledBundle[]> {
+    return this.getInstallRecordListing().listRepositoryBundles(
+      workspaceRoot,
+      () => this.recordAdapter.listOldBundles(workspaceRoot)
+    );
+  }
+
+  /**
+   * Commit mode of the host tool's own repository entry of a bundle, which the merged listing may not show.
+   * @param bundleId - Bundle id.
+   * @returns `undefined` without a workspace or a host entry.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async getHostCommitMode(bundleId: string): Promise<RepositoryCommitMode | undefined> {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    const located = await this.recordAdapter.findHostEntry(workspaceRoot, bundleId);
+    return located === undefined ? undefined : (located.location.commitMode ?? 'commit');
+  }
+
+  /**
+   * Version of the host tool's own repository entry of a bundle, which the merged listing may not show.
+   * @param bundleId - Bundle id.
+   * @returns `undefined` without a workspace or a host entry.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async getHostVersion(bundleId: string): Promise<string | undefined> {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return undefined;
+    }
+    return (await this.recordAdapter.findHostEntry(workspaceRoot, bundleId))?.entry.version;
+  }
+
+  /**
+   * Refuse an action on a repository bundle whose record entries all belong to
+   * another tool; other scopes are never refused.
    * @param bundleId - Bundle the action targets.
    * @param scope - Scope of the exact item the action works on.
    * @param action - The action, for the message.
-   * @throws {RegistryError} `RECORD.CLI_MANAGED` when the item comes from an install record.
+   * @throws {RegistryError} `RECORD.CLI_MANAGED` naming the entry's tool; any `RECORD.*` error from loading.
    */
-  public async assertNotCliManaged(bundleId: string, scope: InstallationScope, action: CliManagedAction): Promise<void> {
+  public async assertHostTool(bundleId: string, scope: InstallationScope, action: CliManagedAction): Promise<void> {
     if (scope !== 'repository') {
       return;
     }
-    const item = (await this.listInstalledBundles('repository')).find((bundle) => bundle.bundleId === bundleId);
-    if (item?.recordOrigin === 'install-record') {
-      throw cliManagedError(bundleId, action);
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      return;
     }
+    await this.recordAdapter.assertHostTool(bundleId, action, workspaceRoot);
   }
 
   /**

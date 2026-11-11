@@ -216,6 +216,23 @@ describe('uninstall command', () => {
       expect(await exists(vscodePrompt())).toBe(true);
     });
 
+    it.each([
+      ['a file edited after install is kept and named in a warning', (): Promise<void> => writeFile(vscodePrompt(), '# My own edits\n'), true,
+        ['Did not remove .github/prompts/hello.prompt.md: it was changed after install.']],
+      ['a missing file does not fail it', (): Promise<void> => rm(vscodePrompt()), false, []]
+    ])('uninstall: %s, and the entry is removed', async (_label, change, onDisk, warnings) => {
+      await change();
+
+      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = JSON.parse(result.stdout) as { warnings: string[]; data: { removed: string[] } };
+      expect(envelope.warnings).toEqual(warnings);
+      expect(envelope.data.removed).toEqual([]);
+      expect(await recordedTools()).toEqual(['kiro']);
+      expect(await exists(vscodePrompt())).toBe(onDisk);
+    });
+
     it('falls back to the old store for a bundle that is not in the record', async () => {
       expect((await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json'])).exitCode).toBe(0);
       await mkdir(path.dirname(vscodePrompt()), { recursive: true });
