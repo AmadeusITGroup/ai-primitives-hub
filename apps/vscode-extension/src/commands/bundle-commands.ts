@@ -73,8 +73,14 @@ export class BundleCommands {
   private async findStaleRows(workspaceRoot: string): Promise<StaleRow[]> {
     const adapter = this.registryManager.getRecordAdapter();
     const rows: StaleRow[] = [];
+    // Each file on its own: a bundle and tool in both files is stale only when the files of both copies are missing.
+    const copies = (await Promise.all((await adapter.locations(workspaceRoot))
+      .map((location) => adapter.service.listToolEntries([location])))).flat();
+    const pathsOf = (bundleId: string, tool: string): string[] => copies
+      .filter((copy) => copy.bundleId === bundleId && copy.tool === tool)
+      .flatMap((copy) => copy.entry.files.map((file) => file.path));
     for (const located of await adapter.listAllEntries(workspaceRoot)) {
-      if (await areAllFilesMissing(adapter.fs, located.location.root, located.entry.files.map((file) => file.path))) {
+      if (await areAllFilesMissing(adapter.fs, located.location.root, pathsOf(located.bundleId, located.tool))) {
         rows.push({ bundleId: located.bundleId, tool: located.tool, location: located.location });
       }
     }
