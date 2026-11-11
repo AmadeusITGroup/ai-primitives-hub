@@ -1,6 +1,6 @@
 /**
- * RegistryManager.remapBundleSource: rewrites the source id in both install
- * record files, the old lockfile and storage, in a real temp git root.
+ * RegistryManager.remapBundleSource: migrates the old lockfile, then rewrites
+ * the source id in both install record files and storage, in a real temp git root.
  */
 
 import * as assert from 'node:assert';
@@ -103,7 +103,7 @@ suite('RegistryManager.remapBundleSource', () => {
     cleanupTestWorkspace(root);
   });
 
-  test('remaps both record files, the old lockfile and the stored installation records', async () => {
+  test('migrates the old lockfile, then remaps both record files and the stored installation records', async () => {
     storage.getSources.resolves([makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old' }), makeSource()]);
     storage.getInstalledBundles.withArgs('user').resolves([userBundle('user-bundle', OLD_SOURCE_ID), userBundle('other', 'unrelated')]);
 
@@ -115,9 +115,8 @@ suite('RegistryManager.remapBundleSource', () => {
       assert.strictEqual(record.sources[NEW_SOURCE_ID].url, 'https://github.com/org/renamed', file);
       assert.strictEqual(record.bundles[bundleId].tools.vscode.sourceId, NEW_SOURCE_ID, file);
     }
-    const old = readJson(OLD_LOCKFILE);
-    assert.deepStrictEqual(Object.keys(old.sources), [NEW_SOURCE_ID]);
-    assert.strictEqual(old.bundles['old-bundle'].sourceId, NEW_SOURCE_ID);
+    assert.ok(!fs.existsSync(path.join(root, OLD_LOCKFILE)), 'the old lockfile was migrated');
+    assert.strictEqual(readJson(RECORD_FILE).bundles['old-bundle'].tools.unknown.sourceId, NEW_SOURCE_ID);
     assert.deepStrictEqual(storage.recordInstallation.getCalls().map((call) => [call.args[0].bundleId, call.args[0].sourceId]), [['user-bundle', NEW_SOURCE_ID]]);
   });
 

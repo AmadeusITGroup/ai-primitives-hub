@@ -17,6 +17,7 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  type MigrationReport,
   planRecordEntries,
   readLockfile,
   recordIdentityOf,
@@ -53,6 +54,7 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
+  IMPORTED_USER_LOCKFILE_FIELD,
   isRecordError,
   validateManifest,
 } from '@ai-primitives-hub/core';
@@ -100,6 +102,7 @@ import {
   recordOutputFields,
   recordPlannedInstall,
   RegistryError,
+  renderMigration,
   renderRecordLine,
   resolveEffectiveTarget,
   resolveTarget,
@@ -263,10 +266,14 @@ export class UpdateCommand extends BaseUpdateCommand {
       const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => loadTargets(ctx));
       const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
 
-      // Select the record first, so a bad record stops before anything is fetched or written.
-      const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope }, target);
+      // Select the record first, so a bad record stops before anything is fetched or written; a dry run never migrates.
+      const prepared = await prepareRecordSelection(ctx, { command: 'update', lockfile: this.lockfile, scope: opts.scope, write: this.dryRun !== true }, target);
       if (prepared.selection.locations.length > 0) {
         const rows = await prepared.service.listEntries(prepared.selection.locations);
+        // Once the user record imported the old user lockfile, an empty record never falls back to that file;
+        // a workspace-scope target still uses it.
+        const imported = prepared.selection.level === 'user' && target.scope === 'user' && !(this.lockfile?.length)
+          && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
         if (rows.length > 0) {
           if (!this.noHubSync) {
             await syncActiveHub(ctx);
@@ -277,6 +284,13 @@ export class UpdateCommand extends BaseUpdateCommand {
             dryRun: this.dryRun,
             interactive: this.interactive
           });
+        }
+        if (imported) {
+          return failWith(ctx, fmt, 'update', new RegistryError({
+            code: 'USAGE.MISSING_FLAG',
+            message: 'update: nothing is installed at the user level',
+            hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
+          }));
         }
       }
 
@@ -790,6 +804,8 @@ interface RecordUpdateData {
   failures: string[];
   /** Bundles only in the old `prompt-registry.*` file, handled with the old code. */
   oldFile?: OldFileUpdate;
+  /** What the migration run before the update did. */
+  migration?: MigrationReport;
 }
 
 /** What {@link updateOldFileOnly} reports for the old `prompt-registry.*` file. */
@@ -961,7 +977,7 @@ function renderRecordUpdateOutput(d: RecordUpdateData & { recordLine: string }):
   if (d.dryRun === true && updateLines.length > 0) {
     lines.push('Re-run without --dry-run to apply.');
   }
-  return lines.join('\n') + '\n' + d.recordLine;
+  return lines.join('\n') + '\n' + renderMigration(d.migration) + d.recordLine;
 }
 
 /**
@@ -993,7 +1009,8 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
     updates: [],
     alsoUpdated: [],
     skipped,
-    failures
+    failures,
+    ...(prepared.migration === undefined ? {} : { migration: prepared.migration })
   };
   const warnings = [...notes];
   if (run.dryRun) {

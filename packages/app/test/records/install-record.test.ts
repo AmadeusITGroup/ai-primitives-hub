@@ -33,7 +33,11 @@ import {
   isLocalSourceInsideRoot,
   LOCAL_SOURCE_OUTSIDE_REASON,
   mapToolToTarget,
+  type MigratedEntry,
+  migrateRecords,
+  type MigrationInput,
   orderConfiguredSources,
+  PROFILE_STORE_NAME,
   type RecordInstallInput,
   RecordStore,
   resolveRecordSource,
@@ -44,7 +48,12 @@ import {
   writerGroupFor,
 } from '../../src/records';
 import {
+  emptyLockfile,
   findLockfile,
+  type LockfileFs,
+  type LockfileSourceEntry,
+  upsertBundleEntry,
+  writeLockfile,
 } from '../../src/stores/json-lockfile-store';
 
 const NOW = new Date('2026-10-26T12:00:00.000Z');
@@ -77,6 +86,13 @@ class SecondRecordSaveFailsFs extends NodeRecordFs {
       }
     }
     return super.rename(from, to);
+  }
+}
+
+/** `NodeRecordFs` that cannot delete an old `prompt-registry.*` file, to interrupt a migration after its saves. */
+class FailingOldUnlinkFs extends NodeRecordFs {
+  public override unlink(file: string): Promise<void> {
+    return path.basename(file).startsWith('prompt-registry.') ? Promise.reject(new Error('EPERM: unlink failed')) : super.unlink(file);
   }
 }
 
@@ -569,6 +585,9 @@ describe('repository install record', () => {
       ['only an old prompt-registry file is found', (): void => {
         fs.writeFileSync(path.join(root, 'prompt-registry.lock.json'), '{}');
       }, { level: 'repository', reason: 'repository-record-found', old: (): string | undefined => path.join(root, 'prompt-registry.lock.json') }],
+      ['only an old prompt-registry file below the git root is found', (): void => {
+        fs.writeFileSync(path.join(cwd, 'prompt-registry.lock.json'), '{}');
+      }, { level: 'user', reason: 'user-fallback', old: (): string | undefined => userLockfile }],
       ['neither is there', (): void => undefined,
         { level: 'user', reason: 'user-fallback', old: (): string | undefined => userLockfile }]
     ])('with no level, %s selects the %s level', async (_label, arrange, expected) => {
@@ -1037,6 +1056,443 @@ describe('repository install record', () => {
         const selection = await select(given());
 
         expect({ level: selection.level, files: selection.locations, old: selection.oldLockfile }).toEqual({ level: 'user', files: [], old: userLockfile });
+      });
+    });
+  });
+
+  describe('record migration', () => {
+    const recordFs = new NodeRecordFs();
+    const SOURCES = { 'acme-github': { type: 'github', url: 'https://github.com/acme/tools' } };
+    const INSTALLED_AT = '2026-01-02T03:04:05.000Z';
+    const lockFs: LockfileFs = {
+      readFile: (file) => fs.promises.readFile(file, 'utf8'),
+      writeFile: (file, contents) => fs.promises.writeFile(file, contents),
+      exists: (file) => Promise.resolve(fs.existsSync(file)),
+      mkdir: async (dir, opts) => {
+        await fs.promises.mkdir(dir, opts);
+      }
+    };
+    let home: string;
+    let userRecord: string;
+    let userLockfile: string;
+    let user: RecordLocation;
+
+    const oldCommitted = (): string => path.join(root, 'prompt-registry.lock.json');
+    const oldLocal = (): string => path.join(root, 'prompt-registry.local.lock.json');
+
+    /**
+     * Write a 2.0.0 lockfile with one entry per bundle, all from `acme-github`.
+     * @param file - Old file.
+     * @param bundles - Version and recorded paths per bundle id.
+     * @param sources - The old file's sources.
+     */
+    const writeOld = async (
+      file: string,
+      bundles: Record<string, { version: string; files?: string[]; installedAt?: string }>,
+      sources: Record<string, LockfileSourceEntry> = SOURCES
+    ): Promise<void> => {
+      let lock = { ...emptyLockfile('prompt-registry-extension@1.0.0'), sources };
+      for (const [bundleId, { version, files = [], installedAt = INSTALLED_AT }] of Object.entries(bundles)) {
+        lock = upsertBundleEntry(lock, bundleId, {
+          version, sourceId: 'acme-github', sourceType: 'github', installedAt,
+          files: files.map((recorded) => ({ path: recorded, checksum: '0'.repeat(64) }))
+        });
+      }
+      await writeLockfile(file, lock, lockFs);
+    };
+
+    const migrateRepository = (overrides: Partial<MigrationInput> = {}): ReturnType<typeof migrateRecords> =>
+      migrateRecords({ store, fs: recordFs, level: 'repository', root, targets: [committed, localOnly], now: () => NOW, ...overrides });
+
+    const migrateUser = (overrides: Partial<MigrationInput> = {}): ReturnType<typeof migrateRecords> =>
+      migrateRecords({ store, fs: recordFs, level: 'user', root: home, targets: [user], oldUserLockfile: userLockfile, now: () => NOW, ...overrides });
+
+    const unknownEntry = (version: string, files: object[]): object =>
+      ({ version, sourceId: 'acme-github', sourceType: 'github', installedAt: INSTALLED_AT, needsReinstall: true, files });
+
+    const hashAt = (folder: string, relative: string): Promise<string> => recordFs.hashFile(path.join(folder, relative));
+
+    beforeEach(() => {
+      home = path.join(base, 'home');
+      fs.mkdirSync(home, { recursive: true });
+      userRecord = path.join(home, '.config', 'ai-primitives-hub', 'ai-primitives-hub.user.lock.json');
+      userLockfile = path.join(home, '.config', 'ai-primitives-hub', 'ai-primitives-hub.lock.json');
+      user = store.resolveUser({ home, path: userRecord });
+    });
+
+    it.each([
+      ['commit', oldCommitted, (): RecordLocation => committed, (): RecordLocation => localOnly, false],
+      ['local-only', oldLocal, (): RecordLocation => localOnly, (): RecordLocation => committed, true]
+    ])('renames the %s old file to a 3.0.0 record of unknown entries and deletes it', async (_mode, oldFile, target, other, excluded) => {
+      write('.github/prompts/a.prompt.md');
+      await writeOld(oldFile(), { [BUNDLE]: { version: '1.2.0', files: ['.github/prompts/a.prompt.md'] } });
+
+      const report = await migrateRepository();
+
+      const checksum = await hashAt(root, '.github/prompts/a.prompt.md');
+      expect(read(target()).bundles[BUNDLE].tools).toEqual({ unknown: unknownEntry('1.2.0', [{ path: '.github/prompts/a.prompt.md', checksum }]) });
+      expect(read(target()).sources).toEqual(SOURCES);
+      expect(report).toMatchObject({
+        level: 'repository', renamed: [{ from: oldFile(), to: target().path }], mergedFrom: [],
+        needsReinstall: [{ bundleId: BUNDLE, version: '1.2.0' }], migratedAt: NOW.toISOString()
+      });
+      expect([fs.existsSync(oldFile()), fs.existsSync(other().path)]).toEqual([false, false]);
+      expect(fs.existsSync(path.join(root, '.git', 'info', 'exclude')) && excludeText().includes('ai-primitives-hub.local.lock.json')).toBe(excluded);
+    });
+
+    it.each([
+      ['safe and present', (): string => 'docs/kept.md', undefined, INSTALLED_AT, INSTALLED_AT],
+      ['safe and present, installed on an impossible date', (): string => 'docs/kept.md', undefined, '2024-02-30T25:00:00Z', NOW.toISOString()],
+      ['using ..', (): string => '../escape.md', 'unsafe path', INSTALLED_AT, INSTALLED_AT],
+      ['absolute', (): string => path.join(base, 'absolute.md'), 'unsafe path', INSTALLED_AT, INSTALLED_AT],
+      ['bundle-relative (CLI)', (): string => 'prompts/a.prompt.md', 'not found', INSTALLED_AT, INSTALLED_AT]
+    ])('an old path that is %s is kept only when safe and present, with its disk checksum', async (_label, recordedPath, reason, installedAt, recordedAt) => {
+      write('docs/kept.md');
+      fs.writeFileSync(path.join(base, 'escape.md'), 'outside\n');
+      fs.writeFileSync(path.join(base, 'absolute.md'), 'outside\n');
+      await writeOld(oldCommitted(), { [BUNDLE]: { version: '1.0.0', files: [recordedPath()], installedAt } });
+
+      const report = await migrateRepository();
+
+      const files = reason === undefined ? [{ path: recordedPath(), checksum: await hashAt(root, recordedPath()) }] : [];
+      expect(read(committed).bundles[BUNDLE].tools.unknown.files).toEqual(files);
+      expect(read(committed).bundles[BUNDLE].tools.unknown.installedAt).toBe(recordedAt);
+      expect(report?.droppedFiles).toEqual(reason === undefined ? [] : [{ bundleId: BUNDLE, path: recordedPath(), reason }]);
+    });
+
+    it.skipIf(POSIX_ONLY)('drops a path whose folder is a symlink leaving the root', async () => {
+      fs.mkdirSync(path.join(base, 'outside'));
+      fs.writeFileSync(path.join(base, 'outside', 'a.md'), 'outside\n');
+      fs.symlinkSync(path.join(base, 'outside'), path.join(root, 'linked'), 'dir');
+      await writeOld(oldCommitted(), { [BUNDLE]: { version: '1.0.0', files: ['linked/a.md'] } });
+
+      const report = await migrateRepository();
+
+      expect(read(committed).bundles[BUNDLE].tools.unknown.files).toEqual([]);
+      expect(report?.droppedFiles).toEqual([{ bundleId: BUNDLE, path: 'linked/a.md', reason: 'unsafe path' }]);
+    });
+
+    it('merges into an existing record: held bundles are skipped, others added, the higher version wins across both old files', async () => {
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      const recorded = read(committed).bundles[BUNDLE];
+      await writeOld(oldCommitted(), { [BUNDLE]: { version: '0.9.0' }, 'other-bundle': { version: '1.0.0' } });
+      await writeOld(oldLocal(), { 'other-bundle': { version: '2.0.0' }, 'third-bundle': { version: '1.0.0' } });
+
+      const report = await migrateRepository();
+
+      expect(read(committed).bundles).toEqual({ [BUNDLE]: recorded });
+      expect(read(localOnly).bundles).toEqual({
+        'other-bundle': { tools: { unknown: unknownEntry('2.0.0', []) } },
+        'third-bundle': { tools: { unknown: unknownEntry('1.0.0', []) } }
+      });
+      expect(report).toMatchObject({
+        renamed: [{ from: oldLocal(), to: localOnly.path }],
+        mergedFrom: [oldCommitted()],
+        versionConflicts: [{ bundleId: 'other-bundle', kept: '2.0.0', dropped: '1.0.0' }],
+        droppedEntries: [{ bundleId: BUNDLE, version: '0.9.0', sourceId: 'acme-github', reason: 'already recorded' }]
+      });
+      expect([fs.existsSync(oldCommitted()), fs.existsSync(oldLocal())]).toEqual([false, false]);
+    });
+
+    it.each([
+      ['larger than 10 MB', (): string => ' '.repeat(RECORD_MAX_BYTES + 1)],
+      ['holding a __proto__ key', (): string => '{ "bundles": { "__proto__": { "polluted": true } } }'],
+      ['of the wrong shape', (): string => '{ "bundles": { "acme-tools": { "version": 1, "files": [] } } }']
+    ])('refuses an old file %s with RECORD.MALFORMED naming it, writing nothing', async (_label, text) => {
+      const hostile = text();
+      fs.writeFileSync(oldCommitted(), hostile);
+
+      await expect(migrateRepository()).rejects.toMatchObject({ code: 'RECORD.MALFORMED', context: { file: oldCommitted() } });
+
+      expect([fs.existsSync(committed.path), fs.existsSync(localOnly.path)]).toEqual([false, false]);
+      expect(fs.readFileSync(oldCommitted(), 'utf8') === hostile).toBe(true);
+    });
+
+    it('is idempotent: a second run returns no report and leaves the bytes unchanged', async () => {
+      await writeOld(oldCommitted(), { [BUNDLE]: { version: '1.0.0' } });
+      await migrateRepository();
+      const bytes = fs.readFileSync(committed.path, 'utf8');
+
+      const second = await migrateRepository();
+
+      expect(second).toBeUndefined();
+      expect(fs.readFileSync(committed.path, 'utf8')).toBe(bytes);
+    });
+
+    it('stops with RECORD.WRITE_FAILED when the old file cannot be deleted; the next run only deletes it', async () => {
+      await writeOld(oldCommitted(), { [BUNDLE]: { version: '1.0.0' } });
+
+      await expect(migrateRepository({ fs: new FailingOldUnlinkFs() })).rejects.toMatchObject({ code: 'RECORD.WRITE_FAILED', context: { file: oldCommitted() } });
+      const afterFailure = toolsIn(committed);
+      await install('vscode', ['.github/prompts/a.prompt.md']);
+      const next = await migrateRepository();
+
+      expect(afterFailure).toEqual(['unknown']);
+      expect(toolsIn(committed)).toEqual(['vscode']);
+      expect(next).toMatchObject({ mergedFrom: [oldCommitted()], needsReinstall: [], droppedEntries: [{ bundleId: BUNDLE, reason: 'already recorded' }] });
+      expect(fs.existsSync(oldCommitted())).toBe(false);
+    });
+
+    it('findLoneUnknown gives a bundle only unknown holds; removeUnknownEntry removes it, deletes nothing and keeps every file it listed', async () => {
+      write('docs/own.md', '.github/prompts/a.prompt.md');
+      await writeOld(oldCommitted(), {
+        [BUNDLE]: { version: '0.9.0', files: ['docs/own.md', '.github/prompts/a.prompt.md'] },
+        'other-bundle': { version: '0.9.0' }
+      });
+      await migrateRepository();
+      // Reinstalling clears other-bundle's unknown entry; it shares a.prompt.md.
+      await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'other-bundle' });
+
+      const lone = await service.findLoneUnknown([committed, localOnly]);
+      const result = await service.removeUnknownEntry(committed, BUNDLE);
+
+      expect([...lone.keys()]).toEqual([BUNDLE]);
+      expect(lone.get(BUNDLE)).toMatchObject({ location: committed, tool: 'unknown', entry: { version: '0.9.0' } });
+      expect(result).toMatchObject({ deleted: [], kept: ['.github/prompts/a.prompt.md', 'docs/own.md'] });
+      expect(Object.keys(read(committed).bundles)).toEqual(['other-bundle']);
+      expect([fs.existsSync(path.join(root, 'docs/own.md')), fs.existsSync(path.join(root, '.github/prompts/a.prompt.md'))]).toEqual([true, true]);
+    });
+
+    it('imports the old user lockfile once as unknown entries with no files and leaves it byte-identical', async () => {
+      await writeOld(userLockfile, { [BUNDLE]: { version: '1.0.0', files: ['prompts/a.prompt.md'] } });
+      const oldBytes = fs.readFileSync(userLockfile, 'utf8');
+
+      const report = await migrateUser();
+      const second = await migrateUser();
+
+      const record = read(user);
+      expect(record.bundles[BUNDLE].tools).toEqual({ unknown: unknownEntry('1.0.0', []) });
+      expect(record.importedUserLockfileAt).toBe(NOW.toISOString());
+      expect(report).toMatchObject({
+        level: 'user', mergedFrom: [userLockfile], needsReinstall: [{ bundleId: BUNDLE, version: '1.0.0' }],
+        droppedFiles: [{ bundleId: BUNDLE, path: 'prompts/a.prompt.md', reason: 'no target recorded' }]
+      });
+      expect(second).toBeUndefined();
+      expect(fs.readFileSync(userLockfile, 'utf8')).toBe(oldBytes);
+    });
+
+    it('sets the marker with no old user lockfile, then imports nothing and selects no old store', async () => {
+      const first = await migrateUser();
+      await writeOld(userLockfile, { [BUNDLE]: { version: '1.0.0' } });
+      const bytes = fs.readFileSync(userRecord, 'utf8');
+
+      const second = await migrateUser();
+      const selection = await selectRecord({
+        store, fs: recordFs, cwd: home, given: { scope: 'user' },
+        findOldLockfile: () => Promise.resolve(null), userLockfile, userRecord, home
+      });
+
+      expect(first).toMatchObject({ needsReinstall: [], mergedFrom: [] });
+      expect(read(user)).toMatchObject({ importedUserLockfileAt: NOW.toISOString(), bundles: {} });
+      expect(second).toBeUndefined();
+      expect(fs.readFileSync(userRecord, 'utf8')).toBe(bytes);
+      expect(selection.oldLockfile).toBeUndefined();
+    });
+
+    it('keeps an empty user record with its marker when the last user bundle is uninstalled', async () => {
+      await migrateUser();
+      const absolute = path.join(home, '.copilot', 'prompts', 'a.prompt.md');
+      fs.mkdirSync(path.dirname(absolute), { recursive: true });
+      fs.writeFileSync(absolute, 'a\n');
+      await service.recordInstall({
+        location: user, bundleId: BUNDLE, version: '1.0.0', tool: 'vscode',
+        source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' }, sourceType: 'github', writtenPaths: [absolute]
+      });
+
+      await service.recordUninstall({ location: user, bundleId: BUNDLE, tool: 'vscode' });
+
+      expect(read(user)).toMatchObject({ importedUserLockfileAt: NOW.toISOString(), bundles: {}, sources: {} });
+    });
+
+    it('profile entries replace a lone unknown entry with the version difference reported, and skip a bundle held under the host tool', async () => {
+      await writeOld(userLockfile, { [BUNDLE]: { version: '1.0.0' } });
+      await migrateUser();
+      const held = path.join(home, '.copilot', 'prompts', 'held.prompt.md');
+      fs.mkdirSync(path.dirname(held), { recursive: true });
+      fs.writeFileSync(held, 'held\n');
+      fs.writeFileSync(path.join(home, '.copilot', 'prompts', 'a.prompt.md'), 'a\n');
+      await service.recordInstall({
+        location: user, bundleId: 'held-bundle', version: '3.0.0', tool: 'vscode',
+        source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' }, sourceType: 'github', writtenPaths: [held]
+      });
+      const profile = (bundleId: string, version: string): MigratedEntry => ({
+        bundleId, tool: 'vscode', version, sourceId: 'acme-github', sourceType: 'github', installedAt: INSTALLED_AT,
+        files: [{ path: '.copilot/prompts/a.prompt.md' }], source: SOURCES['acme-github'], from: 'profile-registry-storage'
+      });
+
+      const report = await migrateUser({ profileEntries: [profile(BUNDLE, '1.1.0'), profile('held-bundle', '2.0.0')] });
+
+      const bundles = read(user).bundles;
+      expect(bundles[BUNDLE].tools).toEqual({
+        vscode: {
+          version: '1.1.0', sourceId: 'acme-github', sourceType: 'github', installedAt: INSTALLED_AT,
+          files: [{ path: '.copilot/prompts/a.prompt.md', checksum: await hashAt(home, '.copilot/prompts/a.prompt.md') }]
+        }
+      });
+      expect(bundles['held-bundle'].tools.vscode.version).toBe('3.0.0');
+      expect(report).toMatchObject({
+        mergedFrom: [PROFILE_STORE_NAME],
+        needsReinstall: [],
+        versionConflicts: [{ bundleId: BUNDLE, kept: '1.1.0', dropped: '1.0.0' }],
+        droppedEntries: [{ bundleId: 'held-bundle', version: '2.0.0', reason: 'already recorded' }]
+      });
+    });
+
+    it('reports the version recorded when a bundle is in both the CLI user lockfile and the profile', async () => {
+      const held = path.join(home, '.copilot', 'prompts', 'held.prompt.md');
+      fs.mkdirSync(path.dirname(held), { recursive: true });
+      fs.writeFileSync(held, 'held\n');
+      await service.recordInstall({
+        location: user, bundleId: 'held-bundle', version: '3.0.0', tool: 'vscode',
+        source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' }, sourceType: 'github', writtenPaths: [held]
+      });
+      await writeOld(userLockfile, { [BUNDLE]: { version: '1.0.0' }, 'held-bundle': { version: '1.0.0' } });
+      const profile = (bundleId: string, version: string): MigratedEntry => ({
+        bundleId, tool: 'vscode', version, sourceId: 'acme-github', sourceType: 'github', files: [], from: 'profile-registry-storage'
+      });
+
+      const report = await migrateUser({ profileEntries: [profile(BUNDLE, '1.1.0'), profile('held-bundle', '2.0.0')] });
+
+      expect(read(user).bundles['held-bundle'].tools.vscode.version).toBe('3.0.0');
+      expect(report?.versionConflicts).toEqual([{ bundleId: BUNDLE, kept: '1.1.0', dropped: '1.0.0' }]);
+      expect(report?.droppedEntries).toEqual([
+        { bundleId: 'held-bundle', version: '2.0.0', sourceId: 'acme-github', reason: 'already recorded' },
+        { bundleId: 'held-bundle', version: '1.0.0', sourceId: 'acme-github', reason: 'already recorded' }
+      ]);
+    });
+
+    it.each([
+      ['committed', oldCommitted, (): RecordLocation => committed],
+      ['local-only', oldLocal, (): RecordLocation => localOnly]
+    ])('installing for another tool clears the unknown entry from the %s file and keeps every file it listed', async (_label, oldFile, holder) => {
+      write('.github/prompts/a.prompt.md');
+      await writeOld(oldFile(), { [BUNDLE]: { version: '1.0.0', files: ['.github/prompts/a.prompt.md'] } }, {
+        'acme-github': { type: 'github', url: 'https://user:ghp_faketoken@github.com/acme/tools?token=abc' }
+      });
+      await migrateRepository();
+      const migratedSource = read(holder()).sources['acme-github'];
+
+      const change = await install('kiro', ['.kiro/steering/a.md']);
+      await service.deleteSuperseded(change);
+
+      expect(migratedSource).toEqual({ type: 'github', url: 'https://github.com/acme/tools' });
+      expect({ deletedFiles: change.deletedFiles, keptSharedFiles: change.keptSharedFiles }).toEqual({ deletedFiles: [], keptSharedFiles: [] });
+      expect(toolsIn(committed)).toEqual(['kiro']);
+      expect(fs.existsSync(localOnly.path)).toBe(false);
+      expect(fs.existsSync(path.join(root, '.github', 'prompts', 'a.prompt.md'))).toBe(true);
+    });
+
+    describe('one version per bundle and tool', () => {
+      const COLL = 'acme-tools-coll';
+      const entries = (location: RecordLocation): string[] => (fs.existsSync(location.path) ? Object.entries(read(location).bundles) : [])
+        .flatMap(([key, bundle]) => Object.entries(bundle.tools).map(([tool, entry]) => `${key} ${tool} ${entry.version}`))
+        .toSorted();
+      const installVersion = (tool: string, version: string, files: string[], overrides: Partial<RecordInstallInput> = {}): ReturnType<typeof install> =>
+        install(tool, files, { bundleId: `${COLL}-${version}`, version, ...overrides });
+      const profile = (version: string): MigratedEntry => ({
+        bundleId: `${COLL}-${version}`, tool: 'vscode', version, sourceId: 'acme-github', sourceType: 'github', files: [], from: 'profile-registry-storage'
+      });
+
+      it.each([
+        ['the committed file', async (): Promise<void> => {
+          await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0' }, [`${COLL}-2.0.0`]: { version: '2.0.0' } });
+        }, (): RecordLocation => committed],
+        ['both old files', async (): Promise<void> => {
+          await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0' } });
+          await writeOld(oldLocal(), { [`${COLL}-2.0.0`]: { version: '2.0.0' } });
+        }, (): RecordLocation => localOnly]
+      ])('two versions of a versioned id in %s migrate to one entry, the higher version', async (_label, writeOldFiles, holder) => {
+        await writeOldFiles();
+
+        const report = await migrateRepository();
+
+        expect([...entries(committed), ...entries(localOnly)].filter((row) => row.startsWith(COLL))).toEqual([`${COLL}-2.0.0 unknown 2.0.0`]);
+        expect(entries(holder())).toEqual([`${COLL}-2.0.0 unknown 2.0.0`]);
+        expect(report?.versionConflicts).toEqual([{ bundleId: `${COLL}-1.0.0`, kept: '2.0.0', dropped: '1.0.0' }]);
+        expect(report?.needsReinstall).toEqual([{ bundleId: `${COLL}-2.0.0`, version: '2.0.0' }]);
+      });
+
+      it('an old file\'s older version of a recorded versioned id is dropped; the record\'s entry stays the only one', async () => {
+        await installVersion('vscode', '2.0.0', ['docs/a.md']);
+        await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0' } });
+
+        const report = await migrateRepository();
+
+        expect(entries(committed)).toEqual([`${COLL}-2.0.0 vscode 2.0.0`]);
+        expect(report).toMatchObject({
+          needsReinstall: [],
+          droppedEntries: [{ bundleId: `${COLL}-1.0.0`, version: '1.0.0', sourceId: 'acme-github', reason: 'already recorded' }]
+        });
+      });
+
+      it('recordInstall of another version clears a lone unknown entry of the old versioned id and keeps its files', async () => {
+        write('docs/legacy.md');
+        await writeOld(oldCommitted(), { [`${COLL}-1.0.0`]: { version: '1.0.0', files: ['docs/legacy.md'] } });
+        await migrateRepository();
+
+        const change = await installVersion('vscode', '2.0.0', ['docs/a.md']);
+        await service.deleteSuperseded(change);
+
+        expect(entries(committed)).toEqual([`${COLL}-2.0.0 vscode 2.0.0`]);
+        expect({ deletedFiles: change.deletedFiles, keptSharedFiles: change.keptSharedFiles }).toEqual({ deletedFiles: [], keptSharedFiles: [] });
+        expect(fs.existsSync(path.join(root, 'docs', 'legacy.md'))).toBe(true);
+      });
+
+      it.each([
+        ['two unknown versions are one lone bundle; removing one removes both and keeps their files', ['unknown', 'unknown'], [`${COLL}-1.0.0`, `${COLL}-2.0.0`]],
+        ['an unknown version is not lone when another tool has another version', ['unknown', 'kiro'], []]
+      ])('findLoneUnknown and removeUnknownEntry go by identity: %s', async (_label, tools, lone) => {
+        write('docs/one.md', 'docs/two.md');
+        const entry = (tool: string, version: string, file: string): object => ({
+          version, sourceId: 'acme-github', sourceType: 'github', installedAt: INSTALLED_AT,
+          files: [{ path: file, checksum: `sha256:${'0'.repeat(64)}` }],
+          ...(tool === 'unknown' ? { needsReinstall: true } : {})
+        });
+        fs.writeFileSync(committed.path, JSON.stringify({
+          $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
+          version: '3.0.0', level: 'repository', generatedAt: INSTALLED_AT, generatedBy: 'ai-primitives-hub-cli@0.3.0',
+          bundles: {
+            [`${COLL}-1.0.0`]: { tools: { [tools[0]]: entry(tools[0], '1.0.0', 'docs/one.md') } },
+            [`${COLL}-2.0.0`]: { tools: { [tools[1]]: entry(tools[1], '2.0.0', 'docs/two.md') } }
+          },
+          sources: SOURCES
+        }));
+
+        const found = await service.findLoneUnknown([committed, localOnly]);
+
+        expect([...found.keys()].toSorted()).toEqual(lone);
+        if (lone.length > 0) {
+          const result = await service.removeUnknownEntry(committed, `${COLL}-2.0.0`);
+          expect(result).toMatchObject({ deleted: [], kept: ['docs/one.md', 'docs/two.md'] });
+          expect(fs.existsSync(committed.path)).toBe(false);
+          expect([fs.existsSync(path.join(root, 'docs', 'one.md')), fs.existsSync(path.join(root, 'docs', 'two.md'))]).toEqual([true, true]);
+        }
+      });
+
+      it.each([
+        ['two profile versions', [], [profile('1.0.0'), profile('2.0.0')], [`${COLL}-2.0.0 vscode 2.0.0`],
+          { versionConflicts: [{ bundleId: `${COLL}-1.0.0`, kept: '2.0.0', dropped: '1.0.0' }] }],
+        ['a recorded vscode version and an older profile one', ['2.0.0'], [profile('1.0.0')], [`${COLL}-2.0.0 vscode 2.0.0`],
+          { droppedEntries: [{ bundleId: `${COLL}-1.0.0`, version: '1.0.0', sourceId: 'acme-github', reason: 'already recorded' }] }],
+        ['a lone unknown version and a newer profile one', ['unknown-1.0.0'], [profile('2.0.0')], [`${COLL}-2.0.0 vscode 2.0.0`],
+          { versionConflicts: [{ bundleId: `${COLL}-2.0.0`, kept: '2.0.0', dropped: '1.0.0' }] }]
+      ])('user migration of %s leaves one vscode entry', async (_label, recorded, profileEntries, expected, reported) => {
+        for (const version of recorded) {
+          if (version.startsWith('unknown-')) {
+            await writeOld(userLockfile, { [`${COLL}-${version.slice('unknown-'.length)}`]: { version: version.slice('unknown-'.length) } });
+            await migrateUser();
+            continue;
+          }
+          const file = path.join(home, '.copilot', 'prompts', 'a.prompt.md');
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, 'a\n');
+          await installVersion('vscode', version, [], { location: user, writtenPaths: [file] });
+        }
+
+        const report = await migrateUser({ profileEntries });
+
+        expect(entries(user)).toEqual(expected);
+        expect(report).toMatchObject(reported);
       });
     });
   });

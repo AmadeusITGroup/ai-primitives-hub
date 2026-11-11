@@ -5,6 +5,7 @@
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   recordError,
 } from '@ai-primitives-hub/core';
@@ -153,7 +154,7 @@ suite('Other-tool guard (install-record items)', () => {
   });
 
   test('batch uninstall reports refused ids as skipped and uninstalls the others', async () => {
-    writeOldLockfile(root, 'prompt-registry.lock.json', { 'old-bundle': '1.0.0' });
+    await writeOldLockfile(path.join(root, 'prompt-registry.lock.json'), { 'old-bundle': { version: '1.0.0' } });
 
     await manager.uninstallBundles([CLI_BUNDLE, 'old-bundle'], 'repository');
 
@@ -163,7 +164,9 @@ suite('Other-tool guard (install-record items)', () => {
   });
 
   test('batch uninstall stops at the first RECORD.* error and names done, skipped and not-attempted ids and the file', async () => {
-    writeOldLockfile(root, 'prompt-registry.lock.json', { 'done-bundle': '1.0.0', 'bad-bundle': '1.0.0', 'later-bundle': '1.0.0' });
+    await writeOldLockfile(path.join(root, 'prompt-registry.lock.json'), {
+      'done-bundle': { version: '1.0.0' }, 'bad-bundle': { version: '1.0.0' }, 'later-bundle': { version: '1.0.0' }
+    });
     installer.uninstall.callsFake(async (bundle: InstalledBundle) => {
       if (bundle.bundleId === 'bad-bundle') {
         throw recordError('RECORD.WRITE_FAILED', { file: RECORD_FILE });

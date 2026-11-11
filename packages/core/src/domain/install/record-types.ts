@@ -47,6 +47,9 @@ export const RECORD_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 /** Tool key for migrated entries whose tool could not be identified. */
 export const UNKNOWN_TOOL_NAME = 'unknown';
 
+/** User-record field holding when the old user lockfile was imported; once set, it is not imported again. */
+export const IMPORTED_USER_LOCKFILE_FIELD = 'importedUserLockfileAt';
+
 /** Level a record belongs to. */
 export type RecordLevel = 'repository' | 'user';
 

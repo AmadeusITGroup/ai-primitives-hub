@@ -84,6 +84,9 @@ export class BundleScopeCommands {
         return;
       }
 
+      // A migrated `unknown` entry cannot be moved and asks for a reinstall
+      await this.registryManager.prepareWrite(bundleId, 'user', 'move-to-repository');
+
       // Check if bundle is installed at user scope (RegistryStorage or the shared user record)
       const userBundle = await this.getBundleForScope(bundleId, 'user');
 
@@ -142,6 +145,9 @@ export class BundleScopeCommands {
         );
       }
     } catch (error) {
+      if (showCliManagedWarning(error)) {
+        return;
+      }
       await ErrorHandler.handle(error, {
         operation: 'move bundle to repository',
         showUserMessage: true,
@@ -160,8 +166,8 @@ export class BundleScopeCommands {
     try {
       this.logger.debug(`[BundleScopeCommands] Moving bundle ${bundleId} to user scope`);
 
-      // Refuse CLI-installed items before any lookup or dialog
-      await this.registryManager.assertHostTool(bundleId, 'repository', 'move-to-user');
+      // Refuse CLI-installed items before any lookup or dialog, after migrating older records
+      await this.registryManager.prepareWrite(bundleId, 'repository', 'move-to-user');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');
@@ -241,8 +247,8 @@ export class BundleScopeCommands {
     try {
       this.logger.debug(`[BundleScopeCommands] Switching commit mode for ${bundleId} to ${newMode}`);
 
-      // Refuse CLI-installed items before any lookup, dialog or exclude change
-      await this.registryManager.assertHostTool(bundleId, 'repository', 'switch-commit-mode');
+      // Refuse CLI-installed items before any lookup, dialog or exclude change, after migrating older records
+      await this.registryManager.prepareWrite(bundleId, 'repository', 'switch-commit-mode');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');

@@ -7,6 +7,13 @@ import {
 } from 'node:fs/promises';
 import * as path from 'node:path';
 import {
+  emptyLockfile,
+  type LockfileSourceEntry,
+  upsertBundleEntry,
+  upsertSource,
+  writeLockfile,
+} from '@ai-primitives-hub/app';
+import {
   type InstallRecord,
   RECORD_FILE_NAME,
 } from '@ai-primitives-hub/core';
@@ -157,3 +164,43 @@ export const userRecordPath = (env: Record<string, string | undefined>): string 
  */
 export const writeRecord = (dir: string, record: unknown, fileName?: string): Promise<void> =>
   writeFile(recordPathIn(dir, fileName), JSON.stringify(record, null, 2) + '\n');
+
+/** One bundle entry {@link writeOldLockfile} writes. */
+export interface OldLockfileEntry {
+  version: string;
+  /** Paths the entry lists, each with a zero checksum; none by default. */
+  files?: readonly string[];
+  /** `old-src` by default. */
+  sourceId?: string;
+  /** `local` by default. */
+  sourceType?: string;
+}
+
+/**
+ * Write an old 2.0.0 lockfile; the files it lists are not written.
+ * @param file - Absolute lockfile path.
+ * @param bundles - Bundle id → entry.
+ * @param sources - The lockfile's `sources`; none by default.
+ * @returns The text written, for byte-identical checks.
+ */
+export const writeOldLockfile = async (
+  file: string,
+  bundles: Record<string, OldLockfileEntry>,
+  sources: Record<string, LockfileSourceEntry> = {}
+): Promise<string> => {
+  let lock = emptyLockfile('test');
+  for (const [bundleId, entry] of Object.entries(bundles)) {
+    lock = upsertBundleEntry(lock, bundleId, {
+      version: entry.version,
+      sourceId: entry.sourceId ?? 'old-src',
+      sourceType: entry.sourceType ?? 'local',
+      installedAt: '2026-10-01T00:00:00.000Z',
+      files: (entry.files ?? []).map((recorded) => ({ path: recorded, checksum: '0'.repeat(64) }))
+    });
+  }
+  for (const [sourceId, source] of Object.entries(sources)) {
+    lock = upsertSource(lock, sourceId, source);
+  }
+  await writeLockfile(file, lock, new NodeFileSystem());
+  return readFile(file, 'utf8');
+};
