@@ -16,6 +16,7 @@ import {
 } from '../types/registry';
 import {
   getInstalledBundleForScope,
+  type UserRecordReader,
 } from '../utils/bundle-scope-utils';
 import {
   Logger,
@@ -60,7 +61,12 @@ export type InstallCallback = (installedBundle: InstalledBundle, targetScope: In
 export class ScopeConflictResolver {
   private readonly logger: Logger;
 
-  constructor(private readonly storage: RegistryStorage) {
+  /**
+   * Resolver over a storage, reading the shared user record with the given adapter.
+   * @param storage - RegistryStorage holding user and workspace installs.
+   * @param userRecord - Adapter and listing for the shared user record; a new adapter by default.
+   */
+  constructor(private readonly storage: RegistryStorage, private readonly userRecord?: Omit<UserRecordReader, 'storage'>) {
     this.logger = Logger.getInstance();
   }
 
@@ -71,7 +77,7 @@ export class ScopeConflictResolver {
    * @param scope
    */
   private async getInstalledBundleForScope(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
-    return getInstalledBundleForScope(this.storage, bundleId, scope);
+    return getInstalledBundleForScope(this.storage, bundleId, scope, undefined, this.userRecord);
   }
 
   /**

@@ -226,6 +226,8 @@ export class RecordStore {
       const target = (await this.fs.lstat(location.path))?.kind === 'symlink'
         ? await this.resolveAllowedLink(location, file)
         : location.path;
+      // The user record's folder may not exist yet on a new machine.
+      await this.fs.mkdir(path.dirname(target), { recursive: true });
       await writeFileAtomically(this.fs, target, text);
     } catch (error) {
       if (isRecordError(error)) {
@@ -262,6 +264,16 @@ export class RecordStore {
       await this.load(location);
     }
     return { locations, location: input.commitMode === 'local-only' ? locations[1] : locations[0] };
+  }
+
+  /**
+   * The user-level record location, rooted at the home folder.
+   * @param input - Home folder and record file.
+   * @param input.home - Absolute home folder.
+   * @param input.path - Absolute path of the user record.
+   */
+  public resolveUser(input: { home: string; path: string }): RecordLocation {
+    return { level: 'user', root: input.home, path: input.path };
   }
 
   /**

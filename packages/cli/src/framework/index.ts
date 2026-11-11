@@ -106,12 +106,16 @@ export type {
 export {
   CLI_RECORD_GENERATED_BY,
   configuredSources,
+  createLayoutLoader,
+  createRecordServices,
   finishRecordRun,
   oldFileOnlyBundles,
   prepareOldFileOnly,
+  prepareRecordForTarget,
   prepareRecordSelection,
   prepareRepositoryRecord,
   prepareRepositoryUninstall,
+  prepareUninstallForTarget,
   recordOutputFields,
   recordPlannedInstall,
   recordRepositoryInstall,
@@ -120,6 +124,9 @@ export {
   toCommandRecordError,
   toInstallRecordError,
   tokensForRecordSource,
+  userRecordLocation,
+  usesInstallRecord,
+  writerEnv,
 } from './install-record';
 export type {
   CreateHubManagerOptions,

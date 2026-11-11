@@ -103,6 +103,7 @@ import {
 import {
   watchInstallRecords,
   watchOldLockfiles,
+  watchUserRecord,
 } from './services/install-record-listing';
 import {
   MigrationRegistry,
@@ -1176,6 +1177,22 @@ export class PromptRegistryExtension {
     }
   }
 
+  /** Refresh the installed view when the shared user record changes; not in WSL, and a failure never blocks activation. */
+  private subscribeUserRecordChanges(): void {
+    try {
+      if (!this.registryManager.getRecordAdapter().usesSharedUserRecord()) {
+        return;
+      }
+      const refresh = (): void => {
+        this.logger.debug('User record changed, refreshing installed bundles');
+        this.registryManager.handleWorkspaceFoldersChanged();
+      };
+      this.disposables.push(watchUserRecord(this.registryManager.getStorage().getPaths().userRecord, refresh));
+    } catch (error) {
+      this.logger.warn('Failed to set up user record watcher:', error instanceof Error ? error : undefined);
+    }
+  }
+
   /**
    * Initialize repository-level installation services: record watchers for
    * every workspace folder, and the RepositoryActivationService of the first one.
@@ -1219,7 +1236,7 @@ export class PromptRegistryExtension {
 
       if (repositoryScopeService) {
         // Create ScopeConflictResolver with storage
-        const scopeConflictResolver = new ScopeConflictResolver(registryStorage);
+        const scopeConflictResolver = new ScopeConflictResolver(registryStorage, this.registryManager.userRecordReader());
 
         this.bundleScopeCommands = new BundleScopeCommands(
           this.registryManager,
@@ -1933,6 +1950,8 @@ export class PromptRegistryExtension {
 
       // Initialize repository-level installation services
       await this.initializeRepositoryServices();
+
+      this.subscribeUserRecordChanges();
 
       // Register workspace folder change listener
       this.registerWorkspaceFolderListener();

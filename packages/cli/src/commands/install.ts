@@ -70,7 +70,6 @@ import {
   AwesomeCopilotBundleResolver,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   GitHubBundleResolver,
   type GitHubSourceAuthRuntime,
@@ -83,7 +82,6 @@ import {
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
   TargetStateStore,
@@ -95,6 +93,7 @@ import {
   configuredSources,
   type Context,
   createHubManager,
+  createLayoutLoader,
   defineCommand,
   failWith,
   findProjectLockfile,
@@ -108,8 +107,8 @@ import {
   type PreparedRecordSelection,
   type PreparedRepositoryRecord,
   prepareOldFileOnly,
+  prepareRecordForTarget,
   prepareRecordSelection,
-  prepareRepositoryRecord,
   readTargetsSafely,
   recordOutputFields,
   recordPlannedInstall,
@@ -124,6 +123,7 @@ import {
   toCommandRecordError,
   tokensForRecordSource,
   validateInputs,
+  writerEnv,
 } from '../framework';
 
 /**
@@ -591,8 +591,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
 
   if (noMode && !opts.interactive) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
-    if (prepared.selection.level === 'repository'
-      && (await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
+    if ((await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
       return prepared;
     }
     const found = await findProjectLockfile(ctx);
@@ -758,11 +757,7 @@ export const createWriterFactory = (
 ): (target: Target) => TargetWriter => {
   // Create transformer registry and hierarchical layout loader once per command.
   const transformerRegistry = TransformerRegistry.withBuiltIns();
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
+  const layoutLoader = createLayoutLoader(ctx);
 
   return (target: Target): TargetWriter => {
     const effectiveTarget = resolveEffectiveTarget(ctx, target, opts);
@@ -786,7 +781,7 @@ export const createWriterFactory = (
     const transformer = transformerRegistry.getTransformer(effectiveTarget.type);
     return new FileTreeTargetWriter({
       fs: ctx.fs,
-      env: ctx.env,
+      env: writerEnv(ctx.env, scope),
       transformer,
       layoutLoader
     });
@@ -1078,10 +1073,8 @@ async function performLocalInstall(
       });
       return 0;
     }
-    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
-    const prepared = effectiveTarget.scope === 'repository'
-      ? await prepareRepositoryRecord(ctx, effectiveTarget)
-      : undefined;
+    // Check the record files before the writer runs, so a RECORD.* error writes nothing.
+    const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
@@ -1605,10 +1598,8 @@ async function performRemoteInstall(
       });
       return 0;
     }
-    // Check both record files before the writer runs, so a RECORD.* error writes nothing.
-    const prepared = effectiveTarget.scope === 'repository'
-      ? await prepareRepositoryRecord(ctx, effectiveTarget)
-      : undefined;
+    // Check the record files before the writer runs, so a RECORD.* error writes nothing.
+    const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(

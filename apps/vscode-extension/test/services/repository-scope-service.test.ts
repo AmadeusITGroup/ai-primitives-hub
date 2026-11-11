@@ -182,7 +182,8 @@ suite('RepositoryScopeService', () => {
       userInstalled: path.join(tempDir, 'user-installed'),
       profilesInstalled: path.join(tempDir, 'profiles-installed'),
       profiles: path.join(tempDir, 'profiles'),
-      logs: path.join(tempDir, 'logs')
+      logs: path.join(tempDir, 'logs'),
+      userRecord: path.join(tempDir, 'ai-primitives-hub.user.lock.json')
     });
 
     // Create service

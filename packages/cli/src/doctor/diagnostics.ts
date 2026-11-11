@@ -21,9 +21,6 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  resolveUserConfigPaths,
-} from '@ai-primitives-hub/app';
-import {
   getInstallableBundleFiles,
   isReleaseDeploymentManifest,
   validateManifest,
@@ -138,8 +135,10 @@ import {
   type CapturedOutputStream,
   type CommandClass,
   type Context,
+  createRecordServices,
   type FsAbstraction,
   runCli,
+  userRecordLocation,
 } from '../framework';
 import {
   CLI_VERSION,
@@ -1278,12 +1277,16 @@ export const runDiagnostics = async (
         path: relativePath,
         present: await fileExists(fsAbstraction, path.join(fixtures.targetDir, relativePath))
       })));
-      const lockfilePath = resolveUserConfigPaths(buildDiagnosticEnv(opts.ctx, workspace)).userLockfile;
-      const lockfile = await fsAbstraction.readJson<{
-        bundles?: Record<string, { files?: { path: string }[] }>;
-      }>(lockfilePath);
-      const lockEntry = lockfile.bundles?.[fixtures.governedBundleId];
-      const lockfilePaths = lockEntry?.files?.map((file) => file.path).toSorted() ?? [];
+      // Loaded through the shared store, so a bad user record fails this step with its RECORD.* message.
+      const diagnosticEnv = buildDiagnosticEnv(opts.ctx, workspace);
+      const { store } = createRecordServices();
+      const userLocation = userRecordLocation(store, diagnosticEnv);
+      const userHome = userLocation.root;
+      const lockfilePath = userLocation.path;
+      const { record } = await store.load(userLocation);
+      const lockEntry = record.bundles[fixtures.governedBundleId]?.tools['copilot-cli'];
+      const targetPrefix = path.relative(userHome, fixtures.targetDir).split(path.sep).join('/') + '/';
+      const lockfilePaths = lockEntry?.files.map((file) => file.path.startsWith(targetPrefix) ? file.path.slice(targetPrefix.length) : file.path).toSorted() ?? [];
       if (targetInstallable.some((file) => !file.present)) {
         throw new Error('governed install did not write every installable primitive');
       }

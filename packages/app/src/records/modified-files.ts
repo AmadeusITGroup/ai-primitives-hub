@@ -2,7 +2,8 @@
  * Locally modified installed files: content that no longer matches the
  * recorded checksum, or a missing file. Callers keep them instead of deleting.
  * A path that fails confinement, is not a regular file or has no checksum
- * counts as modified, so it is kept.
+ * counts as modified, so it is kept. A symlink is compared by the content of
+ * the file it resolves to.
  * @module records/modified-files
  */
 import * as path from 'node:path';
@@ -26,16 +27,36 @@ const BARE_SHA256 = /^[0-9a-f]{64}$/;
 
 const toRecordChecksum = (checksum: string): string => BARE_SHA256.test(checksum) ? `sha256:${checksum}` : checksum;
 
+/**
+ * The regular file whose bytes a recorded leaf holds: the leaf, or the file a
+ * symlink resolves to (user-scope files can link into the bundle cache).
+ * @param fs - Filesystem port.
+ * @param leaf - Absolute recorded path, already confined.
+ * @returns The file to hash, or `undefined` for a dangling link or a non-file.
+ */
+const contentFile = async (fs: RecordFs, leaf: string): Promise<string | undefined> => {
+  const kind = (await fs.lstat(leaf))?.kind;
+  if (kind === 'file') {
+    return leaf;
+  }
+  if (kind !== 'symlink') {
+    return undefined;
+  }
+  const resolved = await fs.realpath(leaf).catch(() => undefined);
+  return resolved !== undefined && (await fs.lstat(resolved))?.kind === 'file' ? resolved : undefined;
+};
+
 const isModified = async (fs: RecordFs, root: string, file: RecordedFileCheck): Promise<boolean> => {
   const target = await resolveDeleteTarget(fs, root, file.path);
-  if (target.status !== 'delete') {
+  if (target.status !== 'delete' || file.checksum === undefined) {
     return true;
   }
-  if (file.checksum === undefined || (await fs.lstat(target.absolute))?.kind !== 'file') {
+  const content = await contentFile(fs, target.absolute);
+  if (content === undefined) {
     return true;
   }
   try {
-    return (await fs.hashFile(target.absolute)) !== toRecordChecksum(file.checksum);
+    return (await fs.hashFile(content)) !== toRecordChecksum(file.checksum);
   } catch {
     // A file that cannot be read cannot be shown to be unchanged: keep it.
     return true;

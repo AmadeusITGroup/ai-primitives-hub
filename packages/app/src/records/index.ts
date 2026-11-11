@@ -21,4 +21,5 @@ export * from './sanitize-source';
 export * from './select-record';
 export * from './serialize-record';
 export * from './to-record-source';
+export * from './user-home';
 export * from './writer-group';

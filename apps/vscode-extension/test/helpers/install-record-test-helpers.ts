@@ -1,4 +1,4 @@
-/** Helpers for tests that read install records from a real temp git root. */
+/** Helpers for tests that read install records from a real temp git root, or the user record from a temp home. */
 import {
   createHash,
 } from 'node:crypto';
@@ -22,7 +22,15 @@ import * as vscode from 'vscode';
 import type {
   ExtensionRecordAdapter,
 } from '../../src/services/extension-record-adapter';
+import {
+  RegistryManager,
+} from '../../src/services/registry-manager';
 import type {
+  RegistryStorage,
+} from '../../src/storage/registry-storage';
+import type {
+  Bundle,
+  RegistrySource,
   RepositoryCommitMode,
 } from '../../src/types/registry';
 import {
@@ -212,6 +220,92 @@ export const writeInstallRecord = (root: string, fileName: string, spec: RecordS
     sources: { 'acme-github': { type: 'github', url: 'https://github.com/acme/tools' } }
   }, null, 2)}\n`);
 };
+
+/**
+ * Set process environment variables for one test, e.g. a temp `HOME`.
+ * @param values - Variables to set.
+ * @returns Restores the previous values.
+ */
+export const overrideEnv = (values: Record<string, string>): (() => void) => {
+  const saved = Object.entries(values).map(([key]) => [key, process.env[key]] as const);
+  Object.assign(process.env, values);
+  return () => {
+    for (const [key, value] of saved) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+};
+
+/**
+ * A `Bundle` as a source lists it, with empty catalog fields unless given.
+ * @param fields - Id and version, and any field to set.
+ */
+export const testBundle = (fields: Partial<Bundle> & Pick<Bundle, 'id' | 'version'>): Bundle => ({
+  name: fields.id, description: '', author: '', sourceId: '',
+  environments: [], tags: [], lastUpdated: '', size: '', dependencies: [], license: '', manifestUrl: '', downloadUrl: '',
+  ...fields
+});
+
+/** A `RegistryManager` on a temp home with one configured source, from {@link setupUserRecordManager}. */
+export interface UserRecordManager {
+  manager: RegistryManager;
+  /** Its real `RegistryStorage`, in `globalStorage`. */
+  storage: RegistryStorage;
+  /** `globalStorageUri`, under `tempRoot`. */
+  globalStorage: string;
+  /** The `vscode.window.showErrorMessage` stub. */
+  showError: sinon.SinonStub;
+  /** Restore the sandbox and the environment, drop the manager and remove `tempRoot`. */
+  dispose: () => void;
+}
+
+/**
+ * A fresh `RegistryManager` whose user installs go to a temp home, with one
+ * configured source and stubbed `vscode.window` messages.
+ * @param sandbox - Sinon sandbox owning the stubs.
+ * @param options - Setup options.
+ * @param options.tempRoot - Temp folder; removed by `dispose`.
+ * @param options.env - Environment variables to set until `dispose`.
+ * @param options.source - The configured source.
+ */
+export const setupUserRecordManager = async (
+  sandbox: sinon.SinonSandbox,
+  options: { tempRoot: string; env: Record<string, string>; source: RegistrySource }
+): Promise<UserRecordManager> => {
+  const restoreEnv = overrideEnv(options.env);
+  // `User/globalStorage/<id>`, so the user MCP config derived from it stays in the temp folder.
+  const globalStorage = path.join(options.tempRoot, 'User', 'globalStorage', 'acme.extension');
+  (RegistryManager as any).instance = undefined;
+  const manager = RegistryManager.getInstance({ ...createMockContext(sandbox), globalStorageUri: vscode.Uri.file(globalStorage) });
+  const storage = manager.getStorage();
+  await storage.initialize();
+  await storage.addSource(options.source);
+  const showError = sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
+  sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
+  sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
+  return {
+    manager,
+    storage,
+    globalStorage,
+    showError,
+    dispose: () => {
+      sandbox.restore();
+      restoreEnv();
+      (RegistryManager as any).instance = undefined;
+      fs.rmSync(options.tempRoot, { recursive: true, force: true });
+    }
+  };
+};
+
+/**
+ * Whether anything is at a path, a dangling symlink included.
+ * @param file - Absolute path.
+ */
+export const isOnDisk = (file: string): boolean => fs.lstatSync(file, { throwIfNoEntry: false }) !== undefined;
 
 /**
  * Snapshot every file under a folder (path → content), for "nothing changed on disk" checks.

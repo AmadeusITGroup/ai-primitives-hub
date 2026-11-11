@@ -1,12 +1,13 @@
 /**
  * Install record wiring for the CLI: builds the record store and service,
  * selects the record a command acts on and gates record sources. User level
- * still uses the old lockfile, and old `prompt-registry.*` files are never
- * touched here.
+ * records into the shared user record and only reads the old user lockfile;
+ * old `prompt-registry.*` files are never touched here.
  * @module framework/install-record
  */
 import * as path from 'node:path';
 import {
+  assertUserFolderInsideHome,
   createInstallRecordServices,
   findLockfile,
   type InstallRecordService,
@@ -22,13 +23,18 @@ import {
   type RecordSourceInput,
   type RecordStore,
   resolveExcludeFile,
+  resolveLayoutAsync,
   resolveUserConfigPaths,
+  resolveUserHome,
   selectRecord,
+  type TargetLayout,
 } from '@ai-primitives-hub/app';
 import {
   describeRecordError,
+  expandPath,
   type InstallationScope,
   isRecordError,
+  matchKindRoute,
   type RecordFs,
   type RecordLevel,
   type RecordLocation,
@@ -39,9 +45,12 @@ import {
   type TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
+  FileSystemLayoutConfigLoader,
   GitInfoExclude,
   NodeRecordFs,
+  resolveUserConfigDir,
   StaticTokenProvider,
+  XdgAppStorage,
 } from '@ai-primitives-hub/infra';
 import {
   CLI_VERSION,
@@ -66,6 +75,15 @@ import {
 /** Writer stamp for records written by the CLI. */
 export const CLI_RECORD_GENERATED_BY = `ai-primitives-hub-cli@${CLI_VERSION}`;
 
+/**
+ * The env a target writer expands `~` against: at user scope `HOME` is the
+ * user level's home, so it matches the pre-write folder check.
+ * @param env - CLI environment.
+ * @param scope - Effective scope of the target.
+ */
+export const writerEnv = (env: Record<string, string | undefined>, scope: InstallationScope): Record<string, string | undefined> =>
+  (scope === 'user' ? { ...env, HOME: resolveUserHome(env) } : env);
+
 /** A repository install whose record files were loaded and checked before writing. */
 export interface PreparedRepositoryRecord {
   /** The file the install is recorded in, from the commit mode. */
@@ -73,8 +91,8 @@ export interface PreparedRepositoryRecord {
   service: InstallRecordService;
   /** Workspace root the writer installs into (where merged MCP config files sit). */
   workspaceRoot: string;
-  /** `info/exclude` section for local-only files, shared with the local-only record. */
-  exclusion: RepositoryExclusion;
+  /** `info/exclude` section for local-only files; absent at user level. */
+  exclusion?: RepositoryExclusion;
 }
 
 /** What `recordRepositoryInstall` records. */
@@ -129,8 +147,33 @@ export const toCommandRecordError = (command: string, error: RegistryError, writ
 export const toInstallRecordError = (error: RegistryError, written?: readonly string[]): RegistryError =>
   toCommandRecordError('install', error, written);
 
-const createRecordServices = (fs: RecordFs): InstallRecordServices =>
+/**
+ * Record store and service for one CLI command.
+ * @param fs - Filesystem port.
+ */
+export const createRecordServices = (fs: RecordFs = new NodeRecordFs()): InstallRecordServices =>
   createInstallRecordServices({ generatedBy: CLI_RECORD_GENERATED_BY, fs });
+
+/**
+ * The shared user record location, rooted at home.
+ * @param store - Record store.
+ * @param env - Environment for the home and XDG folders.
+ */
+export const userRecordLocation = (store: RecordStore, env: Record<string, string | undefined>): RecordLocation =>
+  store.resolveUser({ home: resolveUserHome(env), path: new XdgAppStorage(env).getPaths().userRecord });
+
+/**
+ * The layout config loader the CLI writers and record checks use.
+ * @param ctx - CLI context.
+ */
+export const createLayoutLoader = (ctx: Context): FileSystemLayoutConfigLoader =>
+  new FileSystemLayoutConfigLoader({ cwd: ctx.cwd(), fs: ctx.fs, userConfigDir: resolveUserConfigDir(ctx.env) });
+
+/**
+ * Whether a target's installs are kept in an install record (repository or user scope).
+ * @param target - Effective target.
+ */
+export const usesInstallRecord = (target: Target): boolean => target.scope === 'repository' || target.scope === 'user';
 
 /**
  * The `info/exclude` section the record store uses at a git root, also in a worktree.
@@ -211,6 +254,46 @@ export const prepareRepositoryRecord = async (
   }
 };
 
+// The layout a user-scope target writes with, and its base folder with `HOME` set to home.
+const resolveUserTargetLayout = async (
+  ctx: Context,
+  target: Target,
+  home: string
+): Promise<{ layout: TargetLayout; baseDir: string }> => {
+  const layout = await resolveLayoutAsync(target, createLayoutLoader(ctx));
+  return { layout, baseDir: path.resolve(expandPath(layout.baseDir, { ...ctx.env, HOME: home })) };
+};
+
+/**
+ * Load and check the shared user record and refuse a target folder outside
+ * home before anything is written.
+ * @param ctx - CLI context.
+ * @param target - User-scope target.
+ * @param fs - Filesystem port.
+ * @throws {RegistryError} A `RECORD.*` error naming the file or folder; nothing was written.
+ */
+export const prepareUserRecord = async (
+  ctx: Context,
+  target: Target,
+  fs: RecordFs = new NodeRecordFs()
+): Promise<PreparedRepositoryRecord> => {
+  const { store, service } = createRecordServices(fs);
+  try {
+    const location = userRecordLocation(store, ctx.env);
+    const home = location.root;
+    await store.load(location);
+    const { layout, baseDir } = await resolveUserTargetLayout(ctx, target, home);
+    const routes = Object.values(layout.kindRoutes);
+    const folders = new Set(routes.length === 0 ? [baseDir] : routes.map((route) => path.join(baseDir, route)));
+    for (const folder of folders) {
+      await assertUserFolderInsideHome(fs, home, folder);
+    }
+    return { location, service, workspaceRoot: home };
+  } catch (error) {
+    throw isRecordError(error) ? toInstallRecordError(error) : error;
+  }
+};
+
 /**
  * Record a repository install, then remove the files it superseded. On failure
  * the written files stay and the error lists them.
@@ -252,10 +335,12 @@ export interface PreparedRepositoryUninstall {
   service: InstallRecordService;
   /** The target's type. */
   tool: string;
-  /** `info/exclude` section local-only files are listed in. */
-  exclusion: RepositoryExclusion;
+  /** `info/exclude` section local-only files are listed in; absent at user level. */
+  exclusion?: RepositoryExclusion;
   /** Bundles with an entry for `tool` in either file, sorted, with their recorded paths. */
   entries: Map<string, string[]>;
+  /** User level only: per bundle, paths the old user lockfile still lists; kept on uninstall. */
+  keepPaths?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** Outcome of `recordRepositoryUninstall`. */
@@ -300,6 +385,91 @@ export const prepareRepositoryUninstall = async (
   }
 };
 
+// Per bundle, the home-relative paths the old user lockfile lists, resolved as the old uninstall does.
+const oldUserLockfilePaths = async (ctx: Context, target: Target, home: string): Promise<Map<string, Set<string>>> => {
+  const out = new Map<string, Set<string>>();
+  const lock = await readLockfile(resolveUserConfigPaths(ctx.env).userLockfile, ctx.fs);
+  if (lock === null || Object.keys(lock.bundles).length === 0) {
+    return out;
+  }
+  const { layout, baseDir } = await resolveUserTargetLayout(ctx, target, home);
+  for (const [bundleId, entry] of Object.entries(lock.bundles)) {
+    const paths = new Set<string>();
+    for (const file of entry.files) {
+      let absolute: string | undefined;
+      if (file.installedPath === undefined) {
+        const route = matchKindRoute(file.path, layout.kindRoutes);
+        absolute = route === null ? undefined : path.join(baseDir, route.outPrefix, route.tail);
+      } else {
+        absolute = path.join(baseDir, file.installedPath);
+      }
+      if (absolute !== undefined) {
+        paths.add(path.relative(home, path.resolve(absolute)).split(path.sep).join('/'));
+      }
+    }
+    out.set(bundleId, paths);
+  }
+  return out;
+};
+
+/**
+ * Load and check the shared user record before anything is removed. Bundles
+ * not recorded there fall back to the old user lockfile.
+ * @param ctx - CLI context.
+ * @param target - User-scope target.
+ * @param fs - Filesystem port.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
+ */
+export const prepareUserUninstall = async (
+  ctx: Context,
+  target: Target,
+  fs: RecordFs = new NodeRecordFs()
+): Promise<PreparedRepositoryUninstall> => {
+  const { store, service } = createRecordServices(fs);
+  try {
+    const location = userRecordLocation(store, ctx.env);
+    const entries = await service.entriesForTool([location], target.type);
+    const keepPaths = entries.size === 0 ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
+    return { location, service, tool: target.type, entries, keepPaths };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
+  }
+};
+
+/**
+ * Load and check the install record a target installs into, before anything is written.
+ * @param ctx - CLI context.
+ * @param target - Effective target.
+ * @returns The prepared record; `undefined` for a target that keeps the old lockfile.
+ * @throws {RegistryError} A `RECORD.*` error naming the file or folder; nothing was written.
+ */
+export const prepareRecordForTarget = async (ctx: Context, target: Target): Promise<PreparedRepositoryRecord | undefined> => {
+  if (!usesInstallRecord(target)) {
+    return undefined;
+  }
+  return target.scope === 'repository' ? prepareRepositoryRecord(ctx, target) : prepareUserRecord(ctx, target);
+};
+
+/**
+ * Load and check the install record a target uninstalls from, before anything is removed.
+ * @param ctx - CLI context.
+ * @param target - Effective target.
+ * @param options - Repository level only.
+ * @param options.locations - Record files already selected by `--lockfile`.
+ * @returns The prepared record; `undefined` for a target that keeps the old lockfile.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
+ */
+export const prepareUninstallForTarget = async (
+  ctx: Context,
+  target: Target,
+  options: { locations?: readonly RecordLocation[] } = {}
+): Promise<PreparedRepositoryUninstall | undefined> => {
+  if (!usesInstallRecord(target)) {
+    return undefined;
+  }
+  return target.scope === 'repository' ? prepareRepositoryUninstall(ctx, target, options) : prepareUserUninstall(ctx, target);
+};
+
 /**
  * Remove one bundle's entry for the target's type, then delete its files except
  * those another entry lists or that changed since the install (each kept with a warning).
@@ -313,13 +483,19 @@ export const recordRepositoryUninstall = async (
 ): Promise<RecordedRepositoryUninstall> => {
   let result;
   try {
-    result = await prepared.service.uninstallEntry({ location: prepared.location, bundleId, tool: prepared.tool });
+    result = await prepared.service.uninstallEntry({
+      location: prepared.location,
+      bundleId,
+      tool: prepared.tool,
+      // A file any old user lockfile entry lists stays on disk for it, whichever bundle that entry is.
+      keep: prepared.keepPaths === undefined ? undefined : new Set([...prepared.keepPaths.values()].flatMap((paths) => [...paths]))
+    });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
   const { change, deleted } = result;
   const warnings = [...result.warnings, ...result.modified.map((file) => `Did not remove ${file}: it was changed after install.`)];
-  if (change.location.commitMode === 'local-only' && deleted.length > 0) {
+  if (change.location.commitMode === 'local-only' && deleted.length > 0 && prepared.exclusion !== undefined) {
     // Drop the removed files' `info/exclude` entries, as the old uninstall did.
     try {
       await prepared.exclusion.remove(deleted.map((relative) => path.join(change.location.root, ...relative.split('/'))));
@@ -370,6 +546,7 @@ export const prepareRecordSelection = async (
 ): Promise<PreparedRecordSelection> => {
   const { store, service } = createRecordServices(fs);
   const userLockfile = resolveUserConfigPaths(ctx.env).userLockfile;
+  const user = userRecordLocation(store, ctx.env);
   try {
     const selection = await selectRecord({
       store,
@@ -381,7 +558,9 @@ export const prepareRecordSelection = async (
         ...(target === undefined ? {} : { target: { scope: target.scope, rootPath: target.rootPath } })
       },
       findOldLockfile: (start) => findLockfile(start, ctx.fs, userLockfile),
-      userLockfile
+      userLockfile,
+      userRecord: user.path,
+      home: user.root
     });
     const exclusion = selection.level === 'repository' && selection.locations.length > 0
       ? await recordExclusion(ctx, fs, selection.root)
@@ -455,7 +634,8 @@ export const recordPlannedInstall = (
   source: { sourceId: item.sourceId, ...item.source },
   sourceType: item.sourceType,
   writtenPaths: written,
-  workspaceRoot: target.rootPath ?? ctx.cwd(),
+  // User level: home is the workspace root, as the user-scope install records it.
+  workspaceRoot: item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd()),
   syncSiblings
 });
 
