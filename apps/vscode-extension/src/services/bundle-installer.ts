@@ -856,6 +856,10 @@ export class BundleInstaller {
             this.logger.info(`[BundleInstaller] Installing repository scope bundle to global storage: bundles/${bundle.id}`);
           }
           installDir = this.getInstallDirectory(bundle.id, options.scope, bundle.name);
+          // An update extracts into a clean folder, so a file the new version dropped is not copied back.
+          if (inPlace !== undefined) {
+            await this.removeDirectory(installDir);
+          }
           await ensureDirectory(installDir);
           this.logger.debug(`Installation directory: ${installDir}`);
 
