@@ -59,6 +59,9 @@ import {
   InstallCommand,
 } from '../../src/commands/install';
 import {
+  SourceAddCommand,
+} from '../../src/commands/source';
+import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
@@ -1281,6 +1284,48 @@ agents:
       expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code: 'RECORD.MALFORMED' });
       expect(await readFile(vscodePrompt(), 'utf8')).toBe('# Kept\n');
       expect(await readFile(recordPath(), 'utf8')).toBe(text);
+    });
+
+    it('--dry-run lists the entries a replay would install and writes nothing', async () => {
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['install', '--lockfile', recordPath(), '--dry-run', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<{ dryRun: boolean; planned: { tool: string }[] }>(result.stdout);
+      expect(data.dryRun).toBe(true);
+      expect(data.planned.map((entry) => entry.tool)).toEqual(['kiro', 'vscode']);
+      expect(await exists(vscodePrompt())).toBe(false);
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+    });
+
+    it('--allow-target refuses a replay to a mapped target it does not list, before writing anything', async () => {
+      const result = await run(['install', '--lockfile', recordPath(), '--allow-target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code: 'USAGE.MISSING_FLAG' });
+      expect(await exists(vscodePrompt())).toBe(false);
+    });
+
+    it('records the type of the configured source that replaces the recorded one', async () => {
+      const record = await readReplayRecord();
+      const { sourceId } = record.bundles['local-foo'].tools.vscode;
+      record.sources[sourceId] = { type: 'github', url: 'https://github.com/acme/foo' };
+      for (const entry of Object.values(record.bundles['local-foo'].tools)) {
+        entry.sourceType = 'github';
+      }
+      delete record.bundles['legacy-bar'];
+      await writeRecord(workspace, record);
+      expect((await makeRun(() => workspace, [...COMMAND_CLASSES, SourceAddCommand])(
+        ['source', 'add', '--type', 'local', '--url', bundleDir, '--id', sourceId, '-o', 'json']
+      )).exitCode).toBe(0);
+
+      const result = await run(['install', '--lockfile', recordPath(), '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const replayed = await readReplayRecord();
+      expect(replayed.bundles['local-foo'].tools.vscode.sourceType).toBe('local');
+      expect(replayed.sources[sourceId]).toMatchObject({ type: 'local' });
     });
 
     describe('in a git worktree, with the bundle recorded local-only', () => {

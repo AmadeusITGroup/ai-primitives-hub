@@ -1300,6 +1300,37 @@ function renderRecordReplay(d: RecordReplayData): string {
 }
 
 /**
+ * Report what a record replay would install, without fetching or writing anything.
+ * @param ctx CLI context.
+ * @param fmt Output format.
+ * @param data The planned replay.
+ * @param planned The entries that would be installed.
+ * @returns Exit code.
+ */
+function reportRecordReplayDryRun(
+  ctx: Context,
+  fmt: OutputFormat,
+  data: RecordReplayData,
+  planned: RecordReplayData['replayed']
+): number {
+  const { replayed: _replayed, failures: _failures, ...rest } = data;
+  formatOutput({
+    ctx,
+    command: 'install',
+    output: fmt,
+    status: data.skipped.length === 0 && data.needsReinstall.length === 0 ? 'ok' : 'warning',
+    data: { dryRun: true, ...rest, planned },
+    textRenderer: (d) => [
+      `Dry run: would replay ${String(d.planned.length)}/${String(d.replayPlanned)} entr${d.replayPlanned === 1 ? 'y' : 'ies'}.`,
+      ...d.planned.map((r) => `  ${r.bundleId}@${r.version} (${r.tool}) into target "${r.target}"`),
+      ...d.needsReinstall.map((n) => `Needs reinstall: ${n.bundleId}@${n.version} (tool unknown)`),
+      ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`)
+    ].join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records })
+  });
+  return 0;
+}
+
+/**
  * Reinstall every recorded entry at its recorded version with its mapped target, and record it again.
  * @param run Replay inputs.
  * @returns Exit code.
@@ -1340,6 +1371,15 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     needsReinstall: plan.needsReinstall.map((row) => ({ bundleId: row.bundleId, version: row.version })),
     failures: []
   };
+  // Every mapped target is checked against --allow-target before anything is fetched or written.
+  for (const item of plan.items) {
+    checkAllowTarget(resolveEffectiveTarget(ctx, item.target).name, opts);
+  }
+  if (opts.dryRun === true) {
+    return reportRecordReplayDryRun(ctx, fmt, data, plan.items.map((item) => ({
+      bundleId: item.bundleId, tool: item.tool, version: item.entry.version, target: resolveEffectiveTarget(ctx, item.target).name
+    })));
+  }
   const changes: RecordInstallResult[] = [];
 
   for (const item of plan.items) {
@@ -1365,7 +1405,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
       const { result } = await writeBundleSafely(writerFactory(target), target, files, manifest);
       written = [...result.written];
       changes.push(await recordPlannedInstall(
-        service, { ...item, sourceId: entry.sourceId, source, sourceType: entry.sourceType }, target, ctx, manifest.version, written, false
+        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type }, target, ctx, manifest.version, written, false
       ));
       await updateTargetState(ctx, target.name, bundleId, manifest.version);
       data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
