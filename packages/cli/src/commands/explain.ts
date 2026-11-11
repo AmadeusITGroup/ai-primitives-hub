@@ -186,6 +186,11 @@ const CATALOG: Record<string, CatalogEntry> = {
       + '(ai-primitives-hub.lock.json or ai-primitives-hub.local.lock.json). Nothing was removed.',
     remediation: 'Check the bundle id and the target with `ai-primitives-hub list`, then run the uninstall again.'
   },
+  'RECORD.HUB_CONFLICT': {
+    summary: 'An install recorded a source through a hub, but the install record already has that source from another hub. '
+      + 'A source belongs to one hub, so every bundle traces to exactly one hub. Nothing was recorded.',
+    remediation: 'Install the bundle through the hub already recorded, or uninstall the source\'s bundles first and install them again.'
+  },
   'USAGE.MISSING_FLAG': {
     summary: 'A required CLI flag or argument was not provided.',
     remediation: 'Re-run with --help on the subcommand to see the required flags.'

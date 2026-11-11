@@ -17,7 +17,8 @@ export const RECORD_ERROR_CODES = [
   'RECORD.UNKNOWN_TOOL',
   'RECORD.WRITE_FAILED',
   'RECORD.CLI_MANAGED',
-  'RECORD.ENTRY_NOT_FOUND'
+  'RECORD.ENTRY_NOT_FOUND',
+  'RECORD.HUB_CONFLICT'
 ] as const;
 
 /** One of the {@link RECORD_ERROR_CODES}. */
@@ -47,7 +48,8 @@ const DEFAULT_MESSAGES: Readonly<Record<RecordErrorCode, string>> = {
   'RECORD.UNKNOWN_TOOL': 'The tool is not a known install target.',
   'RECORD.WRITE_FAILED': 'The install record could not be written; the previous file was left intact.',
   'RECORD.CLI_MANAGED': 'This bundle was installed with the ai-primitives-hub CLI.',
-  'RECORD.ENTRY_NOT_FOUND': 'The install record has no entry for this bundle and tool; nothing was removed.'
+  'RECORD.ENTRY_NOT_FOUND': 'The install record has no entry for this bundle and tool; nothing was removed.',
+  'RECORD.HUB_CONFLICT': 'The source is already recorded from another hub; nothing was recorded.'
 };
 
 const DEFAULT_HINTS: Readonly<Record<RecordErrorCode, string>> = {
@@ -58,7 +60,8 @@ const DEFAULT_HINTS: Readonly<Record<RecordErrorCode, string>> = {
   'RECORD.UNKNOWN_TOOL': 'Use one of the supported target types.',
   'RECORD.WRITE_FAILED': 'Check that the folder is writable and has free space, then run the command again.',
   'RECORD.CLI_MANAGED': 'Manage this bundle with the ai-primitives-hub CLI for now.',
-  'RECORD.ENTRY_NOT_FOUND': 'Check the bundle id and target with `ai-primitives-hub list`, then run the command again.'
+  'RECORD.ENTRY_NOT_FOUND': 'Check the bundle id and target with `ai-primitives-hub list`, then run the command again.',
+  'RECORD.HUB_CONFLICT': 'A source belongs to one hub. Uninstall its bundles, or install them through the hub already recorded.'
 };
 
 /**
