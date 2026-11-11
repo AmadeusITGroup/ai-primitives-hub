@@ -287,6 +287,29 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.ok(showInfo.calledOnce && message.includes('kiro (1.0.0)') && message.includes('out of date'), message);
   });
 
+  test('move to user installs the version the host tool has, not another tool\'s newer entry', async () => {
+    await install(V1);
+    await recordOtherTool('kiro', [HELLO]);
+    const record = readRecord();
+    Object.assign(record.bundles[BUNDLE_ID].tools.kiro, { version: '1.1.0', installedAt: '2099-01-01T00:00:00.000Z' });
+    fs.writeFileSync(abs(RECORD_FILE), JSON.stringify(record));
+    showWarning.resolves('Move');
+    const installBundle = sandbox.stub(manager, 'installBundle').resolves(undefined as any);
+    sandbox.stub(manager, 'uninstallBundle').resolves();
+    const resolver = sandbox.createStubInstance(ScopeConflictResolver);
+    resolver.migrateBundle.callsFake(async (bundleId, fromScope, toScope, uninstall, reinstall) => {
+      await uninstall({} as InstalledBundle);
+      await reinstall({} as InstalledBundle, toScope);
+      return { success: true, bundleId, fromScope, toScope };
+    });
+    const repositoryScopeService = installer.createRepositoryScopeService();
+    assert.ok(repositoryScopeService);
+
+    await new BundleScopeCommands(manager, resolver, repositoryScopeService).moveToUser(BUNDLE_ID);
+
+    assert.deepStrictEqual(installBundle.firstCall?.args[1], { scope: 'user', version: '1.0.0' });
+  });
+
   test('commit-mode switch moves the entry unchanged to the local-only file and excludes only paths no committed entry lists', async () => {
     await install(V1);
     await recordOtherTool('copilot-cli', [HELLO]);
