@@ -7,6 +7,7 @@ import {
   Bundle,
 } from '../../src/types/registry';
 import {
+  contentBreakdownFromKindCounts,
   filterBundlesBySearch,
   filterBundlesBySource,
   filterBundlesByTags,
@@ -115,6 +116,20 @@ suite('filterUtils', () => {
       assert.deepStrictEqual(
         filterBundlesByTags([a, b], ['x', 'y'], 'all').map((x) => x.id),
         ['a']
+      );
+    });
+  });
+  suite('contentBreakdownFromKindCounts', () => {
+    test('maps kind counts to breakdown fields and ignores kinds without a field', () => {
+      assert.deepStrictEqual(
+        contentBreakdownFromKindCounts({ plugin: 1, prompt: 1, hook: 3 }, 2),
+        { prompts: 1, instructions: 0, chatmodes: 0, agents: 0, skills: 0, plugins: 1, mcpServers: 2 }
+      );
+    });
+    test('maps every breakdown kind', () => {
+      assert.deepStrictEqual(
+        contentBreakdownFromKindCounts({ instruction: 2, 'chat-mode': 3, agent: 4, skill: 5 }, 0),
+        { prompts: 0, instructions: 2, chatmodes: 3, agents: 4, skills: 5, plugins: 0, mcpServers: 0 }
       );
     });
   });
