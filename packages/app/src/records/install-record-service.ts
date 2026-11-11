@@ -751,6 +751,17 @@ export class InstallRecordService {
       installedAt: this.now().toISOString(),
       files: written
     });
+    // A source belongs to one hub: one already recorded from another hub is refused before anything is saved.
+    for (const file of other === undefined ? [target] : [target, other]) {
+      const recorded = Object.hasOwn(file.record.sources, input.source.sourceId) ? file.record.sources[input.source.sourceId].hubId : undefined;
+      if (typeof recorded === 'string' && typeof source.hubId === 'string' && recorded !== source.hubId) {
+        throw recordError('RECORD.HUB_CONFLICT', {
+          file: path.basename(file.location.path),
+          detail: `source ${JSON.stringify(input.source.sourceId)} is recorded from hub ${JSON.stringify(recorded)}, not ${JSON.stringify(source.hubId)}`,
+          context: { sourceId: input.source.sourceId, recordedHubId: recorded, hubId: source.hubId }
+        });
+      }
+    }
     target.record.sources[input.source.sourceId] = source;
     const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
     attachHub(target.record, source, hub, other?.record);

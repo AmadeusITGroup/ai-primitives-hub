@@ -438,6 +438,25 @@ describe('repository install record', () => {
       id: 'acme-github', name: 'Acme', type: 'github', url: 'https://github.com/acme/tools', enabled: true, priority: 0, hubId
     });
 
+    it('refuses the same source through a second hub with RECORD.HUB_CONFLICT and changes nothing', async () => {
+      await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
+      const before = fs.readFileSync(committed.path, 'utf8');
+      const other: RecordHubInput = { ...HUB, id: 'other-hub', location: 'other/hub' };
+
+      await expectCode(installFromHub('kiro', ['.kiro/steering/a.md'], { source: { ...hubSource, hubId: other.id }, hub: other }), 'RECORD.HUB_CONFLICT');
+
+      expect(fs.readFileSync(committed.path, 'utf8')).toBe(before);
+    });
+
+    it('records the same source with no hub next to a hub install, keeping its hub', async () => {
+      await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
+      const { hubId: _hubId, ...withoutHub } = hubSource;
+
+      await install('kiro', ['.kiro/steering/a.md'], { source: withoutHub });
+
+      expect(toolsIn(committed)).toEqual(['kiro', 'vscode']);
+    });
+
     it('records the source hubId and the hub import reference', async () => {
       await install('vscode', ['.github/prompts/a.prompt.md'], { source: toRecordSource(configured(HUB.id), 'acme-github', HUB), hub: HUB });
 
