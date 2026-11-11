@@ -1067,8 +1067,8 @@ profiles: []
 
       const result = await run(['update', '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
 
-      expect(result.exitCode, result.stdout).toBe(0);
-      expect(parseJson<{ level: string }>(result.stdout).data).toMatchObject({ level: 'user' });
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]?.message).toContain('nothing is installed at the user level');
       expect(await readFile(oldUserLockfile(), 'utf8')).toBe(before);
     });
   });
