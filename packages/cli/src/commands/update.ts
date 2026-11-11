@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import {
   checksumFiles,
   FileTreeTargetWriter,
+  githubRepoSlugForSource,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
@@ -52,6 +53,7 @@ import type {
   ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
+  isRecordError,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -696,7 +698,8 @@ async function applyUpdate(
 async function downloadCandidate(
   candidate: UpdateCandidate,
   http: HttpClient,
-  tokens: TokenProvider
+  tokens: TokenProvider,
+  expect?: { bundleId: string; source: LockfileSourceEntry }
 ): Promise<{ dl: { bytes: Uint8Array; sha256: string }; files: ExtractedFiles; manifest: ValidatedManifest }> {
   const downloader = candidate.source.type === 'artifactory' && candidate.artifactoryClient !== undefined
     ? new ArtifactoryBundleDownloader(candidate.artifactoryClient)
@@ -711,7 +714,14 @@ async function downloadCandidate(
   const dl = await downloader.download(candidate.installable);
   const files = await extractor.extract(dl.bytes);
   const isArtifactory = candidate.source.type === 'artifactory';
-  const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
+  // A record update checks the archive is the recorded bundle at the candidate version, as replay does.
+  const manifest = validateManifest(files, expect === undefined
+    ? { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined }
+    : {
+      expectedId: isArtifactory ? undefined : expect.bundleId,
+      expectedVersion: candidate.installable.ref.bundleVersion,
+      sourceRepoSlug: githubRepoSlugForSource(expect.source)
+    });
   return { dl, files, manifest };
 }
 
@@ -861,7 +871,13 @@ async function planRecordUpdates(
       target: resolveEffectiveTarget(ctx, item.target),
       fromRecord: item.fromRecordOnly
     })),
-    skipped: plan.skipped,
+    skipped: [
+      ...plan.skipped,
+      // An entry whose tool is unknown cannot be updated in place.
+      ...plan.needsReinstall.map((row) => ({
+        bundleId: row.bundleId, tool: row.tool, reason: `needs reinstall (tool unknown, still ${row.version}): install it for a tool`
+      }))
+    ],
     notes: plan.notes,
     mapTool: plan.mapTool
   };
@@ -880,11 +896,19 @@ async function applyRecordUpdate(
   item: RecordPlanItem,
   candidate: UpdateCandidate,
   siblingTargets: ReadonlyMap<string, Target>
-): Promise<{ version: string; changes: RecordInstallResult[]; synced: string[]; outOfDate: { tool: string; version: string }[] }> {
+): Promise<{
+  version: string;
+  changes: RecordInstallResult[];
+  synced: string[];
+  outOfDate: { tool: string; version: string }[];
+  failed: { tool: string; reason: string }[];
+}> {
   const { ctx, http, prepared } = run;
-  const { files, manifest } = await downloadCandidate(candidate, http, tokensForRecordSource(run.tokens, item.fromRecord));
   // A versioned id moves to the new version's key; the record then drops the old one.
-  const bundleId = recordKeyForVersion(item.bundleId, item.entry.version, manifest.version);
+  const bundleId = recordKeyForVersion(item.bundleId, item.entry.version, candidate.to);
+  const { files, manifest } = await downloadCandidate(
+    candidate, http, tokensForRecordSource(run.tokens, item.fromRecord), { bundleId, source: item.source }
+  );
   const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
     recordPlannedInstall(
       prepared.service, { ...item, bundleId, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
@@ -894,17 +918,26 @@ async function applyRecordUpdate(
   const changes = [change];
   const synced: string[] = [];
   const outOfDate: { tool: string; version: string }[] = [];
+  const failed: { tool: string; reason: string }[] = [];
   for (const sibling of change.siblings) {
     const siblingTarget = siblingTargets.get(sibling.tool);
     if (!sibling.synced || siblingTarget === undefined) {
       outOfDate.push({ tool: sibling.tool, version: sibling.version });
       continue;
     }
-    changes.push(await record(sibling.tool, sibling.location, siblingTarget, false));
-    synced.push(sibling.tool);
+    // A failed sibling is reported; the changes already made are still finished by the caller.
+    try {
+      changes.push(await record(sibling.tool, sibling.location, siblingTarget, false));
+      synced.push(sibling.tool);
+    } catch (error) {
+      if (isRecordError(error)) {
+        throw error;
+      }
+      failed.push({ tool: sibling.tool, reason: error instanceof Error ? error.message : String(error) });
+    }
   }
   await saveTargetState(ctx, item.target, bundleId, manifest.version);
-  return { version: manifest.version, changes, synced, outOfDate };
+  return { version: manifest.version, changes, synced, outOfDate, failed };
 }
 
 function renderRecordUpdateOutput(d: RecordUpdateData & { recordLine: string }): string {
@@ -951,6 +984,10 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
     const lookup = await findUpdateCandidates([item.bundleId], lookupLockfile(item), ctx, http, tokensForRecordSource(run.tokens, item.fromRecord), item.fromRecord);
     failures.push(...lookup.failures);
     found.push(...lookup.candidates.map((candidate) => ({ item, candidate })));
+    // A lookup that found no installable release is reported, not taken as up to date.
+    if (lookup.skipped.includes(item.bundleId) && lookup.failures.length === 0) {
+      skipped.push({ bundleId: item.bundleId, tool: item.tool, reason: `no installable release found at ${item.source.url}` });
+    }
   }
 
   const data: RecordUpdateData = {
@@ -993,6 +1030,9 @@ async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
         for (const tool of applied.synced) {
           done.add(entryKey(item.bundleId, item.entry.version, tool));
           data.alsoUpdated.push({ bundleId: item.bundleId, tool });
+        }
+        for (const sibling of applied.failed) {
+          failures.push(`Failed to update ${item.bundleId} for ${sibling.tool}: ${sibling.reason}`);
         }
         for (const stale of applied.outOfDate) {
           const mapping = await mapTool(stale.tool);

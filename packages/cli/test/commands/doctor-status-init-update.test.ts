@@ -506,6 +506,9 @@ profiles: []
       fetch: async (request) => {
         requests.push(request);
         const release = /^https:\/\/api\.github\.com\/repos\/acme-org\/([^/]+)\/releases$/.exec(request.url)?.[1];
+        if (release === 'no-release') {
+          return json(request, []);
+        }
         if (release !== undefined && releaseZips.has(release)) {
           return json(request, [{ tag_name: `${release}-v2.0.0`, assets: [{ name: 'bundle.zip', url: `https://api.github.com/assets/${release}` }] }]);
         }
@@ -793,6 +796,43 @@ profiles: []
       expect(status).toBe('warning');
       expect(data.updates).toEqual([]);
       expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode', reason: 'local source outside the repository' }]);
+    });
+
+    it('reports an entry whose tool is unknown as needing a reinstall', async () => {
+      await installAt100([['repo-vscode', 'vscode']], GITHUB_SOURCE);
+      const record = await readRecordJson();
+      record.bundles['legacy-bar'] = { tools: { unknown: { ...record.bundles['local-foo'].tools.vscode, version: '0.5.0' } } };
+      await writeRecord(workspace, record);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.skipped).toEqual([{ bundleId: 'legacy-bar', tool: 'unknown', reason: expect.stringContaining('needs reinstall') }]);
+      expect(data.updates.map((u) => u.tool)).toEqual(['vscode']);
+    });
+
+    it('reports a bundle whose source has no installable release, not as up to date', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'github', url: 'https://github.com/acme-org/no-release' });
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      const { status, data } = parseJson<UpdateData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.skipped).toEqual([{ bundleId: 'local-foo', tool: 'vscode', reason: expect.stringContaining('no installable release') }]);
+      expect(await versions()).toEqual({ vscode: '1.0.0' });
+    });
+
+    it('refuses a release archive of another bundle and leaves the record unchanged', async () => {
+      await installAt100([['repo-vscode', 'vscode']], { type: 'github', url: 'https://github.com/acme-org/other-bar' });
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('does not match expected');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await readFile(promptFile('hello.prompt.md'), 'utf8')).toBe('# Hello 1.0.0\n');
     });
 
     it('keeps a file one bundle\'s update drops when another bundle\'s update in the same run starts writing it', async () => {
