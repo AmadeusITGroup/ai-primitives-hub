@@ -181,6 +181,14 @@ describe('record plan and services', () => {
       expect(result.notes).toEqual(['several vscode targets match; using vscode-a']);
     });
 
+    it('writes a mapped target in the commit mode of the file that holds the entry', async () => {
+      writeRecord(localOnly, [{ bundleId: 'b1', tool: 'vscode' }], { acme });
+
+      const result = await plan({ targets: [target('vscode-main', 'vscode')] });
+
+      expect(result.items.map((item) => item.target.commitMode)).toEqual(['local-only']);
+    });
+
     it('maps a sibling tool on demand', async () => {
       writeRecord(committed, [{ bundleId: 'b1', tool: 'vscode' }], { acme });
 

@@ -491,6 +491,12 @@ describe('repository install record', () => {
         .toEqual({ level: expected.level, reason: expected.reason, inferred: false, files: expected.files() });
     });
 
+    it('--lockfile also checks the other record file, which an install of the selected one loads', async () => {
+      fs.writeFileSync(localOnly.path, '{ "version": "3.0.0", ');
+
+      await expectCode(select({ lockfile: committed.path }), 'RECORD.MALFORMED');
+    });
+
     it.each([
       ['a new record file is at the git root', (): void => {
         writeRecord(committed, ['.github/prompts/a.prompt.md']);
