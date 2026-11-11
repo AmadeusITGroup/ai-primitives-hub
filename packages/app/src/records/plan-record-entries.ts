@@ -146,7 +146,12 @@ export const planRecordEntries = async (options: PlanRecordEntriesOptions): Prom
       location,
       entry,
       source: decision.use,
-      target: mapping.target,
+      // A mapped target writes in the holding file's commit mode, so new files of a local-only
+      // entry stay excluded; a --target keeps its own, which a --commit-mode can set.
+      target: mapping.target === explicit || location.commitMode === undefined
+        || (mapping.target.commitMode ?? 'commit') === location.commitMode
+        ? mapping.target
+        : { ...mapping.target, commitMode: location.commitMode },
       fromRecordOnly: !configured.has(entry.sourceId)
     });
   }

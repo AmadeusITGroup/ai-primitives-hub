@@ -129,7 +129,10 @@ const lockfileSelection = async (options: SelectRecordOptions, lockfile: string)
   if (location === undefined) {
     return { level: 'repository', root, locations: [], oldLockfile: absolute, inferred: false, reason: 'lockfile-flag' };
   }
-  await options.store.load(location);
+  // Both files are checked, as an install of the selected file also loads its counterpart.
+  for (const candidate of repositoryLocations(root)) {
+    await options.store.load(candidate);
+  }
   return { level: 'repository', root, locations: [location], inferred: false, reason: 'lockfile-flag' };
 };
 
