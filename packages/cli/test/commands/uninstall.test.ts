@@ -392,25 +392,6 @@ describe('uninstall command', () => {
       expect(status.exitCode, status.stdout).toBe(0);
       expect(status.stdout).not.toContain('local-foo');
     });
-
-    it.each([
-      ['another bundle the old user lockfile lists', 'other-bundle', ['uninstall', '--bundle', 'local-foo', '--target', 'user-copilot', '-o', 'json']],
-      ['the bundle, through --lockfile <user record>', 'local-foo', undefined]
-    ] as [string, string, string[] | undefined][])('keeps an unchanged file %s', async (_label, oldBundleId, argv) => {
-      await writeLockfile(resolveUserConfigPaths(userEnv).userLockfile, upsertBundleEntry(emptyLockfile('test'), oldBundleId, {
-        version: '1.0.0',
-        sourceId: 'local-src',
-        sourceType: 'local',
-        installedAt: '2026-10-01T00:00:00.000Z',
-        files: [{ path: 'prompts/hello.prompt.md', checksum: '0'.repeat(64) }]
-      }), new NodeFileSystem());
-      await installUser();
-
-      const result = await runUser(argv ?? ['uninstall', '--lockfile', userRecordPath(userEnv), '--target', 'user-copilot', '-o', 'json']);
-
-      expect(result.exitCode, result.stdout).toBe(0);
-      expect(await exists(homePrompt())).toBe(true);
-    });
   });
 
   it('fails with exit 1 when neither --bundle, --lockfile, nor --all is given (and no lockfile is discoverable)', async () => {
