@@ -15,7 +15,7 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   defaultLayouts,
-} from '@ai-primitives-hub/infra';
+} from '@ai-primitives-hub/infra/default-layouts';
 
 /** Every `kindRoutes` key of the built-in layouts (values are unused). */
 const BUILT_IN_ROUTES: KindRoutes = Object.fromEntries(

@@ -39,6 +39,7 @@ export * from './hub/types';
 export * from './hub/validate';
 export * from './hub/diagnostics';
 export * from './hub/replicate';
+export * from './governance';
 export * from './hub/profile-requirements';
 export * from './primitive/types';
 export * from './skill/validate';

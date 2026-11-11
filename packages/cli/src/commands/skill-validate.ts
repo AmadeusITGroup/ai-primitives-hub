@@ -63,14 +63,14 @@ export class SkillValidateCommand extends Command {
     `
   });
 
-  public output = Option.String('-o', '--output') as OutputFormat | undefined;
+  public output = Option.String('-o,--output');
   public skillsDir = Option.String('--skills-dir');
   public verbose = Option.Boolean('--verbose', false);
   public commandContext!: { ctx: Context };
 
   public execute(): Promise<number> {
     const { ctx } = this.commandContext;
-    const fmt = this.output ?? 'text';
+    const fmt = (this.output ?? 'text') as OutputFormat;
     const cwd = ctx.cwd();
     const result = validateAllSkills(cwd, this.skillsDir ?? 'skills');
     formatOutput({

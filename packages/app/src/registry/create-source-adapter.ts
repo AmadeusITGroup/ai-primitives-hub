@@ -46,6 +46,7 @@ import {
   CompositeTokenProvider,
   GitHubAdapter,
   GitHubApiClient,
+  type GitHubClientEvent,
   LocalAdapter,
   LocalApmAdapter,
   LocalAwesomeCopilotAdapter,
@@ -71,6 +72,8 @@ export interface SourceAdapterFactoryDeps {
   artifactoryCredentialFactory?: (source: RegistrySource) => HttpCredentialProvider;
   /** Optional preflight authentication decisions, keyed by source id. */
   sourceAuthentication?: ReadonlyMap<string, SourceAuthenticationContext>;
+  /** Optional request/retry diagnostics; callers must redact raw event URLs. */
+  onGitHubEvent?: (sourceId: string, event: GitHubClientEvent) => void;
 }
 
 export interface SourceAuthenticationContext {
@@ -80,7 +83,12 @@ export interface SourceAuthenticationContext {
   tokenProvider?: TokenProvider;
 }
 
-function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
+/**
+ * Resolve source-aware authentication before falling back to the delivery token chain.
+ * @param source
+ * @param deps
+ */
+export function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
   const authentication = deps.sourceAuthentication?.get(source.id);
   if (authentication !== undefined) {
     if (authentication.category === 'unresolved') {
@@ -135,6 +143,15 @@ function resolveSourceRepositoryTarget(source: RegistrySource): GitHubRepository
   }
 }
 
+/**
+ * Share source-aware API and token routing with governance release verification.
+ * @param source
+ * @param deps
+ */
+export function createSourceGitHubApi(source: RegistrySource, deps: SourceAdapterFactoryDeps): GitHubApi {
+  return buildGitHubApi(source, buildSourceTokenProvider(source, deps), deps, deps.sourceAuthentication?.get(source.id));
+}
+
 function buildGitHubApi(
   source: RegistrySource,
   tokenProvider: TokenProvider,
@@ -153,7 +170,8 @@ function buildGitHubApi(
   return new GitHubApiClient(deps.httpClient, {
     tokenProvider,
     repositoryTarget,
-    authenticationCategory: authentication?.category
+    authenticationCategory: authentication?.category,
+    onEvent: deps.onGitHubEvent === undefined ? undefined : (event) => deps.onGitHubEvent?.(source.id, event)
   });
 }
 
