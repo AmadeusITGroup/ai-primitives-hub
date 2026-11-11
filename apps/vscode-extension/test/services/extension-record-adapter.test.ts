@@ -251,6 +251,21 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     });
   });
 
+  test('update in place does not bring back a skill file the new version dropped', async () => {
+    const skill = (version: string, files: Record<string, string>): BundleVersion => ({
+      version, files, items: [{ id: 'demo', file: 'skills/demo/SKILL.md', type: 'skill' }]
+    });
+    const withScript = skill('1.0.0', { 'skills/demo/SKILL.md': '---\nname: demo\ndescription: Demo\n---\n', 'skills/demo/scripts/run.sh': 'echo 1\n' });
+    await install(withScript);
+    const script = (toolsOf().vscode?.files ?? []).map((file: { path: string }) => file.path).find((file: string) => file.endsWith('run.sh'));
+    assert.ok(script !== undefined && fs.existsSync(abs(script)), 'the script is installed');
+
+    await update(skill('1.1.0', { 'skills/demo/SKILL.md': '---\nname: demo\ndescription: Demo 1.1\n---\n' }));
+
+    assert.ok(!fs.existsSync(abs(script)), 'the dropped script is not written again');
+    assert.ok(!(toolsOf().vscode?.files ?? []).some((file: { path: string }) => file.path === script), 'nor recorded');
+  });
+
   test('update in place moves a copilot-cli sibling to the new version and deletes its dropped file; a kiro sibling is reported out of date', async () => {
     await install(V1);
     await recordOtherTool('copilot-cli', [HELLO, STYLE]);
