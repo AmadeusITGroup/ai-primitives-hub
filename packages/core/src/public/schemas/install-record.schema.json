@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json",
   "title": "AI Primitives Hub install record",
-  "description": "Schema for ai-primitives-hub.lock.json and ai-primitives-hub.local.lock.json (format 3.0.0). Bundles are keyed by bundle id, then by tool. Unknown fields are allowed and kept by readers.",
+  "description": "Schema for ai-primitives-hub.lock.json and ai-primitives-hub.local.lock.json (format 3.0.0). Bundles are keyed by bundle id, then by tool (harness). Unknown fields are allowed and kept by readers.",
   "type": "object",
   "required": [
     "$schema",
@@ -98,6 +98,11 @@
           "additionalProperties": {
             "$ref": "#/definitions/entry"
           }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Collection, manifest or index id of the bundle, without a version"
         }
       }
     },
@@ -138,6 +143,35 @@
           "items": {
             "$ref": "#/definitions/file"
           }
+        },
+        "installationId": {
+          "type": "string",
+          "description": "Stable id of this install",
+          "pattern": "^inst-[0-9a-f]{8,64}$"
+        },
+        "integrity": {
+          "type": "string",
+          "description": "sha256: of the downloaded bundle content: each bundle path with its file's sha256, sorted",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Folder the tool writes to when it is not the level root, '~'-relative; file paths are relative to it"
+        },
+        "plugins": {
+          "type": "array",
+          "description": "Agent Plugins the entry installed; their files are also in files",
+          "items": {
+            "$ref": "#/definitions/plugin"
+          }
+        },
+        "mcpServers": {
+          "type": "array",
+          "description": "MCP servers the entry owns; their definitions stay in the tool's MCP file",
+          "items": {
+            "$ref": "#/definitions/mcpServer"
+          }
         }
       }
     },
@@ -163,6 +197,16 @@
           "type": "string",
           "description": "sha256: followed by the lowercase hex SHA-256 of the bytes on disk",
           "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path of the file inside the bundle"
+        },
+        "mode": {
+          "type": "string",
+          "description": "File mode, only when not the default",
+          "pattern": "^0[0-7]{3}$"
         }
       }
     },
@@ -227,6 +271,71 @@
         },
         "configFile": {
           "type": "string"
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "description": "One Agent Plugin (a plugin.json folder)",
+      "required": [
+        "name",
+        "root"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string"
+        },
+        "manifestDigest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mcpServers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mcpServer": {
+      "type": "object",
+      "description": "One MCP server the entry owns; ${env:VAR} stays unresolved and no secret is stored",
+      "required": [
+        "config",
+        "name"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "config": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The tool's MCP file, relative to the level root"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "item": {
+          "type": "string"
+        },
+        "checksum": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       }
     }

@@ -45,6 +45,49 @@ describe('RecordSchemaValidator', () => {
     expect(isRecordError(thrown, 'RECORD.MALFORMED')).toBe(true);
     expect((thrown as { context?: Record<string, unknown> }).context?.file).toBe('ai-primitives-hub.lock.json');
   });
+
+  const recordWith = (entry: Record<string, unknown>, file: Record<string, unknown> = {}): unknown => parseRecord(JSON.stringify({
+    $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
+    version: '3.0.0',
+    level: 'user',
+    generatedAt: '2026-10-25T15:00:00Z',
+    generatedBy: 'ai-primitives-hub-cli@0.3.0',
+    bundles: {
+      'acme-tools': {
+        name: 'acme-tools',
+        tools: {
+          kiro: {
+            version: '1.0.0', sourceId: 'acme', sourceType: 'github', installedAt: '2026-10-25T15:00:00Z',
+            files: [{ path: 'steering/a.md', checksum: `sha256:${'a'.repeat(64)}`, ...file }],
+            ...entry
+          }
+        }
+      }
+    },
+    sources: { acme: { type: 'github', url: 'https://github.com/acme/tools' } }
+  }));
+
+  it('accepts the entry fields of the finalized lockfile: installationId, integrity, root, sourcePath, mode, plugins and MCP servers', () => {
+    const parsed = recordWith({
+      installationId: 'inst-3c9e1f0a',
+      integrity: `sha256:${'b'.repeat(64)}`,
+      root: '~/.kiro',
+      plugins: [{ name: 'inspector', version: '0.4.0', manifestDigest: `sha256:${'c'.repeat(64)}`, root: 'plugins/inspector', skills: [], mcpServers: ['inspector'] }],
+      mcpServers: [{ config: 'settings/mcp.json', name: 'inspector', item: 'inspector', checksum: `sha256:${'d'.repeat(64)}` }]
+    }, { sourcePath: 'instructions/a.instructions.md', mode: '0755' });
+
+    expect(() => new RecordSchemaValidator().validate(parsed, 'ai-primitives-hub.user.lock.json')).not.toThrow();
+  });
+
+  it.each([
+    ['an integrity that is not sha256', { integrity: 'md5:abc' }, {}],
+    ['an installationId of another form', { installationId: 'rcpt-1' }, {}],
+    ['a file mode that is not octal', {}, { mode: 'rwx' }],
+    ['an MCP server without its config file', { mcpServers: [{ name: 'inspector' }] }, {}]
+  ])('refuses %s with RECORD.MALFORMED', (_label, entry, file) => {
+    expect(() => new RecordSchemaValidator().validate(recordWith(entry, file), 'ai-primitives-hub.user.lock.json'))
+      .toThrow(expect.objectContaining({ code: 'RECORD.MALFORMED' }));
+  });
 });
 
 describe('NodeRecordFs.readCapped', () => {
