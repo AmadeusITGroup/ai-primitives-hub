@@ -7,8 +7,9 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type {
-  RecordSourceInput,
+import {
+  recordSourceIdOf,
+  type RecordSourceInput,
 } from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
@@ -59,6 +60,8 @@ suite('RepositoryActivationService', () => {
     hubs: { 'old-hub': { name: 'Old Hub', url: 'https://example.com/hub.yml' } }
   });
 
+  const idOf = (type: string, url: string): string => recordSourceIdOf({ type, url });
+
   const createService = (setupStateManager?: SetupStateManager): RepositoryActivationService =>
     new RepositoryActivationService(adapter, hubManager, storage, root, undefined, setupStateManager);
 
@@ -100,7 +103,10 @@ suite('RepositoryActivationService', () => {
     const recorded = await createService().readRepositorySources();
 
     assert.ok(recorded);
-    assert.deepStrictEqual(Object.keys(recorded.sources).toSorted(), ['acme-github', 'inside-local', 'local-only-src', 'old-src']);
+    // The record names its sources by readable id; the old lockfile by configured id.
+    assert.deepStrictEqual(Object.keys(recorded.sources).toSorted(), [
+      'old-src', idOf('github', 'https://github.com/acme/private'), idOf('github', 'https://github.com/acme/tools'), idOf('local', 'bundles/inside')
+    ].toSorted());
     assert.deepStrictEqual(Object.keys(recorded.hubs ?? {}), ['old-hub']);
   });
 
@@ -114,8 +120,8 @@ suite('RepositoryActivationService', () => {
     const recorded = await createService().readRepositorySources();
 
     assert.ok(recorded);
-    assert.ok(!Object.hasOwn(recorded.sources, 'link-local'));
-    assert.ok(Object.hasOwn(recorded.sources, 'inside-local'));
+    assert.ok(!Object.hasOwn(recorded.sources, idOf('local', 'bundles/link')));
+    assert.ok(Object.hasOwn(recorded.sources, idOf('local', 'bundles/inside')));
   });
 
   test('lists the unconfigured sources and hubs with credentialRef by name, and changes no config or record', async () => {
@@ -126,7 +132,10 @@ suite('RepositoryActivationService', () => {
 
     assert.strictEqual(showInfo.callCount, 1);
     const message = String(showInfo.firstCall.args[0]);
-    assert.ok(message.startsWith('4 sources and hubs from the install records are not configured: acme-github, local-only-src, old-src, old-hub.'), message);
+    const listed = [idOf('github', 'https://github.com/acme/tools'), idOf('github', 'https://github.com/acme/private'), 'old-src', 'old-hub'];
+    assert.ok(message.startsWith('4 sources and hubs from the install records are not configured: '), message);
+    assert.ok(listed.every((id) => message.includes(id)), message);
+    assert.ok(!message.includes('bundles/inside'), 'a configured source is not listed');
     assert.ok(message.includes('acme-github-token'), message);
     assert.strictEqual(showInfo.firstCall.args.length, 1, 'no action that does nothing');
     for (const write of ['addSource', 'updateSource', 'removeSource', 'saveConfig'] as const) {

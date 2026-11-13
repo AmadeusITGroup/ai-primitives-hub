@@ -27,6 +27,9 @@ import {
   generateTestId,
 } from '../helpers/e2e-test-helpers';
 import {
+  readRecordView,
+} from '../helpers/install-record-test-helpers';
+import {
   cleanupReleaseMocks,
   computeBundleId,
   createMockGitHubSource,
@@ -265,7 +268,7 @@ jobs:
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
 
       // Get the actual bundle ID from the lockfile
-      const lockfileBefore = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfileBefore = readRecordView(lockfilePath);
       const actualBundleId = Object.keys(lockfileBefore.bundles)[0];
 
       // Uninstall the bundle (this is the last bundle)
@@ -324,7 +327,7 @@ updates:
 
       // Get bundle ID and uninstall
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfile = readRecordView(lockfilePath);
       const actualBundleId = Object.keys(lockfile.bundles)[0];
 
       await testContext.registryManager.uninstallBundle(actualBundleId, 'repository');
@@ -364,7 +367,7 @@ updates:
 
       // Get bundle ID and uninstall
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfile = readRecordView(lockfilePath);
       const actualBundleId = Object.keys(lockfile.bundles)[0];
 
       await testContext.registryManager.uninstallBundle(actualBundleId, 'repository');
@@ -410,7 +413,7 @@ Do something custom.
 
       // Get bundle ID and uninstall
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfile = readRecordView(lockfilePath);
       const actualBundleId = Object.keys(lockfile.bundles)[0];
 
       await testContext.registryManager.uninstallBundle(actualBundleId, 'repository');

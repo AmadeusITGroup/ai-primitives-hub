@@ -38,6 +38,10 @@ import {
   readRecordText,
 } from './read-record-text';
 import {
+  fromRecordFile,
+  toRecordFile,
+} from './record-file-shape';
+import {
   serializeRecord,
 } from './serialize-record';
 
@@ -159,7 +163,7 @@ export class RecordStore {
 
   private async readAndCheck(location: RecordLocation, readPath: string, file: string): Promise<InstallRecord> {
     const text = await readRecordText(this.fs, readPath, file, LARGE_RECORD_HINT);
-    const record = this.validator.validate(parseRecord(text, file), file);
+    const record = fromRecordFile(this.validator.validate(parseRecord(text, file), file));
     await this.checkPaths(location, record, file);
     this.checkSourceIds(record, file);
     return record;
@@ -304,8 +308,9 @@ export class RecordStore {
       throw recordError('RECORD.MALFORMED', { file, detail: 'the record was not loaded successfully, so it is not overwritten' });
     }
     const stamped = this.stamp(location, record);
-    this.validator.validate(stamped, file);
-    const text = serializeRecord(stamped);
+    const stored = toRecordFile(stamped);
+    this.validator.validate(stored, file);
+    const text = serializeRecord(stored);
     const warnings: string[] = [];
     // Exclude a local-only file before it exists, so it is never on disk unexcluded.
     if (location.level === 'repository' && location.commitMode === 'local-only') {

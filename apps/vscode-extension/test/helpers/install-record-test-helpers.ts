@@ -6,6 +6,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   emptyLockfile,
+  fromRecordFile,
   getLockfilePathForMode,
   type Lockfile,
   type LockfileFs,
@@ -391,4 +392,21 @@ export const snapshotTree = (root: string): Map<string, string> => {
   };
   walk(root);
   return snapshot;
+};
+
+/**
+ * Read a record (or older lockfile) file as the services see it: bundles keyed
+ * by bundle id, each entry with its `sourceId`. Other files pass through.
+ * @param file - Absolute path.
+ */
+export const readRecordView = (file: string): any => structuredClone(fromRecordFile(JSON.parse(fs.readFileSync(file, 'utf8'))));
+
+/**
+ * Record `integrity` of bundle files: sha256 over the sorted `path\0sha256:<hex>\n` lines.
+ * @param files - Bundle path to content.
+ */
+export const integrityOf = (files: Record<string, string>): string => {
+  const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+  const lines = Object.keys(files).toSorted().map((file) => `${file}\u0000sha256:${sha(files[file])}\n`);
+  return `sha256:${sha(lines.join(''))}`;
 };

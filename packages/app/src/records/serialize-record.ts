@@ -34,6 +34,46 @@ const canonicalize = (value: unknown): unknown => {
 const filePathOf = (file: unknown): string =>
   isJsonObject(file) && typeof file.path === 'string' ? file.path : '';
 
+/** Keys written first, in this order, at each level of the record; the rest follow sorted. */
+const KEY_ORDER = {
+  top: ['$schema', 'version', 'level', 'generatedAt', 'generatedBy', 'hubs', 'sources', 'bundles'],
+  bundle: ['name', 'tools'],
+  entry: ['version', 'bundleId', 'sourceId', 'sourceType', 'installedAt', 'installationId', 'integrity', 'root', 'needsReinstall', 'files', 'plugins', 'mcpServers'],
+  file: ['path', 'checksum', 'sourcePath', 'mode']
+} as const;
+
+// Copy with the given keys first, in that order, then the others in sorted order.
+const ordered = (value: unknown, first: readonly string[]): unknown => {
+  if (!isJsonObject(value)) {
+    return value;
+  }
+  const copy = Object.create(null) as JsonObject;
+  for (const key of [...first.filter((name) => Object.hasOwn(value, name)), ...Object.keys(value).filter((other) => !first.includes(other))]) {
+    copy[key] = value[key];
+  }
+  return copy;
+};
+
+const orderRecordKeys = (record: InstallRecord): JsonObject => {
+  const top = ordered(record, KEY_ORDER.top) as JsonObject;
+  if (isJsonObject(top.bundles)) {
+    for (const [key, bundle] of Object.entries(top.bundles)) {
+      const bundleCopy = ordered(bundle, KEY_ORDER.bundle) as JsonObject;
+      if (isJsonObject(bundleCopy.tools)) {
+        for (const [tool, entry] of Object.entries(bundleCopy.tools)) {
+          const entryCopy = ordered(entry, KEY_ORDER.entry) as JsonObject;
+          if (Array.isArray(entryCopy.files)) {
+            entryCopy.files = (entryCopy.files as unknown[]).map((file) => ordered(file, KEY_ORDER.file));
+          }
+          bundleCopy.tools[tool] = entryCopy;
+        }
+      }
+      top.bundles[key] = bundleCopy;
+    }
+  }
+  return top;
+};
+
 const sortEntryFiles = (record: JsonObject): void => {
   const bundles = isJsonObject(record.bundles) ? record.bundles : undefined;
   for (const bundle of Object.values(bundles ?? {})) {
@@ -64,9 +104,10 @@ export const canonicalizeRecord = (record: InstallRecord): InstallRecord => {
 };
 
 /**
- * Serialize a record canonically: sorted keys, two-space indentation, trailing newline.
+ * Serialize a record canonically: the record's main fields first in a fixed
+ * order, the others sorted, two-space indentation, trailing newline.
  * @param record - Record to write.
  * @throws {RegistryError} `RECORD.MALFORMED` when a forbidden key appears at any depth.
  */
 export const serializeRecord = (record: InstallRecord): string =>
-  `${JSON.stringify(canonicalizeRecord(record), null, 2)}\n`;
+  `${JSON.stringify(orderRecordKeys(canonicalizeRecord(record)), null, 2)}\n`;

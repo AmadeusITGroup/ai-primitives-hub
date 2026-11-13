@@ -20,6 +20,7 @@ import {
   pathToFileURL,
 } from 'node:url';
 import {
+  recordSourceIdOf,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
@@ -68,9 +69,11 @@ import {
 import {
   createMockContext,
   initGitRoot,
+  integrityOf,
   isOnDisk,
   LOCAL_RECORD_FILE,
   overrideEnv,
+  readRecordView,
   RECORD_FILE,
   recordEntry,
   recordProfileInstall,
@@ -87,6 +90,8 @@ const OLD_LOCKFILE = 'prompt-registry.lock.json';
 const HELLO = '.github/prompts/hello.prompt.md';
 const STYLE = '.github/instructions/style.instructions.md';
 const SOURCE = { id: 'acme-github', name: 'Acme', type: 'github', url: 'https://github.com/acme/tools', enabled: true, priority: 0 };
+/** The record's id of {@link SOURCE}. */
+const SOURCE_RECORD_ID = recordSourceIdOf({ type: SOURCE.type, url: SOURCE.url });
 
 /** A bundle version: its bundle-relative files and manifest items. */
 interface BundleVersion {
@@ -151,7 +156,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
   const abs = (relative: string): string => path.join(root, ...relative.split('/'));
   const read = (relative: string): string => fs.readFileSync(abs(relative), 'utf8');
-  const readRecord = (file: string = RECORD_FILE): any => fs.existsSync(abs(file)) ? JSON.parse(read(file)) : null;
+  const readRecord = (file: string = RECORD_FILE): any => fs.existsSync(abs(file)) ? readRecordView(abs(file)) : null;
   const toolsOf = (file: string = RECORD_FILE, bundleId = BUNDLE_ID): Record<string, any> => readRecord(file)?.bundles[bundleId]?.tools ?? {};
 
   const install = (bundle: BundleVersion, options: { commitMode?: RepositoryCommitMode; sourceId?: string } = {}): Promise<InstalledBundle> =>
@@ -215,14 +220,15 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.ok(!Number.isNaN(Date.parse(installedAt)));
     assert.deepStrictEqual(entry, {
       version: '1.0.0',
-      sourceId: SOURCE.id,
+      sourceId: SOURCE_RECORD_ID,
       sourceType: 'github',
+      integrity: integrityOf({ 'deployment-manifest.yml': manifestOf(V1), ...V1.files }),
       files: [
-        { path: STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']) },
-        { path: HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']) }
+        { path: STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']), sourcePath: 'instructions/style.instructions.md' },
+        { path: HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']), sourcePath: 'prompts/hello.prompt.md' }
       ]
     });
-    assert.deepStrictEqual(record.sources[SOURCE.id], { type: 'github', url: SOURCE.url });
+    assert.deepStrictEqual(record.sources[SOURCE_RECORD_ID], { type: 'github', url: SOURCE.url });
     assert.strictEqual(read(HELLO), V1.files['prompts/hello.prompt.md']);
   });
 
@@ -233,7 +239,8 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
     await install(V1);
 
-    assert.deepStrictEqual(readRecord().sources[SOURCE.id], { type: 'github', url: SOURCE.url, branch: 'main' });
+    const recorded = { type: 'github', url: SOURCE.url, branch: 'main' };
+    assert.deepStrictEqual(readRecord().sources[recordSourceIdOf(recorded)], recorded);
   });
 
   test('install from a hub source records its hubId and the hub import reference from the HubManager', async () => {
@@ -248,7 +255,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     await install(V1);
 
     const record = readRecord();
-    assert.deepStrictEqual(record.sources[SOURCE.id], { type: 'github', url: SOURCE.url, hubId: 'acme-hub' });
+    assert.deepStrictEqual(record.sources[SOURCE_RECORD_ID], { type: 'github', url: SOURCE.url, hubId: 'acme-hub' });
     assert.deepStrictEqual(record.hubs, { 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
   });
 
@@ -341,7 +348,8 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(Object.keys(tools).toSorted(), ['copilot-cli', 'kiro', 'vscode']);
     for (const tool of ['vscode', 'copilot-cli']) {
       assert.strictEqual(tools[tool].version, '1.1.0', tool);
-      assert.deepStrictEqual(tools[tool].files, [{ path: HELLO, checksum: sha256(V2.files['prompts/hello.prompt.md']) }], tool);
+      assert.deepStrictEqual(tools[tool].files.map((file: { path: string; checksum: string }) => ({ path: file.path, checksum: file.checksum })),
+        [{ path: HELLO, checksum: sha256(V2.files['prompts/hello.prompt.md']) }], tool);
     }
     assert.deepStrictEqual(tools.kiro, kiroBefore);
     assert.ok(!fs.existsSync(abs(STYLE)), 'the dropped file is deleted');
@@ -550,7 +558,7 @@ suite('user record', function () {
 
   const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
   const userRecordPath = (): string => storage.getPaths().userRecord;
-  const readUserRecord = (): any => fs.existsSync(userRecordPath()) ? JSON.parse(fs.readFileSync(userRecordPath(), 'utf8')) : null;
+  const readUserRecord = (): any => fs.existsSync(userRecordPath()) ? readRecordView(userRecordPath()) : null;
   const listedUser = async (): Promise<InstalledBundle | undefined> =>
     (await manager.listInstalledBundles('user')).find((bundle) => bundle.bundleId === BUNDLE_ID);
   const installUser = (): Promise<InstalledBundle> => manager.installBundle(BUNDLE_ID, { scope: 'user' });
@@ -602,11 +610,12 @@ suite('user record', function () {
     assert.ok(!Number.isNaN(Date.parse(installedAt)));
     assert.deepStrictEqual(entry, {
       version: '1.0.0',
-      sourceId: localSource.id,
+      sourceId: recordSourceIdOf({ type: 'local', url: localSource.url }),
       sourceType: 'local',
+      integrity: integrityOf({ 'deployment-manifest.yml': manifestOf(V1), ...V1.files }),
       files: [
-        { path: USER_STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']) },
-        { path: USER_HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']) }
+        { path: USER_STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']), sourcePath: 'instructions/style.instructions.md' },
+        { path: USER_HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']), sourcePath: 'prompts/hello.prompt.md' }
       ]
     });
     assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), V1.files['prompts/hello.prompt.md']);
@@ -1099,10 +1108,10 @@ suite('older records', function () {
   });
   const abs = (relative: string): string => path.join(root, ...relative.split('/'));
   const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
-  const readRecord = (): any => fs.existsSync(abs(RECORD_FILE)) ? JSON.parse(fs.readFileSync(abs(RECORD_FILE), 'utf8')) : null;
+  const readRecord = (): any => fs.existsSync(abs(RECORD_FILE)) ? readRecordView(abs(RECORD_FILE)) : null;
   const readUserRecord = (): any => {
     const file = storage.getPaths().userRecord;
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    return fs.existsSync(file) ? readRecordView(file) : null;
   };
   const messages = (): string[] => [...showInfo.getCalls(), ...showWarning.getCalls()].map((call) => String(call.args[0]));
 
@@ -1183,7 +1192,7 @@ suite('older records', function () {
     assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the old file is renamed');
     assert.deepStrictEqual(record.bundles['old-bundle'].tools, {
       unknown: {
-        version: '0.9.0', sourceId: localSource.id, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
+        version: '0.9.0', sourceId: recordSourceIdOf({ type: 'local', url: localSource.url }), sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
         needsReinstall: true, files: [{ path: OLD_FILE, checksum: sha256('old content') }]
       }
     });
@@ -1248,7 +1257,7 @@ suite('older records', function () {
       assert.deepStrictEqual(Object.keys(record.bundles[OTHER_ID].tools), ['vscode'], 'the action ran');
       const { installedAt: _installedAt, ...entry } = record.bundles[BUNDLE_ID].tools.vscode;
       assert.deepStrictEqual(entry, {
-        version: V0.version, sourceId: localSource.id, sourceType: 'local',
+        version: V0.version, sourceId: recordSourceIdOf({ type: 'local', url: localSource.url }), sourceType: 'local',
         files: [{ path: USER_HELLO, checksum: sha256(V0.files['prompts/hello.prompt.md']) }]
       });
       if (removeFailsOnce) {

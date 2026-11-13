@@ -6,6 +6,9 @@
  * `deleteSuperseded` to remove after the save.
  * @module records/install-record-service
  */
+import {
+  createHash,
+} from 'node:crypto';
 import * as path from 'node:path';
 import {
   compareCodeUnits,
@@ -49,6 +52,11 @@ import {
   hashRecordedFile,
   putToolEntry,
 } from './record-entry';
+import {
+  isRecordSourceId,
+  recordBundleNameOf,
+  recordSourceIdOf,
+} from './record-file-shape';
 import {
   hubEntryOf,
   type RecordHubInput,
@@ -115,6 +123,10 @@ export interface RecordInstallInput {
   writtenPaths: readonly string[];
   /** Workspace root the writer installed into, where merged MCP configs sit; defaults to the record's root. */
   workspaceRoot?: string;
+  /** Collection, manifest or index id of the bundle, recorded as the bundle `name` without its version. */
+  name?: string;
+  /** The downloaded bundle's files by bundle path: give the entry its `integrity` and each file its `sourcePath`. */
+  bundleFiles?: ReadonlyMap<string, Uint8Array>;
   /**
    * Which sibling tools that share this tool's files to bring to the same version:
    * all (default), the accepted ones, or none. Pass `false` when re-recording a sibling, so the sync never loops.
@@ -235,6 +247,8 @@ export interface RemapSourceInput {
   to: string;
   /** Fields recorded under `sources.<to>`; a missing `hubId` keeps the one recorded for `from`. */
   descriptor: RecordSourceDescriptor;
+  /** Fields of the retired source, for records that name it by its readable id. */
+  fromDescriptor?: RecordSourceDescriptor;
   /** The hub named by the source's `hubId`, recorded under `hubs`. */
   hub?: RecordHubInput;
 }
@@ -417,6 +431,46 @@ const remapInRecord = (record: InstallRecord, from: string, to: string, descript
   return changed;
 };
 
+/** A bundle file's path and the `sha256:` of its bytes. */
+interface BundleFileHash {
+  path: string;
+  checksum: string;
+}
+
+const sha256Hex = (data: Uint8Array | string): string => createHash('sha256').update(data).digest('hex');
+
+// Every bundle file with the hash of its bytes, sorted by path.
+const indexBundleFiles = (files: ReadonlyMap<string, Uint8Array>): BundleFileHash[] =>
+  [...files].map(([filePath, bytes]) => ({ path: filePath.replaceAll('\\', '/'), checksum: `sha256:${sha256Hex(bytes)}` }))
+    .toSorted((left, right) => compareCodeUnits(left.path, right.path));
+
+/**
+ * `sha256:` of the downloaded bundle: each bundle path with its file's hash, sorted.
+ * The same content gives the same value however the archive was packed.
+ * @param index - From {@link indexBundleFiles}.
+ */
+const integrityOf = (index: readonly BundleFileHash[]): string =>
+  `sha256:${sha256Hex(index.map((file) => `${file.path}\u0000${file.checksum}\n`).join(''))}`;
+
+// Any execute bit set, as `mode & 0o111` would tell, without bitwise operators.
+const isExecutable = (mode: number): boolean => [mode % 8, Math.floor(mode / 8) % 8, Math.floor(mode / 64) % 8].some((bits) => bits % 2 === 1);
+
+const stemOf = (filePath: string): string => path.posix.basename(filePath).split('.')[0];
+
+/**
+ * Path inside the bundle of a written file: the bundle file with the same bytes,
+ * else the same file name, else the same name stem, as when a tool renames or converts a file.
+ * @param recorded - The written file, hashed.
+ * @param index - The bundle's files.
+ */
+const sourcePathOf = (recorded: RecordedFile, index: readonly BundleFileHash[]): string | undefined => {
+  const base = path.posix.basename(recorded.path);
+  const sameBytes = index.filter((file) => file.checksum === recorded.checksum);
+  return (sameBytes.find((file) => path.posix.basename(file.path) === base) ?? sameBytes[0]
+    ?? index.find((file) => path.posix.basename(file.path) === base)
+    ?? index.find((file) => stemOf(file.path) === stemOf(recorded.path)))?.path;
+};
+
 /** The pending record change of each root, in this process. */
 const pendingChanges = new Map<string, Promise<unknown>>();
 
@@ -516,8 +570,14 @@ export class InstallRecordService {
    * @param root - Level root.
    * @param writtenPaths - Absolute paths from the writer.
    * @param workspaceRoot - Workspace root the writer installed into.
+   * @param bundleIndex - The downloaded bundle's files, to give each file its `sourcePath`.
    */
-  private async toRecordedFiles(root: string, writtenPaths: readonly string[], workspaceRoot?: string): Promise<RecordedFile[]> {
+  private async toRecordedFiles(
+    root: string,
+    writtenPaths: readonly string[],
+    workspaceRoot?: string,
+    bundleIndex?: readonly BundleFileHash[]
+  ): Promise<RecordedFile[]> {
     const workspacePrefix = await this.workspacePrefix(root, workspaceRoot);
     const files = new Map<string, RecordedFile>();
     for (const written of writtenPaths) {
@@ -525,7 +585,17 @@ export class InstallRecordService {
       if (files.has(relative) || isMergedMcpConfigPath(relative, workspacePrefix)) {
         continue;
       }
-      files.set(relative, await hashRecordedFile(this.fs, root, relative));
+      const recorded = await hashRecordedFile(this.fs, root, relative);
+      const sourcePath = bundleIndex === undefined ? undefined : sourcePathOf(recorded, bundleIndex);
+      if (sourcePath !== undefined) {
+        recorded.sourcePath = sourcePath;
+      }
+      // Only a regular file's mode means something; a symlink's is always 777.
+      const stat = await this.fs.lstat(path.join(root, ...relative.split('/')));
+      if (stat?.kind === 'file' && stat.mode !== undefined && isExecutable(stat.mode)) {
+        recorded.mode = `0${stat.mode.toString(8).padStart(3, '0')}`;
+      }
+      files.set(relative, recorded);
     }
     return [...files.values()];
   }
@@ -728,11 +798,14 @@ export class InstallRecordService {
   private async applyInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
     this.validateInput(input);
     const source: SourceRecord = sanitizeSource(input.source);
+    // Recorded under its readable id, the same on every machine, whatever the configured id.
+    const sourceId = recordSourceIdOf(source);
     const { location, bundleId, tool } = input;
     const target = await this.store.load(location);
     const otherLocation = otherRepositoryLocation(location);
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
-    const written = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot);
+    const bundleIndex = input.bundleFiles === undefined ? undefined : indexBundleFiles(input.bundleFiles);
+    const written = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot, bundleIndex);
 
     const identity = recordIdentityOf(bundleId, input.version);
     const previous = this.removeSameIdentity(target.record, bundleId, identity, tool);
@@ -746,12 +819,29 @@ export class InstallRecordService {
 
     const { files } = putToolEntry(target.record, bundleId, tool, {
       version: input.version,
-      sourceId: input.source.sourceId,
+      sourceId,
       sourceType: input.sourceType,
       installedAt: this.now().toISOString(),
+      ...(bundleIndex === undefined ? {} : { integrity: integrityOf(bundleIndex) }),
       files: written
     });
-    target.record.sources[input.source.sourceId] = source;
+    if (input.name !== undefined && input.name !== '') {
+      target.record.bundles[bundleId].name = recordBundleNameOf(input.name, input.version);
+    }
+    // A source belongs to one hub: one already recorded from another hub is refused before anything is saved.
+    for (const file of other === undefined ? [target] : [target, other]) {
+      for (const [key, recorded] of Object.entries(file.record.sources)) {
+        const sameSource = (isRecordSourceId(key) ? key : recordSourceIdOf(recorded)) === sourceId;
+        if (sameSource && typeof recorded.hubId === 'string' && typeof source.hubId === 'string' && recorded.hubId !== source.hubId) {
+          throw recordError('RECORD.HUB_CONFLICT', {
+            file: path.basename(file.location.path),
+            detail: `source ${JSON.stringify(sourceId)} is recorded from hub ${JSON.stringify(recorded.hubId)}, not ${JSON.stringify(source.hubId)}`,
+            context: { sourceId, recordedHubId: recorded.hubId, hubId: source.hubId }
+          });
+        }
+      }
+    }
+    target.record.sources[sourceId] = source;
     const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
     attachHub(target.record, source, hub, other?.record);
 
@@ -1027,7 +1117,10 @@ export class InstallRecordService {
     const loaded = [committedFile, await this.store.load(localOnlyLocation)];
 
     const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
-    const changed = loaded.filter((file) => remapInRecord(file.record, from, to, source, hub));
+    // Records name a source by its readable id; older ones by the configured id.
+    const toId = recordSourceIdOf(source);
+    const fromIds = [from, ...(input.fromDescriptor === undefined ? [] : [recordSourceIdOf(sanitizeSource(input.fromDescriptor))])];
+    const changed = loaded.filter((file) => fromIds.map((fromId) => remapInRecord(file.record, fromId, toId, source, hub)).includes(true));
     const warnings: string[] = [];
     for (const file of changed) {
       warnings.push(...(await this.save(file.location, file.record)).warnings);

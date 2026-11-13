@@ -53,7 +53,7 @@ export class NodeRecordFs implements RecordFs {
   public async lstat(path: string): Promise<RecordFileStat | undefined> {
     try {
       const stats = await lstat(path);
-      return { kind: kindOf(stats), size: stats.size };
+      return { kind: kindOf(stats), size: stats.size, mode: stats.mode % 0o1000 };
     } catch (error) {
       if (isMissingError(error)) {
         return undefined;

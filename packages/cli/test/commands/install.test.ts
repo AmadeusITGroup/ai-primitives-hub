@@ -304,7 +304,7 @@ describe('install command (local --from mode)', () => {
     const lock = await readInstallRecord(installed.lockPath);
     expect(Object.keys(lock.bundles)).toEqual([fixture.catalogId]);
     expect(lock.bundles[fixture.catalogId].tools['copilot-cli'].files.map((file) => file.path)).toContain('target/prompts/hello.prompt.md');
-    expect(lock.sources['artifact-source']).toMatchObject({ type: 'artifactory', credentialRef: 'ARTIFACTORY_TOKEN' });
+    expect(Object.values(lock.sources)).toMatchObject([{ type: 'artifactory', credentialRef: 'ARTIFACTORY_TOKEN' }]);
     expect(JSON.stringify(lock)).not.toContain('reader-token');
     await rm(path.join(targetDir, 'prompts', 'hello.prompt.md'));
     const replay = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
@@ -316,7 +316,7 @@ describe('install command (local --from mode)', () => {
     const updated = await fixture.command(['update', '--lockfile', installed.lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
     expect(updated.exitCode).toBe(0);
     expect(JSON.parse(updated.ctx.stdout.captured()).data.updated).toBe(1);
-    const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as { bundles: Record<string, { tools: Record<string, { version: string }> }> };
+    const nextLock = await readInstallRecord<{ bundles: Record<string, { tools: Record<string, { version: string }> }> }>(installed.lockPath);
     expect(Object.keys(nextLock.bundles)).toEqual([fixture.catalogId]);
     expect(nextLock.bundles[fixture.catalogId].tools['copilot-cli'].version).toBe('2.0.0');
     const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
@@ -528,7 +528,7 @@ describe('install command (local --from mode)', () => {
     expect(result.exitCode).toBe(0);
 
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
-    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as { bundles: Record<string, unknown> };
+    const lockContent = await readInstallRecord<{ bundles: Record<string, unknown> }>(envelope.data.lockfile);
     expect(Object.keys(lockContent.bundles)).toEqual(['local-foo']);
   });
 
@@ -1063,10 +1063,13 @@ agents:
       ((await stat(filePath)).mode & 0o111) !== 0;
     // User scope uses `bundles.<id>.files`; the repository record uses `bundles.<id>.tools.<type>.files`.
     const lockedFiles = async (lockfilePath: string): Promise<unknown> => {
-      const parsed = JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile | InstallRecord;
+      const parsed = await readInstallRecord<Lockfile | InstallRecord>(lockfilePath);
       const bundle = parsed.bundles['exec-demo'] as { files?: unknown; tools?: Record<string, { files: unknown }> };
       return bundle.tools === undefined ? bundle.files : bundle.tools['copilot-cli'].files;
     };
+    // The record notes the executable mode of a file; nothing else of the entry changes.
+    const withExecutableScript = (files: unknown): unknown => (files as { path: string }[])
+      .map((file) => (file.path.endsWith('run.sh') ? { ...file, mode: '0755' } : file));
     const installFrom = async (extra: string[] = []): Promise<string> => {
       const result = await run(['install', 'exec-demo', '--from', execBundleDir, '--target', 'copilot', ...extra, '-o', 'json']);
       expect(result.exitCode, result.stdout).toBe(0);
@@ -1136,7 +1139,7 @@ agents:
       expect(await isExecutable(installedScript)).toBe(true);
       expect(await isExecutable(path.join(targetDir, 'skills', 'demo', 'SKILL.md'))).toBe(false);
       expect(await readFile(installedScript, 'utf8')).toBe(SCRIPT);
-      expect(await lockedFiles(lockfilePath)).toEqual(baselineLock);
+      expect(await lockedFiles(lockfilePath)).toEqual(withExecutableScript(baselineLock));
       expect(JSON.stringify(baselineLock)).not.toContain('mode');
     });
 
@@ -1174,7 +1177,7 @@ agents:
       expect(await isExecutable(path.join(skillDir(), 'scripts', 'run.sh'))).toBe(true);
       expect(await isExecutable(path.join(skillDir(), 'SKILL.md'))).toBe(false);
       expect(await readFile(path.join(skillDir(), 'scripts', 'run.sh'), 'utf8')).toBe(SCRIPT);
-      expect(await lockedFiles(lockfilePath)).toEqual(baselineLock);
+      expect(await lockedFiles(lockfilePath)).toEqual(withExecutableScript(baselineLock));
     });
   });
 

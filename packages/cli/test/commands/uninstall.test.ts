@@ -244,7 +244,7 @@ describe('uninstall command', () => {
       expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
       expect(await readFile(oldFile, 'utf8')).toBe('# Old\n');
       expect(await exists(oldLockPath())).toBe(false);
-      expect(Object.keys((JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: object }).bundles)).toEqual(['local-foo']);
+      expect(Object.keys((await readInstallRecord<{ bundles: object }>(recordPath())).bundles)).toEqual(['local-foo']);
     });
 
     it('--all migrates the old file first and leaves a migrated bundle under unknown', async () => {
