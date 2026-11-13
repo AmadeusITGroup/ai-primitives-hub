@@ -13,6 +13,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Profiles and Hubs](user-guide/profiles-and-hubs.md)** — Profile and Hub management
 - **[Configuration](user-guide/configuration.md)** — Extension settings and telemetry
 - **[Security Scanning](user-guide/security-scanning.md)** — Markdown findings, suppressions, and CI gates
+- **[Gemma 4 in GitHub Actions](user-guide/gemma4-action.md)** — Run Gemma 4 on the runner from your own workflows
 - **[Troubleshooting](user-guide/troubleshooting.md)** — Common issues
 
 ---
@@ -25,6 +26,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
 - **[Collection Scripts](author-guide/collection-scripts.md)** — Shared npm package for validation and building
 - **[Collection Schema](author-guide/collection-schema.md)** — YAML schema reference
 - **[Validation](author-guide/validation.md)** — Validating collections
+- **[Reviewing Primitives](author-guide/primitives-review.md)** — Quality rubric review with Gemma 4 in CI
 - **[Publishing](author-guide/publishing.md)** — Publishing to registries
 
 ---
