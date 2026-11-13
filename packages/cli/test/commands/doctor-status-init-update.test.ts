@@ -741,7 +741,7 @@ profiles: []
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(await versions()).toEqual({ vscode: '2.0.0' });
-      expect((await readRecordJson()).sources.remote).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
+      expect(Object.values((await readRecordJson()).sources)).toEqual([{ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' }]);
       expect(requests.length).toBeGreaterThan(0);
       expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
     });

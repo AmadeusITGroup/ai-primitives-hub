@@ -1159,7 +1159,8 @@ async function performLocalInstall(
       version: manifest.version,
       tool: effectiveTarget.type,
       source: { sourceId: localSourceId, type: 'local', url: localSourceUrl },
-      writtenPaths: result.written
+      writtenPaths: result.written,
+      bundle: { name: manifest.id, files }
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
       const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
@@ -1432,7 +1433,8 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
       const { result } = await writeBundleSafely(writerFactory(target), target, files, manifest);
       written = [...result.written];
       changes.push(await recordPlannedInstall(
-        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type, hubId: item.source.hubId }, target, ctx, manifest.version, written, false
+        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type, hubId: item.source.hubId }, target, ctx, manifest.version, written, false,
+        { name: manifest.id, files }
       ));
       data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
     } catch (cause) {
@@ -1650,7 +1652,8 @@ async function performRemoteInstall(
       tool: effectiveTarget.type,
       source: { ...recordSource, sourceId: installable.ref.sourceId },
       ...(hub === undefined ? {} : { hub }),
-      writtenPaths: result.written
+      writtenPaths: result.written,
+      bundle: { name: manifest.id, files }
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
       const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');

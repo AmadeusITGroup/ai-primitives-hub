@@ -106,6 +106,7 @@ export type {
   RecordedRepositoryUninstall,
   RecordOutputFields,
   RecordSelectionInput,
+  InstalledBundleContent,
   RepositoryInstallToRecord,
 } from './install-record';
 export {
