@@ -25,7 +25,6 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
@@ -33,7 +32,10 @@ import type {
   HttpClient,
   HttpRequest,
   HttpResponse,
+  InstallRecord,
   ProfileActivationState,
+  RegistrySource,
+  Target,
 } from '@ai-primitives-hub/core';
 import {
   buildZip,
@@ -52,6 +54,7 @@ import {
   HubUseCommand,
 } from '../../src/commands/hub';
 import {
+  installBundleWithSource,
   InstallCommand,
 } from '../../src/commands/install';
 import {
@@ -67,13 +70,22 @@ import {
 import {
   createTestContext,
   runCli,
-  runCommand,
 } from '../../src/framework';
 import {
   createGovernedReleaseArchive,
   createLegacyReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  addRepositoryTargets,
+  initGitRoot,
+  makeRun,
+  readInstallRecord,
+  recordPathIn,
+  userRecordPath,
+  workspaceEnv,
+  writeOldLockfile,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -98,19 +110,7 @@ describe('profile activate/deactivate', () => {
   let targetDir: string;
   let hubConfigFile: string;
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES);
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -232,17 +232,12 @@ profiles:
     await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8'))
       .rejects.toThrow();
 
-    const lockfilePath = resolveUserConfigPaths({
-      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-      HOME: workspace,
-      USERPROFILE: workspace
-    }).userLockfile;
-    const lockfile = JSON.parse(await readFile(lockfilePath, 'utf8')) as {
-      bundles: Record<string, { files: { path: string }[] }>;
-    };
-    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
-      'prompts/hello.prompt.md'
+    const env = workspaceEnv(workspace);
+    const record = await readInstallRecord(userRecordPath(env));
+    expect(record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
+      'target/prompts/hello.prompt.md'
     ]);
+    await expect(readFile(resolveUserConfigPaths(env).userLockfile, 'utf8')).rejects.toThrow();
   });
 
   it('deactivates a profile: removes installed files and clears the active profile', async () => {
@@ -275,18 +270,183 @@ profiles:
 
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
+
+  describe('install record', () => {
+    const project = (): string => path.join(workspace, 'project');
+    const recordPath = (): string => recordPathIn(project());
+    const oldLockPath = (): string => path.join(project(), 'prompt-registry.lock.json');
+    const repoPrompt = (): string => path.join(project(), '.github', 'prompts', 'hello.prompt.md');
+    const userRecord = (): string => userRecordPath(workspaceEnv(workspace));
+    const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+    const toolsOf = (record: InstallRecord, bundleId: string): string[] => Object.keys(record.bundles[bundleId]?.tools ?? {});
+    // An older 2.0.0 file, as a profile activated with an older release leaves it.
+    const writeOldLock = (bundles: Record<string, string>): Promise<string> => writeOldLockfile(
+      oldLockPath(),
+      Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, { version: '1.0.0', files: [file], sourceId: 'local-foo-src' }])),
+      { 'local-foo-src': { type: 'local', url: bundleDir } }
+    );
+
+    beforeEach(async () => {
+      await initGitRoot(project());
+      await addRepositoryTargets(run, project(), [['repo', 'vscode']]);
+    });
+
+    it('records a repository activation in ai-primitives-hub.lock.json and deactivate removes it, never writing prompt-registry.lock.json', async () => {
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      expect(parseJson<{ records: unknown[] }>(activated.stdout).data.records)
+        .toEqual([{ target: 'repo', level: 'repository', path: recordPath() }]);
+      expect((await readInstallRecord(recordPath())).bundles['local-foo'].tools.vscode.files.map((file) => file.path))
+        .toEqual(['.github/prompts/hello.prompt.md']);
+      expect(await exists(repoPrompt())).toBe(true);
+
+      const deactivated = await run(['profile', 'deactivate']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      expect(deactivated.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await exists(repoPrompt())).toBe(false);
+      expect(await exists(recordPath()) ? toolsOf(await readInstallRecord(recordPath()), 'local-foo') : []).toEqual([]);
+      expect(await exists(oldLockPath())).toBe(false);
+    });
+
+    it('records a user activation in the user record and deactivate removes it, never writing the old user lockfile', async () => {
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'copilot']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      expect(activated.stdout).toContain(`Record: user ${userRecord()}\n`);
+      expect((await readInstallRecord(userRecord())).bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path))
+        .toEqual(['target/prompts/hello.prompt.md']);
+
+      const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      expect(parseJson<{ records: unknown[] }>(deactivated.stdout).data.records)
+        .toEqual([{ target: 'copilot', level: 'user', path: userRecord() }]);
+      expect(await exists(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+      expect(toolsOf(await readInstallRecord(userRecord()), 'local-foo')).toEqual([]);
+      expect(await exists(resolveUserConfigPaths(workspaceEnv(workspace)).userLockfile)).toBe(false);
+    });
+
+    it('migrates an older prompt-registry.lock.json before activating', async () => {
+      await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      const { migrations } = parseJson<{ migrations: { needsReinstall: unknown[] }[] }>(activated.stdout).data;
+      expect(migrations.map((migration) => migration.needsReinstall)).toEqual([[{ bundleId: 'old-only', version: '1.0.0' }]]);
+      expect(await exists(oldLockPath())).toBe(false);
+      const record = await readInstallRecord(recordPath());
+      expect(toolsOf(record, 'old-only')).toEqual(['unknown']);
+      expect(toolsOf(record, 'local-foo')).toEqual(['vscode']);
+    });
+
+    it('deactivate keeps a profile bundle only an older file lists: entry and files kept, reported as unknown', async () => {
+      expect((await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
+      // As a profile activated before the record would have left it.
+      await rm(recordPath());
+      await writeOldLock({ 'local-foo': '.github/prompts/hello.prompt.md' });
+
+      const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      const envelope = parseJson<{ unknown: unknown[] }>(deactivated.stdout);
+      expect(envelope.status).toBe('warning');
+      expect(envelope.data.unknown).toEqual([{ bundleId: 'local-foo', target: 'repo', lockfile: recordPath() }]);
+      expect(await exists(repoPrompt())).toBe(true);
+      expect(toolsOf(await readInstallRecord(recordPath()), 'local-foo')).toEqual(['unknown']);
+      expect(await exists(oldLockPath())).toBe(false);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect(parseJson<{ active: null }>(current.stdout).data.active).toBeNull();
+
+      // Activating again records the bundle for the target's tool.
+      expect((await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
+      expect(toolsOf(await readInstallRecord(recordPath()), 'local-foo')).toEqual(['vscode']);
+    });
+
+    it('a record that cannot be read stops the activation before any file is written', async () => {
+      await writeFile(recordPath(), 'not json\n');
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode).toBe(1);
+      expect(activated.stdout).toContain('RECORD.MALFORMED');
+      expect(activated.stdout).toContain('profile activate:');
+      expect(await exists(repoPrompt())).toBe(false);
+      expect(await readFile(recordPath(), 'utf8')).toBe('not json\n');
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect(parseJson<{ active: null }>(current.stdout).data.active).toBeNull();
+    });
+
+    it('refuses two targets that record the same tool at one level, writing nothing', async () => {
+      const otherDir = path.join(workspace, 'other-target');
+      await mkdir(otherDir, { recursive: true });
+      expect((await run(['target', 'add', 'copilot-2', '--type', 'copilot-cli', '--path', otherDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'copilot,copilot-2', '-o', 'json']);
+
+      expect(activated.exitCode).toBe(1);
+      expect(activated.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await exists(path.join(targetDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+      expect(await exists(path.join(otherDir, 'prompts', 'hello.prompt.md'))).toBe(false);
+    });
+
+    it('refuses two same-tool targets before it cleans up the active profile', async () => {
+      expect((await run(['profile', 'activate', 'backend', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const installed = path.join(targetDir, 'prompts', 'hello.prompt.md');
+      expect(await exists(installed)).toBe(true);
+      const otherDir = path.join(workspace, 'other-target');
+      await mkdir(otherDir, { recursive: true });
+      expect((await run(['target', 'add', 'copilot-2', '--type', 'copilot-cli', '--path', otherDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'copilot,copilot-2', '-o', 'json']);
+
+      expect(activated.exitCode).toBe(1);
+      expect(activated.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await exists(installed)).toBe(true);
+    });
+
+    it('keeps one entry per bundle and tool when a profile pins another version of a versioned id', async () => {
+      const keys = async (): Promise<string[]> => Object.entries((await readInstallRecord(recordPath())).bundles)
+        .map(([key, bundle]) => `${key} ${Object.keys(bundle.tools).join(',')} ${bundle.tools.vscode?.version}`);
+      // The profile pins acme-tools-coll-<version>, served by the local source.
+      const pin = async (version: string): Promise<void> => {
+        await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: `acme-tools-coll-${version}`, version }));
+        const hub = await readFile(hubConfigFile, 'utf8');
+        await writeFile(hubConfigFile, hub.replace(/- id: \S+\n {8}version: \S+/, `- id: acme-tools-coll-${version}\n        version: ${version}`));
+        expect((await run(['hub', 'sync', 'test-hub', '-o', 'json'])).exitCode).toBe(0);
+      };
+      const runInstall = makeRun(() => workspace, [...COMMAND_CLASSES, InstallCommand]);
+      await pin('1.0.0');
+      const installed = await runInstall(['install', '--from', bundleDir, '--target', 'repo', '-o', 'json']);
+      expect(installed.exitCode, installed.stdout).toBe(0);
+      await pin('2.0.0');
+
+      const activated = await run(['profile', 'activate', 'backend', '--target', 'repo', '-o', 'json']);
+
+      expect(activated.exitCode, activated.stdout).toBe(0);
+      expect(await keys()).toEqual(['acme-tools-coll-2.0.0 vscode 2.0.0']);
+
+      // An install of another version replaces the profile's entry, and deactivate still removes it.
+      await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: 'acme-tools-coll-3.0.0', version: '3.0.0' }));
+      expect((await runInstall(['install', '--from', bundleDir, '--target', 'repo', '-o', 'json'])).exitCode).toBe(0);
+      expect(await keys()).toEqual(['acme-tools-coll-3.0.0 vscode 3.0.0']);
+
+      const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
+
+      expect(deactivated.exitCode, deactivated.stdout).toBe(0);
+      expect(await exists(repoPrompt())).toBe(false);
+      expect(await exists(recordPath())).toBe(false);
+    });
+  });
 });
 
 describe('profile activate with a GitHub hub source and {owner}-{repo}-{manifestId} bundle ids', () => {
   let workspace: string;
   let targetDir: string;
 
-  const env = (): Record<string, string> => ({
-    HOME: workspace,
-    USERPROFILE: workspace,
-    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-    XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-  });
+  const env = (): Record<string, string> => workspaceEnv(workspace);
 
   // Fake GitHub: one release of the `sample-skills` bundle (manifest id `sample-skills`).
   const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'sample-skills', version: '1.8.1' })]
@@ -419,27 +579,26 @@ profiles:
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
     expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
-    // The bundle that did install is rolled back: its files and lockfile entry are gone.
+    // The bundle that did install is rolled back: its files and user record entry are gone.
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
-    const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
-    expect(Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
+    const record = await readInstallRecord<{ bundles?: object }>(userRecordPath(env())).catch(() => ({ bundles: {} }));
+    expect(Object.keys(record.bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
   });
 
-  it('replays the activated profile\'s lockfile into a clean target', async () => {
+  it('replays the activated profile\'s user record into a clean target', async () => {
     const activated = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
     expect(activated.exitCode, activated.stdout).toBe(0);
-    const lockfile = path.join(workspace, 'replay.lock.json');
-    await writeFile(lockfile, await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8'));
-    // The lockfile keeps the hub's versionless bundle id as its key.
-    expect(Object.keys((JSON.parse(await readFile(lockfile, 'utf8')) as { bundles: object }).bundles))
+    const userRecord = userRecordPath(env());
+    // The record keeps the hub's versionless bundle id as its key.
+    expect(Object.keys((await readInstallRecord(userRecord)).bundles))
       .toEqual(['acme-org-sample-skills-sample-skills']);
     const cleanDir = path.join(workspace, 'clean-target');
     await mkdir(cleanDir, { recursive: true });
     expect((await run(['target', 'add', 'clean', '--type', 'copilot-cli', '--path', cleanDir, '-o', 'json'])).exitCode).toBe(0);
 
-    const replay = await run(['install', '--lockfile', lockfile, '--target', 'clean', '-o', 'json']);
+    const replay = await run(['install', '--lockfile', userRecord, '--target', 'clean', '-o', 'json']);
 
     expect(replay.exitCode, replay.stdout).toBe(0);
     await expect(readFile(path.join(cleanDir, 'prompts', 'hello.prompt.md'), 'utf8'))
@@ -476,32 +635,30 @@ profiles:
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
 
-  it('rolls the activation back when the sync fails unexpectedly', async () => {
-    // Fault-inject the lockfile write: the bundle files are already written
-    // and the activation state + hub flag already saved when it fails.
-    const userLockfile = resolveUserConfigPaths(env()).userLockfile;
-    class FailingLockfileFs extends NodeFileSystem {
-      public override async writeFile(filePath: string, contents: string): Promise<void> {
-        if (filePath === userLockfile) {
-          throw new Error('EROFS: read-only file system');
-        }
-        await super.writeFile(filePath, contents);
-      }
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('rolls the activation back when recording fails after the bundle is written', async () => {
+    // A read-only record folder: files and activation state are written before the record write fails.
+    const userRecord = userRecordPath(env());
+    const recordDir = path.dirname(userRecord);
+    await mkdir(path.join(recordDir, 'hubs', 'profile-activations'), { recursive: true });
+    await chmod(recordDir, 0o555);
+    let result: { exitCode: number; stdout: string };
+    try {
+      result = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+    } finally {
+      await chmod(recordDir, 0o755);
     }
 
-    const result = await run(
-      ['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'],
-      new FailingLockfileFs()
-    );
-
-    // The original (unexpected) error is rethrown after the rollback.
-    expect(result.exitCode).not.toBe(0);
+    // The record error is reported under the profile command after the rollback.
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('RECORD.WRITE_FAILED');
+    expect(result.stdout).toContain('profile activate:');
     const current = await run(['profile', 'current', '-o', 'json']);
     expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
     const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
     expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).not.toBe(true);
     expect(await readdir(targetDir, { recursive: true }).then((entries) => entries.filter((e) => e.endsWith('.md'))))
       .toEqual([]);
+    await expect(readFile(userRecord, 'utf8')).rejects.toThrow();
   });
 
   it('still rejects a manifest whose id is not the bundle named by the profile', async () => {
@@ -661,13 +818,13 @@ profiles:
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
 
-    const lockfilePath = resolveUserConfigPaths({
+    const lockfilePath = userRecordPath({
       HOME: workspace,
       XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
       XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-    }).userLockfile;
-    const persisted = await readLockfile(lockfilePath, new NodeFileSystem());
-    expect(persisted?.sources.replicated).toEqual({
+    });
+    const persisted = await readInstallRecord<{ sources: Record<string, unknown> }>(lockfilePath);
+    expect(persisted.sources.replicated).toMatchObject({
       type: 'artifactory',
       url: sourceRoot,
       indexFile: 'index-v1.json',
@@ -702,5 +859,112 @@ profiles:
     expect(result.exitCode, result.stdout).not.toBe(0);
     expect(result.stdout).toContain('does not match expected');
     await expect(stat(path.join(targetDir, 'prompts', 'hello.prompt.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('profile activate with an Artifactory hub source', () => {
+  const ART_ROOT = 'https://artifactory.example/repo/source';
+  /** Artifactory source configured without `authMode`, as in the hub config below. */
+  const ART_SOURCE: RegistrySource = {
+    id: 'art-src', name: 'Art Source', type: 'artifactory', url: ART_ROOT, enabled: true, priority: 0
+  };
+  let workspace: string;
+  let targetDir: string;
+
+  const env = (): Record<string, string> => workspaceEnv(workspace);
+  // Fake anonymous Artifactory: an index and the archive of `art-bundle` 1.0.0.
+  const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'art-bundle', version: '1.0.0' })]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const requests: HttpRequest[] = [];
+  const http: HttpClient = {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
+      requests.push(request);
+      if (request.url === `${ART_ROOT}/index-v1.json`) {
+        return Promise.resolve({
+          statusCode: 200,
+          body: new TextEncoder().encode(JSON.stringify({
+            formatVersion: 1, source: { id: ART_SOURCE.id, name: ART_SOURCE.name, updatedAt: '2026-01-01T00:00:00Z' },
+            bundles: [{
+              id: 'art-bundle', version: '1.0.0', name: 'Art Bundle', description: '', author: 'Test', environments: ['vscode'],
+              tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+              manifest: { path: '1.0.0/art-bundle/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+              archive: { path: '1.0.0/art-bundle.zip', size: bundleZip.length,
+                sha256: createHash('sha256').update(bundleZip).digest('hex'), mediaType: 'application/zip' }
+            }]
+          })),
+          finalUrl: request.url,
+          headers: {}
+        });
+      }
+      if (request.url === `${ART_ROOT}/1.0.0/art-bundle.zip`) {
+        return Promise.resolve({ statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${request.url}`));
+    }
+  };
+  const tokens = { getToken: () => Promise.resolve(undefined) };
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
+    const exitCode = await runCli(argv, { ctx, http, tokens, commandClasses: COMMAND_CLASSES, commands: [], name: 'test', version: 'test' });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+  const recordedSource = async (): Promise<unknown> =>
+    (await readInstallRecord(userRecordPath(env()))).sources[ART_SOURCE.id];
+
+  beforeEach(async () => {
+    requests.length = 0;
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-artifactory-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Art Hub
+  description: Hub with an Artifactory source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: ${ART_SOURCE.id}
+    name: ${ART_SOURCE.name}
+    type: artifactory
+    url: ${ART_ROOT}
+    enabled: true
+    priority: 0
+    hubId: art-hub
+profiles:
+  - id: art
+    name: Art Developer
+    description: One Artifactory bundle
+    bundles:
+      - id: art-bundle
+        version: 1.0.0
+        source: ${ART_SOURCE.id}
+        required: true
+`);
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'art-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'art-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('records the same source as install for an Artifactory source configured without authMode', async () => {
+    const activated = await run(['profile', 'activate', 'art', '--target', 'copilot', '-o', 'json']);
+    expect(activated.exitCode, activated.stdout).toBe(0);
+    const fromProfile = await recordedSource();
+    expect((await run(['profile', 'deactivate', '-o', 'json'])).exitCode).toBe(0);
+    await rm(userRecordPath(env()), { force: true });
+
+    const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
+    const target: Target = { name: 'copilot', type: 'copilot-cli', scope: 'user', path: targetDir };
+    const installed = await installBundleWithSource('art-bundle', ART_SOURCE, target, ctx, http, tokens, 'json');
+    expect(installed, ctx.stdout.captured()).toBe(0);
+
+    expect(fromProfile).toEqual({ type: 'artifactory', url: ART_ROOT, authMode: 'anonymous' });
+    expect(await recordedSource()).toEqual(fromProfile);
+    expect(requests.filter((request) => request.headers?.Authorization !== undefined)).toEqual([]);
   });
 });

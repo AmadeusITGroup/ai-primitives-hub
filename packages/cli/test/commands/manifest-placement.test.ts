@@ -394,19 +394,21 @@ profiles:
     const activated = await run(['profile', 'activate', 'sample-developer', '--target', 'kiro-ide', '-o', 'json']);
     expect(activated.exitCode, activated.stdout).toBe(0);
     expect(await listFiles(kiroDir)).toEqual(KIRO_PATHS.toSorted());
-    const lockCopy = path.join(workspace, 'replay.lock.json');
-    await writeFile(lockCopy, await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8'));
+    // Profile activation records into the shared user record, like `install`.
+    const userRecord = userRecordPath(env());
+    const recordCopy = await readFile(userRecord, 'utf8');
 
     const deactivated = await run(['profile', 'deactivate', '-o', 'json']);
     expect(deactivated.exitCode, deactivated.stdout).toBe(0);
     expect(await listFiles(kiroDir)).toEqual([]);
 
-    const replayed = await run(['install', '--lockfile', lockCopy, '--target', 'kiro-ide', '-o', 'json']);
+    await writeFile(userRecord, recordCopy);
+    const replayed = await run(['install', '--lockfile', userRecord, '--target', 'kiro-ide', '-o', 'json']);
     expect(replayed.exitCode, replayed.stdout).toBe(0);
     expect(await listFiles(kiroDir)).toEqual(KIRO_PATHS.toSorted());
 
-    // The copied lockfile records where each file landed, so it removes them again.
-    const removed = await run(['uninstall', '--lockfile', lockCopy, '--target', 'kiro-ide', '-o', 'json']);
+    // The record lists where each file landed, so it removes them again.
+    const removed = await run(['uninstall', '--lockfile', userRecord, '--target', 'kiro-ide', '-o', 'json']);
     expect(removed.exitCode, removed.stdout).toBe(0);
     expect(await listFiles(kiroDir)).toEqual([]);
   });

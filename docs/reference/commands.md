@@ -88,7 +88,7 @@ The level comes from `--lockfile` (`update` only), then `--scope`, then the defa
 
 Bundles whose manifest lists no items keep path-based routing: a file is installed under the target route matching its bundle path prefix (for example `prompts/`, `skills/`), with its name unchanged.
 
-The install record lists each written file by its path relative to the level root (the git root, or your home folder) with its checksum; `uninstall` removes them, except files you edited or another entry still lists. The older 2.0.0 lockfile (workspace scope, `profile activate`) keeps bundle-relative `path` entries and, for manifest-placed items, `installedPath`, which `uninstall` and `profile deactivate` remove; entries without it are removed by path routing.
+The install record lists each written file by its path relative to the level root (the git root, or your home folder) with its checksum; `uninstall` removes them, except files you edited or another entry still lists. The older 2.0.0 lockfile (workspace scope) keeps bundle-relative `path` entries and, for manifest-placed items, `installedPath`, which `uninstall` and `profile deactivate` remove; entries without it are removed by path routing.
 
 Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
 
@@ -100,6 +100,7 @@ At repository scope, `install` records the bundle in a format `3.0.0` install re
 
 - `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
 - Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
+- Installing another version of a bundle replaces the previous one for that tool.
 - An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
 - An older `prompt-registry.lock.json` or `prompt-registry.local.lock.json` at the git root is migrated into the new record before the first change; see [Migrating older records](#migrating-older-records). User-scope installs use the [user install record](#user-install-record).
 
@@ -128,7 +129,7 @@ User-scope installs are recorded in one file per machine, shared by the CLI and 
 - User-scope `install`, `uninstall`, `update` and `install --lockfile` use it, and so do `status` and a bare `install` outside a repository with a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
 - A bundle installed from one VS Code profile is installed for every profile.
 - A target folder outside your home folder, or a tool folder symlinked outside it, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written.
-- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is imported into the user record once, before the first user-scope change, and is never changed or deleted. Workspace-scope targets and `profile activate` keep using it.
+- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is imported into the user record once, before the first user-scope change, and is never changed or deleted. Workspace-scope targets keep using it.
 - Uninstall keeps files you edited after the install, with a warning. An extension link into its bundle cache that still points at the installed content counts as unchanged.
 - As at repository scope, installing, updating or downgrading a bundle leaves each tool one version of it in this file, also for a bundle id that ends with its version; `update` records it under the new version's id. In the extension, the old version's bundle cache and an older per-profile install of the bundle are removed too, and the user view lists one item per bundle.
 - In the extension, the current profile's older user-scope installs move into the user record before the first user-scope change. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
@@ -147,7 +148,7 @@ Before the first command that changes a record, the CLI and the extension move t
 - **The `unknown` tool.** Older entries do not say which tool they were for, so they are recorded under `unknown` and listed as needing a reinstall. Installing the bundle for a tool, at any version, or updating it in the extension, replaces that entry and keeps its files. Uninstalling a bundle whose only entries, at any version, are `unknown` removes them and keeps their files. The extension refuses to move or switch the commit mode of such a bundle until it is reinstalled.
 - **Report.** CLI text output prints a `Migrated <level> record:` block before `Record:`, and `-o json` adds `data.migration`. The extension logs the report and shows one notification, with **Show details**.
 - **Errors.** An older file that cannot be read stops the command with `RECORD.MALFORMED` and nothing is written. If an older file cannot be deleted after the new record is saved, the command fails with `RECORD.WRITE_FAILED`; the next change deletes it.
-- **`profile activate` (known limitation).** CLI `profile activate` and `profile deactivate` still write the older files: `prompt-registry.*` for repository targets, migrated as `unknown` on the next change, and the old user lockfile for user targets, which is not read at user level once imported. Reinstall those bundles with `install`.
+- **`profile activate`.** CLI `profile activate` and `profile deactivate` use each repository or user target's record, like `install` and `uninstall`; workspace-scope targets keep the old user lockfile. `profile deactivate` removes a profile's bundle at whatever version the record now holds for that tool. Bundles activated with an older release become `unknown` entries, which `profile deactivate` keeps with their files and lists in a warning (`data.unknown` in `-o json`); activating again records them. Two targets of the same type at one level are refused with `USAGE.INVALID_FLAG` before anything is written; pick one with `--target`. Output ends with a `Record: <level> <path>` line per level, and `-o json` adds `data.records` and `data.migrations`.
 
 ## Plugin Create (CLI)
 
