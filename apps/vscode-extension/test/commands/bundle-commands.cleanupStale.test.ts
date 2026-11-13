@@ -22,6 +22,7 @@ import {
   createMockContext,
   initGitRoot,
   LOCAL_RECORD_FILE,
+  readRecordView,
   RECORD_FILE,
   recordEntry,
   writeInstallRecord,
@@ -43,7 +44,7 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
   let showInfo: sinon.SinonStub;
 
   const exists = (relative: string): boolean => fs.existsSync(path.join(root, relative));
-  const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
+  const readJson = (file: string): any => readRecordView(path.join(root, file));
 
   // Record a bundle for a tool, then delete the files named in `remove`.
   const recordBundle = async (bundleId: string, tool: string, files: string[], remove: string[] = files): Promise<void> => {
