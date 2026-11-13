@@ -1851,7 +1851,12 @@ export class RegistryManager {
 
   /** Shared reader of the repository install records; keeps problems shown once across refreshes. */
   public getInstallRecordListing(): InstallRecordListing {
-    this.installRecordListing ??= new InstallRecordListing({ fs: this.recordAdapter.fs, store: this.recordAdapter.store, hostTool: this.recordAdapter.hostTool });
+    this.installRecordListing ??= new InstallRecordListing({
+      fs: this.recordAdapter.fs,
+      store: this.recordAdapter.store,
+      hostTool: this.recordAdapter.hostTool,
+      configuredSourceIdOf: (recordedId) => this.recordAdapter.configuredSourceIdOf(recordedId)
+    });
     return this.installRecordListing;
   }
 

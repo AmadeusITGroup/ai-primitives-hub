@@ -13,7 +13,9 @@ import * as path from 'node:path';
 import {
   isLocalSourceInsideRoot,
   isLocalType,
+  recordSourceIdOf,
   toRecordHub,
+  toRecordSource,
 } from '@ai-primitives-hub/app';
 import {
   type HubReference,
@@ -355,6 +357,8 @@ export class RepositoryActivationService {
       // Also accept legacy IDs of each configured source, so entries written with old-format IDs are recognized.
       const allKnownSourceIds = new Set(configuredSourceIds);
       for (const source of configuredSources) {
+        // A record names a source by its readable id.
+        allKnownSourceIds.add(recordSourceIdOf(toRecordSource(source, source.id)));
         const legacyId = generateLegacyHubSourceId(source.type, source.url, {
           branch: source.config?.branch,
           collectionsPath: source.config?.collectionsPath

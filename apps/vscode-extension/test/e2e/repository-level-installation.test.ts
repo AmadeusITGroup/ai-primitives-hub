@@ -47,6 +47,7 @@ import {
 } from '../helpers/e2e-test-helpers';
 import {
   initGitRoot,
+  readRecordView,
 } from '../helpers/install-record-test-helpers';
 import {
   cleanupReleaseMocks,
@@ -84,7 +85,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
    */
   const readRecord = (fileName: string = LOCKFILE_NAME): any => {
     const file = path.join(workspaceRoot, fileName);
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    return fs.existsSync(file) ? readRecordView(file) : null;
   };
 
   // Bundle ID format: owner-repo-manifestId-version
@@ -302,7 +303,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist at repository root');
 
-      const lockfileContent = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfileContent = readRecordView(lockfilePath);
 
       // Req 4.2: version field
       assert.ok(lockfileContent.version, 'Lockfile should have version field');
@@ -378,7 +379,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const githubDir = path.join(workspaceRoot, '.github');
 
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist');
-      const originalLockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const originalLockfile = readRecordView(lockfilePath);
       const originalBundleIds = Object.keys(originalLockfile.bundles);
 
       // === PHASE 2: Delete installed files (keep lockfile) ===
@@ -838,7 +839,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
 
-      const lockfileBefore = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfileBefore = readRecordView(lockfilePath);
       const lockfileBundleIds = Object.keys(lockfileBefore.bundles);
       assert.ok(lockfileBundleIds.length > 0, 'Lockfile should contain at least one bundle');
 
@@ -866,7 +867,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
 
-      const lockfileBefore = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfileBefore = readRecordView(lockfilePath);
       const lockfileBundleIds = Object.keys(lockfileBefore.bundles);
       assert.ok(lockfileBundleIds.length > 0, 'Lockfile should contain at least one bundle');
 
@@ -901,7 +902,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist after installation');
 
       // Verify this is the only bundle in the lockfile
-      const lockfileBefore = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfileBefore = readRecordView(lockfilePath);
       const bundleCount = Object.keys(lockfileBefore.bundles).length;
       assert.strictEqual(bundleCount, 1, 'Should have exactly one bundle in lockfile');
 
@@ -956,7 +957,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Get the actual bundle ID from the LOCAL lockfile (local-only bundles are in local lockfile)
       const localLockfilePath = path.join(workspaceRoot, LOCAL_LOCKFILE_NAME);
-      const lockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const lockfile = readRecordView(localLockfilePath);
       const actualBundleId = Object.keys(lockfile.bundles)[0];
 
       // Uninstall the bundle
@@ -1086,7 +1087,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist');
 
-      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfile = readRecordView(lockfilePath);
       const lockfileBundleIds = Object.keys(lockfile.bundles);
       assert.ok(lockfileBundleIds.length > 0, 'Lockfile should have at least one bundle');
 
@@ -1113,7 +1114,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Verify lockfile is updated (bundle removed)
       if (fs.existsSync(lockfilePath)) {
-        const lockfileAfter = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+        const lockfileAfter = readRecordView(lockfilePath);
         assert.ok(!lockfileAfter.bundles[actualBundleId], 'Bundle should be removed from lockfile');
       }
     });
@@ -1143,7 +1144,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // Get the actual bundle ID from the lockfile
       const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       assert.ok(fs.existsSync(lockfilePath), 'Lockfile should exist');
-      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfile = readRecordView(lockfilePath);
       const actualBundleId = Object.keys(lockfile.bundles)[0];
 
       // Verify bundle is in lockfile at repository scope
@@ -1162,7 +1163,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // (moved from main lockfile to local lockfile)
       const localLockfilePath = path.join(workspaceRoot, LOCAL_LOCKFILE_NAME);
       assert.ok(fs.existsSync(localLockfilePath), 'Local lockfile should exist after switching to local-only mode');
-      const updatedLockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const updatedLockfile = readRecordView(localLockfilePath);
       assert.ok(
         updatedLockfile.bundles[actualBundleId],
         'Bundle should be in local lockfile after switching to local-only mode'
@@ -1218,7 +1219,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // Get the actual bundle ID from the LOCAL lockfile (local-only bundles are in local lockfile)
       const localLockfilePath = path.join(workspaceRoot, LOCAL_LOCKFILE_NAME);
       assert.ok(fs.existsSync(localLockfilePath), 'Local lockfile should exist for local-only bundle');
-      const lockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const lockfile = readRecordView(localLockfilePath);
       const actualBundleId = Object.keys(lockfile.bundles)[0];
 
       // Verify bundle is in local lockfile at repository scope
@@ -1237,7 +1238,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       // (moved from local lockfile to main lockfile)
       const mainLockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       assert.ok(fs.existsSync(mainLockfilePath), 'Main lockfile should exist after switching to commit mode');
-      const updatedLockfile = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+      const updatedLockfile = readRecordView(mainLockfilePath);
       assert.ok(
         updatedLockfile.bundles[actualBundleId],
         'Bundle should be in main lockfile after switching to commit mode'
@@ -1288,7 +1289,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
         throw new Error('Lockfile should exist after installation');
       }
 
-      const lockfile = JSON.parse(fs.readFileSync(lockfilePath, 'utf8'));
+      const lockfile = readRecordView(lockfilePath);
       const bundleId = Object.keys(lockfile.bundles)[0];
       const promptFilePath = path.join(workspaceRoot, GITHUB_PROMPTS_DIR, 'test-prompt.prompt.md');
 
@@ -1680,7 +1681,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(fs.existsSync(localLockfilePath), 'Local lockfile should be created for local-only bundle');
 
       // Verify local lockfile has correct structure
-      const localLockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const localLockfile = readRecordView(localLockfilePath);
       assert.ok(localLockfile.bundles, 'Local lockfile should have bundles object');
       assert.ok(Object.keys(localLockfile.bundles).length > 0, 'Local lockfile should contain the bundle');
 
@@ -1717,7 +1718,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(fs.existsSync(mainLockfilePath), 'Main lockfile should be created for committed bundle');
 
       // Verify main lockfile has correct structure
-      const mainLockfile = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+      const mainLockfile = readRecordView(mainLockfilePath);
       assert.ok(mainLockfile.bundles, 'Main lockfile should have bundles object');
       assert.ok(Object.keys(mainLockfile.bundles).length > 0, 'Main lockfile should contain the bundle');
 
@@ -1749,7 +1750,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(fs.existsSync(mainLockfilePath), 'Main lockfile should exist');
       assert.ok(!fs.existsSync(localLockfilePath), 'Local lockfile should NOT exist initially');
 
-      const mainLockfileBefore = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+      const mainLockfileBefore = readRecordView(mainLockfilePath);
       const actualBundleId = Object.keys(mainLockfileBefore.bundles)[0];
       const originalEntry = mainLockfileBefore.bundles[actualBundleId].tools[HOST_TOOL];
 
@@ -1768,12 +1769,12 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Verify bundle was moved to local lockfile (Requirement 4.1)
       assert.ok(fs.existsSync(localLockfilePath), 'Local lockfile should be created after switching to local-only');
-      const localLockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const localLockfile = readRecordView(localLockfilePath);
       assert.ok(localLockfile.bundles[actualBundleId], 'Bundle should be in local lockfile');
 
       // Verify bundle was removed from main lockfile
       if (fs.existsSync(mainLockfilePath)) {
-        const mainLockfileAfter = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+        const mainLockfileAfter = readRecordView(mainLockfilePath);
         assert.ok(!mainLockfileAfter.bundles[actualBundleId], 'Bundle should NOT be in main lockfile');
       }
 
@@ -1789,7 +1790,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Verify bundle was moved back to main lockfile
       assert.ok(fs.existsSync(mainLockfilePath), 'Main lockfile should exist after switching to commit');
-      const mainLockfileAfterSwitch = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+      const mainLockfileAfterSwitch = readRecordView(mainLockfilePath);
       assert.ok(mainLockfileAfterSwitch.bundles[actualBundleId], 'Bundle should be in main lockfile');
 
       // Verify local lockfile was deleted (it was the only bundle)
@@ -1833,7 +1834,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(isLocalLockfileExcluded(), 'Local lockfile should be in git exclude');
 
       // Get the actual bundle ID from the local lockfile
-      const localLockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const localLockfile = readRecordView(localLockfilePath);
       const actualBundleId = Object.keys(localLockfile.bundles)[0];
 
       // Verify this is the only bundle
@@ -1921,12 +1922,12 @@ suite('E2E: Repository-Level Installation Tests', () => {
       assert.ok(fs.existsSync(localLockfilePath), 'Local lockfile should exist for local-only bundle');
 
       // Verify committed bundle is in main lockfile only
-      const mainLockfile = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+      const mainLockfile = readRecordView(mainLockfilePath);
       const mainBundleIds = Object.keys(mainLockfile.bundles);
       assert.ok(mainBundleIds.length > 0, 'Main lockfile should have at least one bundle');
 
       // Verify local-only bundle is in local lockfile only
-      const localLockfile = JSON.parse(fs.readFileSync(localLockfilePath, 'utf8'));
+      const localLockfile = readRecordView(localLockfilePath);
       const localBundleIds = Object.keys(localLockfile.bundles);
       assert.ok(localBundleIds.length > 0, 'Local lockfile should have at least one bundle');
 
@@ -1959,7 +1960,7 @@ suite('E2E: Repository-Level Installation Tests', () => {
 
       // Verify main lockfile still exists with committed bundle
       assert.ok(fs.existsSync(mainLockfilePath), 'Main lockfile should still exist');
-      const mainLockfileAfter = JSON.parse(fs.readFileSync(mainLockfilePath, 'utf8'));
+      const mainLockfileAfter = readRecordView(mainLockfilePath);
       assert.ok(Object.keys(mainLockfileAfter.bundles).length > 0, 'Main lockfile should still have committed bundle');
 
       // Verify local lockfile is removed from git exclude

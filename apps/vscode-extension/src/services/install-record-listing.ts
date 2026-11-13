@@ -73,6 +73,8 @@ export interface InstallRecordListingOptions {
   showProblem?: (message: string) => void;
   /** Tool whose entries are listed as installed; `detectHostApp()` by default. */
   hostTool?: string;
+  /** The configured source id of a recorded source id; the id itself by default. */
+  configuredSourceIdOf?: (recordedId: string) => Promise<string>;
 }
 
 /** Problem kinds the listing reports. */
@@ -127,6 +129,7 @@ export class InstallRecordListing {
   private readonly store: RecordStore;
   private readonly showProblem: (message: string) => void;
   private readonly hostTool: string;
+  private readonly configuredSourceIdOf: (recordedId: string) => Promise<string>;
   private readonly logger = Logger.getInstance();
   /** Problem keys already shown to the user. */
   private readonly shown = new Set<string>();
@@ -138,6 +141,7 @@ export class InstallRecordListing {
       void vscode.window.showWarningMessage(message);
     });
     this.hostTool = options.hostTool ?? detectHostApp();
+    this.configuredSourceIdOf = options.configuredSourceIdOf ?? ((recordedId) => Promise.resolve(recordedId));
   }
 
   private async readRecords(workspaceRoot: string): Promise<RecordItems> {
@@ -226,6 +230,7 @@ export class InstallRecordListing {
       commitModeOverride: location.commitMode ?? 'commit'
     });
     item.recordOrigin = 'install-record';
+    item.sourceId = await this.configuredSourceIdOf(entry.sourceId);
     items.set(bundleId, item);
   }
 
@@ -352,7 +357,9 @@ export class InstallRecordListing {
       const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(chosen.entry), {
         installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, chosen.entry)
       });
-      items.push({ ...item, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
+      items.push({
+        ...item, sourceId: await this.configuredSourceIdOf(chosen.entry.sourceId), scope: 'user', commitMode: undefined, recordOrigin: 'install-record'
+      });
     }
     return { items, hostBundleIds, hostKeys };
   }

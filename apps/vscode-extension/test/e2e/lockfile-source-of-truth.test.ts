@@ -35,6 +35,9 @@ import {
   generateTestId,
 } from '../helpers/e2e-test-helpers';
 import {
+  readRecordView,
+} from '../helpers/install-record-test-helpers';
+import {
   cleanupReleaseMocks,
   computeBundleId,
   createMockGitHubSource,
@@ -70,7 +73,7 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
    * Read a JSON file of the workspace.
    * @param fileName - Workspace-relative file.
    */
-  const readJson = (fileName: string): any => JSON.parse(fs.readFileSync(path.join(workspaceRoot, fileName), 'utf8'));
+  const readJson = (fileName: string): any => readRecordView(path.join(workspaceRoot, fileName));
 
   // Compute bundle ID using shared helper
   const BUNDLE_ID = computeBundleId(TEST_CONFIG, TEST_CONFIG.baseVersion || '1.0.0');
@@ -200,7 +203,7 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
     test('Requirement 1.1, 1.3: listInstalledBundles(repository) returns bundles from lockfile', async function () {
       this.timeout(60_000);
 
-      const { bundle } = await setupSourceAndGetBundle('listing-source', 'listing-test');
+      const { sourceId, bundle } = await setupSourceAndGetBundle('listing-source', 'listing-test');
 
       // Install bundle at repository scope
       await installBundleOrSkip(this, bundle.id, {
@@ -229,7 +232,7 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
       // Verify bundle data matches lockfile entry (Requirement 1.3)
       assert.strictEqual(installedBundle.version, lockfileEntry.version, 'Version should match lockfile entry');
-      assert.strictEqual(installedBundle.sourceId, lockfileEntry.sourceId, 'SourceId should match lockfile entry');
+      assert.strictEqual(installedBundle.sourceId, sourceId, 'SourceId should be the configured source');
       assert.strictEqual(installedBundle.sourceType, lockfileEntry.sourceType, 'SourceType should match lockfile entry');
       assert.strictEqual(installedBundle.scope, 'repository', 'Scope should be repository');
       assert.ok(installedBundle.installPath, 'InstallPath should be set');
@@ -598,7 +601,8 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
       // Verify bundle-2 data is intact
       const remainingBundle = lockfileAfter.bundles[actualBundleId2].tools[HOST_TOOL];
       assert.strictEqual(remainingBundle.version, '1.0.0', 'Remaining bundle version should be intact');
-      assert.strictEqual(remainingBundle.sourceId, sourceId2, 'Remaining bundle sourceId should be intact');
+      const listed = await testContext.registryManager.listInstalledBundles('repository');
+      assert.strictEqual(listed.find((b) => b.bundleId === actualBundleId2)?.sourceId, sourceId2, 'Remaining bundle sourceId should be intact');
     });
   });
 

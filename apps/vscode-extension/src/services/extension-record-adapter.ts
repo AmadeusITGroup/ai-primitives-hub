@@ -15,6 +15,7 @@ import {
   type InstallRecordService,
   isAnyFileMissing,
   isLoneUnknown,
+  isRecordSourceId,
   listedPaths,
   type LocatedToolEntry,
   type Lockfile,
@@ -29,6 +30,7 @@ import {
   type RecordHubInput,
   recordIdentityOf,
   type RecordSourceDescriptor,
+  recordSourceIdOf,
   type RecordSourceInput,
   type RecordStore,
   resolveUserHome,
@@ -628,6 +630,19 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * The configured id of a source a record names by its readable id; the id itself
+   * when no configured source is that source, so it still names the recorded copy.
+   * @param recordedId - The entry's `sourceId`.
+   */
+  public async configuredSourceIdOf(recordedId: string): Promise<string> {
+    if (!isRecordSourceId(recordedId)) {
+      return recordedId;
+    }
+    const sources = await this.sources.listSources();
+    return sources.find((source) => recordSourceIdOf(toRecordSource(source, source.id)) === recordedId)?.id ?? recordedId;
+  }
+
+  /**
    * The source an install records with its shareable hub, from the HubManager.
    * @param sourceId - Source id of the bundle.
    * @throws {Error} When the id is unknown or its type is not a `SourceType`.
@@ -729,8 +744,15 @@ export class ExtensionRecordAdapter {
     } catch {
       // Not a configured source here: record the descriptor app resolved.
     }
+    // The retired source is still configured: records name it by its readable id.
+    const fromDescriptor = await this.buildRecordSource(from).then(({ source: { sourceId: _sourceId, ...fields } }) => fields, () => undefined);
     const result = await this.service.remapSource({
-      root: await this.resolveRoot(workspaceFolder), from, to, descriptor: recordDescriptor, ...(hub === undefined ? {} : { hub })
+      root: await this.resolveRoot(workspaceFolder),
+      from,
+      to,
+      descriptor: recordDescriptor,
+      ...(fromDescriptor === undefined ? {} : { fromDescriptor }),
+      ...(hub === undefined ? {} : { hub })
     });
     result.warnings.forEach((warning) => this.logger.warn(warning));
   }
