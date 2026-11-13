@@ -18,6 +18,7 @@ import {
 import {
   type BundleRecord,
   type InstallRecord,
+  isJsonObject,
   type SourceRecord,
   type ToolEntry,
 } from '@ai-primitives-hub/core';
@@ -111,13 +112,19 @@ export const toRecordFile = (record: InstallRecord): InstallRecord => {
   const file = Object.assign(nullObject<InstallRecord>(), rest);
   const idOf = new Map<string, string>();
   file.sources = nullObject<InstallRecord['sources']>();
-  for (const [key, source] of Object.entries(sources)) {
+  // A source under its readable id is the current copy; an older id of the same source only fills a gap.
+  const current = new Set<string>();
+  const ordered = Object.entries(sources).toSorted(([left], [right]) => Number(isRecordSourceId(right)) - Number(isRecordSourceId(left)));
+  for (const [key, source] of ordered) {
     const id = isRecordSourceId(key) ? key : recordSourceIdOf(source);
     idOf.set(key, id);
-    const current = Object.hasOwn(file.sources, id) ? file.sources[id] : undefined;
-    // Two old ids of one source: keep the copy that names its hub.
-    if (current === undefined || (current.hubId === undefined && source.hubId !== undefined)) {
+    const kept = Object.hasOwn(file.sources, id) ? file.sources[id] : undefined;
+    // Of two older ids of one source, the copy that names its hub.
+    if (kept === undefined || (!current.has(id) && kept.hubId === undefined && source.hubId !== undefined)) {
       file.sources[id] = Object.assign(nullObject<SourceRecord>(), source);
+    }
+    if (isRecordSourceId(key)) {
+      current.add(id);
     }
   }
   file.bundles = nullObject<InstallRecord['bundles']>();
@@ -154,6 +161,11 @@ export const fromRecordFile = (file: InstallRecord): InstallRecord => {
   for (const [key, bundle] of Object.entries(bundles)) {
     const slash = key.lastIndexOf('/');
     const keyed = isRecordSourceId(key) && slash > 0;
+    if (!isJsonObject(bundle.tools)) {
+      // Not a record bundle (another format): kept as it is.
+      record.bundles[key] = bundle;
+      continue;
+    }
     const { tools, ...extra } = bundle;
     for (const [tool, stored] of Object.entries(tools)) {
       const entry = Object.assign(nullObject<ToolEntry>(), stored);

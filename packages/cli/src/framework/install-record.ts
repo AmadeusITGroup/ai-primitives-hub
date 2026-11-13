@@ -135,6 +135,14 @@ export interface RepositoryInstallToRecord {
   hub?: RecordHubInput;
   /** The writer's `written` list, absolute paths. */
   writtenPaths: readonly string[];
+  /** The installed bundle: its manifest id, recorded as the bundle name, and its files, for `integrity` and `sourcePath`. */
+  bundle?: InstalledBundleContent;
+}
+
+/** What was installed, as the record describes it: the manifest id and the bundle's files by bundle path. */
+export interface InstalledBundleContent {
+  name: string;
+  files: ReadonlyMap<string, Uint8Array>;
 }
 
 /** Outcome of `recordRepositoryInstall`. */
@@ -355,7 +363,8 @@ export const recordRepositoryInstall = async (
       ...(install.hub === undefined ? {} : { hub: install.hub }),
       sourceType: install.source.type,
       writtenPaths: install.writtenPaths,
-      workspaceRoot: prepared.workspaceRoot
+      workspaceRoot: prepared.workspaceRoot,
+      ...(install.bundle === undefined ? {} : { name: install.bundle.name, bundleFiles: install.bundle.files })
     });
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error, install.writtenPaths) : error;
@@ -927,6 +936,7 @@ export interface PlannedRecordInstall {
  * @param version - Version written.
  * @param written - The writer's `written` list.
  * @param syncSiblings - Which sibling entries to sync.
+ * @param bundle - The installed bundle's manifest id and files.
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
 export const recordPlannedInstall = (
@@ -936,7 +946,8 @@ export const recordPlannedInstall = (
   ctx: Context,
   version: string,
   written: readonly string[],
-  syncSiblings: RecordInstallInput['syncSiblings']
+  syncSiblings: RecordInstallInput['syncSiblings'],
+  bundle?: InstalledBundleContent
 ): Promise<RecordInstallResult> => service.recordInstall({
   location: item.location,
   bundleId: item.bundleId,
@@ -948,7 +959,8 @@ export const recordPlannedInstall = (
   writtenPaths: written,
   // User level: home is the workspace root, as the user-scope install records it.
   workspaceRoot: item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd()),
-  syncSiblings
+  syncSiblings,
+  ...(bundle === undefined ? {} : { name: bundle.name, bundleFiles: bundle.files })
 });
 
 /**

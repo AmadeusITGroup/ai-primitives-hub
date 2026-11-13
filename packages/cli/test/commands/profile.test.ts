@@ -824,7 +824,7 @@ profiles:
       XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
     });
     const persisted = await readInstallRecord<{ sources: Record<string, unknown> }>(lockfilePath);
-    expect(persisted.sources.replicated).toMatchObject({
+    expect(Object.values(persisted.sources)[0]).toMatchObject({
       type: 'artifactory',
       url: sourceRoot,
       indexFile: 'index-v1.json',
@@ -910,7 +910,8 @@ describe('profile activate with an Artifactory hub source', () => {
     return { exitCode, stdout: ctx.stdout.captured() };
   };
   const recordedSource = async (): Promise<unknown> =>
-    (await readInstallRecord(userRecordPath(env()))).sources[ART_SOURCE.id];
+    // The one source the user record has, whatever its readable id.
+    Object.values((await readInstallRecord(userRecordPath(env()))).sources)[0];
 
   beforeEach(async () => {
     requests.length = 0;
