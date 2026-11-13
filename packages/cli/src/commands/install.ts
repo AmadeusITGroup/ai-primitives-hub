@@ -89,7 +89,7 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
-  configuredSources,
+  configuredRecordSources,
   type Context,
   createHubManager,
   createLayoutLoader,
@@ -109,6 +109,7 @@ import {
   prepareRecordForTarget,
   prepareRecordSelection,
   readTargetsSafely,
+  recordHubOf,
   recordOutputFields,
   recordPlannedInstall,
   recordRepositoryInstall,
@@ -886,7 +887,8 @@ async function interactiveBundleSelection(
       return active;
     }
 
-    const sourceMap = buildSourceMap(active.config.sources);
+    // The active hub owns these sources.
+    const sourceMap = buildSourceMap(active.config.sources.map((source) => ({ ...source, hubId: active.id })));
     const bundles = deduplicateBundles(active.config.profiles);
     const bundleChoices = buildBundleChoices(bundles);
     const selectedBundles = await promptBundleSelection(bundleChoices, bundles);
@@ -1334,7 +1336,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     fs,
     selection,
     targets: await readTargetsSafely(loadTargets(ctx)),
-    configured: await configuredSources(ctx),
+    ...await configuredRecordSources(ctx),
     explicit,
     cwd: ctx.cwd(),
     holdingFile: 'first-holding'
@@ -1377,7 +1379,7 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
       const { result } = await writeBundleSafely(writerFactory(target), target, files, manifest);
       written = [...result.written];
       changes.push(await recordPlannedInstall(
-        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type }, target, ctx, manifest.version, written, false
+        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type, hubId: item.source.hubId }, target, ctx, manifest.version, written, false
       ));
       data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
     } catch (cause) {
@@ -1576,6 +1578,8 @@ async function performRemoteInstall(
     }
     // Check the record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
+    // Optional hub metadata, looked up before any file is written; a failed lookup records no hub.
+    const hub = prepared === undefined ? undefined : await recordHubOf(ctx, opts.sourceConfig).catch(() => undefined);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
@@ -1584,14 +1588,15 @@ async function performRemoteInstall(
     // No configured source: the GitHub repository the bundle was resolved from.
     const recordSource = opts.sourceConfig === undefined
       ? { type: 'github', url: `https://github.com/${repoSlug}` }
-      : toRecordSource(opts.sourceConfig);
+      : toRecordSource(opts.sourceConfig, installable.ref.sourceId, hub);
     // The old lockfile never kept a branch.
     const { branch: _branch, ...sourceDetails } = toLockfileSourceEntry(recordSource);
     const { lockPath, warnings } = await persistInstall(prepared, {
       bundleId: lockKey,
       version: manifest.version,
       tool: effectiveTarget.type,
-      source: { sourceId: installable.ref.sourceId, ...recordSource },
+      source: { ...recordSource, sourceId: installable.ref.sourceId },
+      ...(hub === undefined ? {} : { hub }),
       writtenPaths: result.written
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);

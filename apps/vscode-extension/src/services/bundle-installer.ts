@@ -23,6 +23,7 @@ import {
   InstallPipeline,
   InstallPipelineError,
   type LocatedToolEntry,
+  type RecordHubInput,
   recordIdentityOf,
   type RecordInstallResult,
   type RecordSourceInput,
@@ -119,6 +120,8 @@ interface PreparedRepositoryInstall {
   location: RecordLocation;
   /** Configured source the entry records. */
   source: RecordSourceInput;
+  /** The source's shareable hub. */
+  hub?: RecordHubInput;
   /** Root-relative files of the replaced host entries modified or missing before the write. */
   modified: ReadonlySet<string>;
 }
@@ -138,6 +141,8 @@ interface PreparedUserInstall {
   location: RecordLocation;
   /** Configured source the entry records. */
   source: RecordSourceInput;
+  /** The source's shareable hub. */
+  hub?: RecordHubInput;
   /** Bundle id of the installed version an update replaces, when the user record has its host entry. */
   previousBundleId?: string;
   /** Home-relative paths of the replaced host entries that were modified or missing before the write. */
@@ -155,6 +160,8 @@ interface HostInstallToRecord {
   location: RecordLocation;
   /** Configured source the entry records. */
   source: RecordSourceInput;
+  /** The source's shareable hub. */
+  hub?: RecordHubInput;
   /** Root the written paths are recorded against: the workspace folder, or home. */
   workspaceRoot: string;
   written: readonly string[];
@@ -242,10 +249,10 @@ export class BundleInstaller {
     if (!workspaceRoot) {
       throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
     }
-    const source = await this.records.buildSource(bundle.sourceId);
+    const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
     try {
       const location = inPlace?.location ?? await this.records.prepareInstall(workspaceRoot, commitMode);
-      return { workspaceRoot, location, source, modified: inPlace?.modified ?? await this.modifiedOfSameIdentity(workspaceRoot, bundle) };
+      return { workspaceRoot, location, source, hub, modified: inPlace?.modified ?? await this.modifiedOfSameIdentity(workspaceRoot, bundle) };
     } catch (error) {
       this.rethrowRecordError(error);
     }
@@ -287,6 +294,7 @@ export class BundleInstaller {
     const warnings = await this.recordHostInstall(bundle, {
       location: prepared.location,
       source: prepared.source,
+      hub: prepared.hub,
       workspaceRoot: prepared.workspaceRoot,
       written,
       syncSiblings: (tool) => group.includes(tool),
@@ -325,6 +333,7 @@ export class BundleInstaller {
         version: bundle.version,
         tool,
         source: input.source,
+        hub: input.hub,
         sourceType: input.source.type,
         writtenPaths: input.written,
         workspaceRoot: input.workspaceRoot,
@@ -409,7 +418,7 @@ export class BundleInstaller {
    * @param previousBundleId - Bundle id of the installed version, for an update.
    */
   private async prepareUserInstall(bundle: Bundle, previousBundleId?: string): Promise<PreparedUserInstall> {
-    const source = await this.records.buildSource(bundle.sourceId);
+    const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
     try {
       const location = await this.records.prepareUserInstall(this.copilotSync.userFolders());
       // Every host entry the install replaces: any version of the bundle, and the installed id of an update.
@@ -432,6 +441,7 @@ export class BundleInstaller {
       return {
         location,
         source,
+        hub,
         previousBundleId: replaced.some((located) => located.bundleId === previousBundleId) ? previousBundleId : undefined,
         modified,
         owned,
@@ -456,6 +466,7 @@ export class BundleInstaller {
     const warnings = await this.records.serialize(prepared.location.path, () => this.recordHostInstall(bundle, {
       location: prepared.location,
       source: prepared.source,
+      hub: prepared.hub,
       workspaceRoot: this.records.home,
       written,
       previous: prepared.previousBundleId === undefined

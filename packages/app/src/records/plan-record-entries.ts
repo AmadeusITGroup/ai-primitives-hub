@@ -20,6 +20,9 @@ import {
   type TargetMapping,
 } from './map-tool-to-target';
 import type {
+  RecordHubInput,
+} from './record-hub';
+import type {
   RecordStore,
 } from './record-store';
 import {
@@ -41,6 +44,8 @@ export interface RecordPlanEntry {
   target: Target;
   /** `true` when the source came from the record only and is fetched without credentials. */
   fromRecordOnly: boolean;
+  /** The configured source's shareable hub, recorded with it. */
+  hub?: RecordHubInput;
 }
 
 /** A (bundle, tool) entry the plan left out, and why. */
@@ -77,6 +82,10 @@ export interface PlanRecordEntriesOptions {
   targets: readonly Target[];
   /** Configured sources by id, in lookup order. */
   configured: ReadonlyMap<string, RegistrySource>;
+  /** Every configured source, of any hub; one from the recorded hub wins. */
+  candidates?: readonly RegistrySource[];
+  /** Shareable configured hubs by id. */
+  hubs?: ReadonlyMap<string, RecordHubInput>;
   /** The target named by `--target`; only it narrows the plan to one tool. */
   explicit?: Target;
   /** Root of a target without `rootPath`. */
@@ -135,7 +144,10 @@ export const planRecordEntries = async (options: PlanRecordEntriesOptions): Prom
       continue;
     }
     // Trust gate before any lookup or download.
-    const decision = await resolveRecordSource(entry.sourceId, fromRecord, configured, selection.root, fs);
+    const decision = await resolveRecordSource(entry.sourceId, fromRecord, configured, selection.root, fs, {
+      candidates: options.candidates,
+      hubs: options.hubs
+    });
     if ('skip' in decision) {
       plan.skipped.push({ bundleId, tool, reason: decision.skip });
       continue;
@@ -152,7 +164,8 @@ export const planRecordEntries = async (options: PlanRecordEntriesOptions): Prom
         || (mapping.target.commitMode ?? 'commit') === location.commitMode
         ? mapping.target
         : { ...mapping.target, commitMode: location.commitMode },
-      fromRecordOnly: !configured.has(entry.sourceId)
+      fromRecordOnly: decision.configured !== true,
+      ...(decision.hub === undefined ? {} : { hub: decision.hub })
     });
   }
   plan.notes = [...notes];

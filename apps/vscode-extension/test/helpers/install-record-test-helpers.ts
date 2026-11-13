@@ -9,6 +9,7 @@ import {
   getLockfilePathForMode,
   type Lockfile,
   type LockfileFs,
+  type RecordHubInput,
   type RecordSourceInput,
   upsertBundleEntry,
   upsertSource,
@@ -174,6 +175,8 @@ export interface RecordEntryOptions {
   commitMode?: RepositoryCommitMode;
   /** Source to record; {@link ACME_SOURCE} by default. */
   source?: RecordSourceInput;
+  /** Hub named by `source.hubId`. */
+  hub?: RecordHubInput;
   /** Content of each file written; `# <bundleId>\n` by default. */
   content?: string;
   /** Leave a file that already exists as it is. */
@@ -203,6 +206,7 @@ export const recordEntry = async (adapter: ExtensionRecordAdapter, root: string,
     version: '1.0.0',
     tool: options.tool ?? adapter.hostTool,
     source,
+    hub: options.hub,
     sourceType: source.type,
     writtenPaths: options.files.map((relative) => path.join(root, ...relative.split('/'))),
     syncSiblings: false

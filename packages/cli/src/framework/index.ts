@@ -102,6 +102,7 @@ export type {
   PreparedUnknownUninstall,
   RecordDecision,
   RecordedRepositoryInstall,
+  ConfiguredRecordSources,
   RecordedRepositoryUninstall,
   RecordOutputFields,
   RecordSelectionInput,
@@ -109,6 +110,7 @@ export type {
 } from './install-record';
 export {
   CLI_RECORD_GENERATED_BY,
+  configuredRecordSources,
   configuredSources,
   createLayoutLoader,
   createRecordServices,
@@ -123,6 +125,7 @@ export {
   prepareRepositoryRecord,
   prepareRepositoryUninstall,
   prepareUninstallForTarget,
+  recordHubOf,
   prepareUnknownUninstall,
   recordedTools,
   recordOutputFields,

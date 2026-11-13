@@ -1,6 +1,7 @@
 /**
  * Source trust gate for record replay and update. A record may come from a
- * cloned repository, so a configured source with the same id wins; otherwise
+ * cloned repository, so a configured source with the same id wins, one from the
+ * recorded hub first; otherwise
  * the recorded copy is used without credentials, and a `local` folder must stay
  * inside the repository.
  * @module records/resolve-record-source
@@ -13,6 +14,9 @@ import {
   relativeInside,
   type SourceRecord,
 } from '@ai-primitives-hub/core';
+import type {
+  RecordHubInput,
+} from './record-hub';
 import {
   copySourceFields,
   SOURCE_FIELDS_WITHOUT_CREDENTIALS,
@@ -23,8 +27,11 @@ import {
 
 /** Outcome of {@link resolveRecordSource}. */
 export type SourceDecision =
-  /** Fetch from this source; `sourceId` is the record key. */
-  | { use: SourceRecord & { sourceId: string } }
+  /**
+   * Fetch from this source; `sourceId` is the record key. `hub` is the
+   * configured source's shareable hub; `configured` marks a configured match.
+   */
+  | { use: SourceRecord & { sourceId: string }; hub?: RecordHubInput; configured?: true }
   /** Do not fetch; skip the entry and report the reason. */
   | { skip: string };
 
@@ -104,6 +111,14 @@ export const orderConfiguredSources = (
   return [...byId.values()];
 };
 
+/** Optional inputs of {@link resolveRecordSource}. */
+export interface ResolveRecordSourceOptions {
+  /** Every configured source, of any hub; one with the recorded `hubId` wins. */
+  candidates?: readonly RegistrySource[];
+  /** Shareable configured hubs by id, recorded with the source. */
+  hubs?: ReadonlyMap<string, RecordHubInput>;
+}
+
 /**
  * Decide which source an entry is replayed or updated from.
  * @param sourceId - The entry's `sourceId`.
@@ -111,6 +126,7 @@ export const orderConfiguredSources = (
  * @param configured - Configured sources by id, active hub first.
  * @param root - Repository root.
  * @param fs - Filesystem port.
+ * @param options - Candidate sources and hubs.
  * @returns The source to use, or why the entry is skipped.
  */
 export const resolveRecordSource = async (
@@ -118,12 +134,18 @@ export const resolveRecordSource = async (
   fromRecord: SourceRecord,
   configured: ReadonlyMap<string, RegistrySource>,
   root: string,
-  fs: RecordFs
+  fs: RecordFs,
+  options: ResolveRecordSourceOptions = {}
 ): Promise<SourceDecision> => {
-  const match = configured.get(sourceId);
+  const recordedHubId = fromRecord.hubId;
+  const sameHub = typeof recordedHubId === 'string' && recordedHubId !== ''
+    ? options.candidates?.find((candidate) => candidate.id === sourceId && candidate.hubId === recordedHubId)
+    : undefined;
+  const match = sameHub ?? configured.get(sourceId);
   if (match !== undefined) {
+    const hub = match.hubId === undefined ? undefined : options.hubs?.get(match.hubId);
     // Normalised as an install records it, so older records are re-recorded the same way.
-    return { use: toRecordSource(match, sourceId) };
+    return { use: toRecordSource(match, sourceId, hub), configured: true, ...(hub === undefined ? {} : { hub }) };
   }
   if (!isLocalType(fromRecord.type)) {
     return { use: fromRecordCopy(sourceId, fromRecord, fromRecord.url) };

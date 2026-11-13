@@ -270,7 +270,8 @@ function renderEntryLines(d: StatusData, verbose: boolean): string[] {
   const lines = [`lockfile    ${bundles} bundle${bundles === 1 ? '' : 's'} installed (${d.entries.length} entr${d.entries.length === 1 ? 'y' : 'ies'})\n`];
   for (const row of d.entries) {
     const flag = row.needsReinstall ? '  needs reinstall' : '';
-    lines.push(`              ${row.bundleId}@${row.version} (${row.tool})${flag}${verbose ? `  [${row.record}]` : ''}\n`);
+    const hub = row.hubId === undefined ? '' : `  hub ${row.hubId}`;
+    lines.push(`              ${row.bundleId}@${row.version} (${row.tool})${hub}${flag}${verbose ? `  [${row.record}]` : ''}\n`);
   }
   return lines;
 }

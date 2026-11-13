@@ -14,6 +14,7 @@ export * from './legacy-shapes';
 export * from './map-tool-to-target';
 export * from './modified-files';
 export * from './plan-record-entries';
+export * from './record-hub';
 export * from './record-identity';
 export * from './record-migration';
 export * from './record-store';

@@ -165,7 +165,9 @@ Moving a bundle preserves its files and version. The extension handles uninstall
 
 ### Joining a Repository with Bundles
 
-When the install record names sources or hubs you have not configured, a notification says how many and which credentials they need. Add them (**Add Source**, or import the hub) before installing the recorded bundles.
+When the install record names sources or hubs you have not configured, a notification lists them and the credentials they need. Add the sources (**Add Source**) before installing the recorded bundles.
+
+A bundle installed from a shared hub records that hub's import reference in the record's `hubs` map, never a credential. When you open the repository and that hub is not configured, the extension asks, for each one, whether to import it, and shows the reference it will import; choose **Import hub** to import it. It asks only in a trusted workspace and only for a GitHub or HTTPS hub, and never imports without asking. Hubs on a local path and sources added with **Add Source** are not recorded.
 
 To restore the recorded bundles from the command line, run a bare `ai-primitives-hub install` in the repository; it reinstalls each recorded tool that has a configured target, at its recorded version.
 
