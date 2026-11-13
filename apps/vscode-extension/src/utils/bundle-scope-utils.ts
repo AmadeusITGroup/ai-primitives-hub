@@ -35,7 +35,7 @@ export type RepositoryBundleLister = (workspaceRoot: string) => Promise<Installe
  */
 export const createRepositoryBundleLister = (storage: RegistryStorage): RepositoryBundleLister => {
   const adapter = new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() } });
-  const listing = new InstallRecordListing({ fs: adapter.fs, store: adapter.store });
+  const listing = new InstallRecordListing({ fs: adapter.fs, store: adapter.store, hostTool: adapter.hostTool });
   return (workspaceRoot) => listing.listRepositoryBundles(workspaceRoot, () => adapter.listOldBundles(workspaceRoot));
 };
 

@@ -5,6 +5,9 @@ import * as path from 'node:path';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
+  InstallRecordListing,
+} from '../../src/services/install-record-listing';
+import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -84,12 +87,12 @@ suite('Install record listing (repository scope)', () => {
       expected: [{ bundleId: 'acme-tools-coll-1.0.0', version: '1.0.0' }]
     },
     {
-      name: 'versioned keys of one bundle held by different tools both list',
+      name: 'versioned keys of one bundle held by different tools list only the host tool\'s',
       record: {
         'acme-tools-coll-1.0.0': { kiro: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.kiro/steering/coll.md' } },
         'acme-tools-coll-2.0.0': { vscode: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/coll.prompt.md' } }
       },
-      expected: [{ bundleId: 'acme-tools-coll-1.0.0', version: '1.0.0' }, { bundleId: 'acme-tools-coll-2.0.0', version: '2.0.0' }]
+      expected: [{ bundleId: 'acme-tools-coll-2.0.0', version: '2.0.0' }]
     }
   ];
 
@@ -106,7 +109,7 @@ suite('Install record listing (repository scope)', () => {
     });
   });
 
-  test('tools of one bundle split across the two files list as one item without a warning', async () => {
+  test('tools of one bundle split across the two files list the host tool\'s entry without a warning', async () => {
     writeInstallRecord(root, RECORD_FILE, {
       split: { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.github/prompts/split.prompt.md' } }
     });
@@ -114,7 +117,7 @@ suite('Install record listing (repository scope)', () => {
       split: { kiro: { version: '1.1.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.kiro/steering/split.md' } }
     });
 
-    assert.deepStrictEqual(await list(), [{ bundleId: 'split', version: '1.1.0' }]);
+    assert.deepStrictEqual(await list(), [{ bundleId: 'split', version: '1.0.0' }]);
     assert.ok(showWarning.notCalled);
   });
 
@@ -145,5 +148,24 @@ suite('Install record listing (repository scope)', () => {
     assert.strictEqual(showWarning.callCount, 1);
     assert.ok(String(showWarning.firstCall.args[0]).includes('RECORD.MALFORMED'));
     assert.strictEqual(fs.readFileSync(path.join(root, RECORD_FILE), 'utf8'), '{ not json');
+  });
+
+  const hostCases: { hostTool: string; expected: { bundleId: string; version: string }[] }[] = [
+    { hostTool: 'vscode', expected: [{ bundleId: 'for-vscode', version: '1.0.0' }, { bundleId: 'migrated', version: '0.9.0' }] },
+    { hostTool: 'kiro', expected: [{ bundleId: 'for-kiro', version: '2.0.0' }, { bundleId: 'migrated', version: '0.9.0' }] }
+  ];
+
+  hostCases.forEach(({ hostTool, expected }) => {
+    test(`in ${hostTool}, a bundle installed only for another tool is not listed; a migrated unknown entry is`, async () => {
+      writeInstallRecord(root, RECORD_FILE, {
+        'for-vscode': { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.github/prompts/a.prompt.md' } },
+        'for-kiro': { kiro: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.kiro/steering/b.md' } },
+        migrated: { unknown: { version: '0.9.0', installedAt: '2026-10-26T10:00:00.000Z', file: '.github/prompts/c.prompt.md' } }
+      });
+
+      const items = await new InstallRecordListing({ hostTool, showProblem: () => undefined }).listRepositoryBundles(root, () => Promise.resolve([]));
+
+      assert.deepStrictEqual(items.map(({ bundleId, version }) => ({ bundleId, version })).toSorted((a, b) => a.bundleId.localeCompare(b.bundleId)), expected);
+    });
   });
 });

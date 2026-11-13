@@ -215,6 +215,18 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     });
   });
 
+  test('a bundle installed only for kiro is not listed here, and installing it adds the vscode entry beside the kiro one', async () => {
+    await recordOtherTool('kiro', ['.kiro/steering/hello.md']);
+    const kiroBefore = JSON.stringify(toolsOf().kiro);
+    assert.ok(!(await manager.listInstalledBundles('repository')).some((bundle) => bundle.bundleId === BUNDLE_ID), 'not installed for vscode');
+
+    await install(V1);
+
+    assert.deepStrictEqual(Object.keys(toolsOf()).toSorted(), ['kiro', 'vscode']);
+    assert.strictEqual(JSON.stringify(toolsOf().kiro), kiroBefore);
+    assert.strictEqual((await listed()).version, V1.version);
+  });
+
   test('uninstall removes only the vscode entry; the kiro entry and its files stay byte-identical', async () => {
     await install(V1);
     await recordOtherTool('kiro', ['.kiro/steering/hello.md']);

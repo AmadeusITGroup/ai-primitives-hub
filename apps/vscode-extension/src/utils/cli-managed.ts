@@ -14,13 +14,21 @@ import * as vscode from 'vscode';
 /** Extension actions guarded for repository entries of another tool. */
 export type CliManagedAction = 'update' | 'uninstall' | 'move-to-user' | 'switch-commit-mode';
 
-/** The CLI command for each refused action: a move starts with an uninstall, a mode switch is a reinstall. */
+/** The CLI command for each refused action, before the bundle id: a move starts with an uninstall, a mode switch is a reinstall. */
 const CLI_COMMANDS: Readonly<Record<CliManagedAction, string>> = {
   update: 'update',
-  uninstall: 'uninstall',
-  'move-to-user': 'uninstall',
+  uninstall: 'uninstall --bundle',
+  'move-to-user': 'uninstall --bundle',
   'switch-commit-mode': 'install'
 };
+
+/**
+ * The CLI command line for a refused action; `update` takes no bundle id.
+ * @param bundleId - Refused bundle.
+ * @param action - Refused action.
+ */
+const cliCommandOf = (bundleId: string, action: CliManagedAction): string =>
+  action === 'update' ? CLI_COMMANDS[action] : `${CLI_COMMANDS[action]} ${bundleId}`;
 
 /**
  * User-facing refusal message, naming the CLI command that changes the bundle.
@@ -29,7 +37,7 @@ const CLI_COMMANDS: Readonly<Record<CliManagedAction, string>> = {
  * @param tool - Tool the bundle's entry belongs to.
  */
 export const cliManagedMessage = (bundleId: string, action: CliManagedAction, tool: string): string =>
-  `${bundleId} is installed for ${tool}; change it with the CLI: ai-primitives-hub ${CLI_COMMANDS[action]} ${bundleId} --target <a ${tool} target>`;
+  `${bundleId} is installed for ${tool}; change it with the CLI: ai-primitives-hub ${cliCommandOf(bundleId, action)} --target <a ${tool} target>`;
 
 /**
  * Build the `RECORD.CLI_MANAGED` refusal.

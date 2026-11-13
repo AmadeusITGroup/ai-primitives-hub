@@ -91,29 +91,36 @@ suite('Other-tool guard (install-record items)', () => {
     cleanupTestWorkspace(root);
   });
 
-  /** Each command shows exactly the other-tool refusal (no confirmation dialog first). */
-  const assertRefusalShown = (): void => {
+  /**
+   * Each command shows exactly the other-tool refusal, naming the CLI command (no confirmation dialog first).
+   * @param command - The CLI command and its bundle argument.
+   */
+  const assertRefusalShown = (command: string): void => {
     assert.strictEqual(showWarning.callCount, 1);
-    assert.ok(String(showWarning.firstCall.args[0]).includes(`${CLI_BUNDLE} is installed for kiro; change it with the CLI`));
+    assert.strictEqual(String(showWarning.firstCall.args[0]),
+      `${CLI_BUNDLE} is installed for kiro; change it with the CLI: ai-primitives-hub ${command} --target <a kiro target>`);
   };
 
   const refusedActions: [string, () => Promise<unknown>][] = [
     ['uninstall', () => manager.uninstallBundle(CLI_BUNDLE, 'repository').then(
       () => assert.fail('uninstall should be refused'),
-      (error: { code?: string }) => assert.strictEqual(error.code, 'RECORD.CLI_MANAGED')
+      (error: { code?: string; message?: string }) => {
+        assert.strictEqual(error.code, 'RECORD.CLI_MANAGED');
+        assert.ok(error.message?.includes(`ai-primitives-hub uninstall --bundle ${CLI_BUNDLE} --target <a kiro target>`), error.message);
+      }
     )],
+    // Not listed for the host tool, so there is nothing here to update.
     ['update', async () => {
       sandbox.stub(manager, 'getBundleDetails').rejects(new Error('not in a source'));
       assert.strictEqual(await new BundleUpdateCommands(manager).updateBundle(CLI_BUNDLE), false);
-      assertRefusalShown();
     }],
     ['move to user scope', async () => {
       await scopeCommands().moveToUser(CLI_BUNDLE);
-      assertRefusalShown();
+      assertRefusalShown(`uninstall --bundle ${CLI_BUNDLE}`);
     }],
     ['commit-mode switch', async () => {
       await scopeCommands().switchCommitMode(CLI_BUNDLE, 'local-only');
-      assertRefusalShown();
+      assertRefusalShown(`install ${CLI_BUNDLE}`);
     }]
   ];
 

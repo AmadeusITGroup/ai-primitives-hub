@@ -105,9 +105,9 @@ Commands that use the record end their text output with `Record: <level> <path>`
 
 The VS Code extension uses the same record, under the tool of the editor it runs in (`vscode`, `vscode-insiders`, `kiro` or `windsurf`):
 
-- It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. Other tools' entries are listed read-only; changing one shows `RECORD.CLI_MANAGED` with the CLI command to use.
+- It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. A bundle installed only for another tool is not listed as installed, and you can install it for this editor too; changing another tool's entry shows `RECORD.CLI_MANAGED` with the CLI command to use.
 - An update keeps files you edited and moves tools that share the same files (for example `vscode`, `vscode-insiders` and `copilot-cli` in `.github/`) to the new version.
-- Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the tool that installed it last.
+- Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the entry of the editor it runs in.
 - Rewriting a bundle that an old `prompt-registry.lock.json` also lists, at any version, removes that old entry.
 - "Clean Up Stale Repository Bundles" lists one row per bundle and tool, offers only entries whose files are all missing, and removes the entries without deleting files.
 

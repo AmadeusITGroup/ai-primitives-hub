@@ -3,8 +3,10 @@
  * repository records at the git root and merges them with the old
  * prompt-registry lockfiles; the install record wins for any version of a
  * bundle. A bundle split across the two files is one item, and a tool's older
- * version under another versioned key is not listed. Problems are shown once
- * per file and content, and logged on every refresh.
+ * version under another versioned key is not listed. Only the host tool's
+ * entries, and migrated `unknown` ones, are listed: another tool's install is
+ * not installed here. Problems are shown once per file and content, and logged
+ * on every refresh.
  * @module services/install-record-listing
  */
 import * as path from 'node:path';
@@ -24,6 +26,7 @@ import {
   type RecordLocation,
   type RegistryError,
   type ToolEntry,
+  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   NodeRecordFs,
@@ -32,6 +35,9 @@ import * as vscode from 'vscode';
 import type {
   InstalledBundle,
 } from '../types/registry';
+import {
+  detectHostApp,
+} from '../utils/host-app';
 import {
   Logger,
 } from '../utils/logger';
@@ -65,6 +71,8 @@ export interface InstallRecordListingOptions {
   store?: RecordStore;
   /** Shows a listing problem to the user; a warning notification by default. */
   showProblem?: (message: string) => void;
+  /** Tool whose entries are listed as installed; `detectHostApp()` by default. */
+  hostTool?: string;
 }
 
 /** Problem kinds the listing reports. */
@@ -109,6 +117,7 @@ export class InstallRecordListing {
   private readonly fs: RecordFs;
   private readonly store: RecordStore;
   private readonly showProblem: (message: string) => void;
+  private readonly hostTool: string;
   private readonly logger = Logger.getInstance();
   /** Problem keys already shown to the user. */
   private readonly shown = new Set<string>();
@@ -119,6 +128,7 @@ export class InstallRecordListing {
     this.showProblem = options.showProblem ?? ((message) => {
       void vscode.window.showWarningMessage(message);
     });
+    this.hostTool = options.hostTool ?? detectHostApp();
   }
 
   private async readRecords(workspaceRoot: string): Promise<RecordItems> {
@@ -160,6 +170,12 @@ export class InstallRecordListing {
       byIdentity.set(key, [...(byIdentity.get(key) ?? []), candidate]);
     }
     const listed = new Set([...byIdentity.values()].map((group) => latestEntry(group)));
+    // Another tool's entry is not installed here; a migrated `unknown` entry is listed for reinstall.
+    for (const candidate of candidates) {
+      if (candidate.tool !== this.hostTool && candidate.tool !== UNKNOWN_TOOL_NAME) {
+        listed.delete(candidate);
+      }
+    }
     for (const bundleId of new Set(candidates.map((candidate) => candidate.bundleId))) {
       const latest = latestEntry(candidates.filter((candidate) => candidate.bundleId === bundleId && listed.has(candidate)));
       if (latest !== undefined) {
@@ -187,11 +203,11 @@ export class InstallRecordListing {
   }
 
   /**
-   * Build one item per bundle from its latest tool entry across both files.
+   * Build one item per bundle from its latest listed entry across both files.
    * @param items - Items so far, by bundle id.
    * @param location - File holding the entry; gives `commitMode`.
    * @param bundleId - Bundle id.
-   * @param entry - The bundle's latest tool entry.
+   * @param entry - The bundle's latest listed entry.
    */
   private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry): Promise<void> {
     // Use `.github`: never the git root, which uninstall would delete recursively.
