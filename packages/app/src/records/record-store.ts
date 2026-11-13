@@ -39,6 +39,10 @@ import {
   readRecordText,
 } from './read-record-text';
 import {
+  fromRecordFile,
+  toRecordFile,
+} from './record-file-shape';
+import {
   serializeRecord,
 } from './serialize-record';
 
@@ -160,7 +164,7 @@ export class RecordStore {
 
   private async readAndCheck(location: RecordLocation, readPath: string, file: string): Promise<InstallRecord> {
     const text = await readRecordText(this.fs, readPath, file, LARGE_RECORD_HINT);
-    const record = this.validator.validate(parseRecord(text, file), file);
+    const record = fromRecordFile(this.validator.validate(parseRecord(text, file), file));
     await this.checkPaths(location, record, file);
     this.checkSourceIds(record, file);
     return record;
@@ -307,8 +311,9 @@ export class RecordStore {
       throw recordError('RECORD.MALFORMED', { file, detail: 'the record was not loaded successfully, so it is not overwritten' });
     }
     const stamped = this.stamp(location, record);
-    this.validator.validate(stamped, file);
-    const text = serializeRecord(stamped);
+    const stored = toRecordFile(stamped);
+    this.validator.validate(stored, file);
+    const text = serializeRecord(stored);
     // A file `load` would refuse is never written: the previous one stays usable.
     if (new TextEncoder().encode(text).byteLength > RECORD_MAX_BYTES) {
       throw recordError('RECORD.WRITE_FAILED', { file, detail: 'the record would be larger than 10 MB' });
