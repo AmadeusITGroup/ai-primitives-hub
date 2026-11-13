@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/quality-report.schema.json",
+  "title": "Quality report",
+  "description": "quality-report.json, written by `ai-primitives-hub security rate`. Each bundle (collection or skill) and the source are scored 0-100 from a security scan; hubs read it to show score and risk.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "scanner", "source", "repo", "bundles", "gate"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "generatedAt": { "type": "string", "description": "ISO-8601 UTC date-time of the scan." },
+    "scanner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "type": "string" } }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag", "commit"],
+      "properties": {
+        "repository": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+        "tag": { "type": "string", "description": "Release tag; empty unless the run is for a tag." },
+        "commit": { "type": "string" },
+        "mode": {
+          "type": "string",
+          "enum": ["release-archives", "collections", "skills", "repository"],
+          "description": "How the bundles were found."
+        }
+      }
+    },
+    "repo": {
+      "allOf": [
+        { "$ref": "#/definitions/block" },
+        {
+          "type": "object",
+          "required": ["basis"],
+          "properties": {
+            "basis": {
+              "type": "string",
+              "enum": ["bundles-average", "repository"],
+              "description": "bundles-average: average of the bundle scores; risk is the band of that average, not the worst bundle's risk. repository: no bundles found, whole checkout scanned."
+            }
+          }
+        }
+      ]
+    },
+    "bundles": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          { "$ref": "#/definitions/block" },
+          { "type": "object", "required": ["id", "version"] }
+        ]
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failOn", "passed"],
+      "properties": {
+        "failOn": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE"] },
+        "passed": { "type": "boolean" }
+      }
+    }
+  },
+  "definitions": {
+    "severityCounts": {
+      "type": "object",
+      "required": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"],
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "block": {
+      "type": "object",
+      "required": ["score", "risk", "penalty", "counts", "findings"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" },
+        "metadata": {
+          "type": "object",
+          "description": "Bundle details the hub uses to build its catalog entry when the source has no release archives.",
+          "properties": {
+            "author": { "type": ["string", "null"] },
+            "kind": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+            "labels": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "score": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "risk": { "type": "string", "description": "The risk band of the score: low, medium, high, critical, or unknown when nothing could be rated." },
+        "penalty": { "type": "number", "minimum": 0, "description": "Sum of weighted finding points; score = 100 - penalty." },
+        "counts": { "$ref": "#/definitions/severityCounts" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ruleId", "severity", "points", "file", "line", "title", "fix"],
+            "properties": {
+              "ruleId": { "type": "string" },
+              "severity": { "type": "string" },
+              "points": { "type": "number", "minimum": 0 },
+              "file": { "type": "string" },
+              "line": { "type": "integer" },
+              "title": { "type": "string" },
+              "fix": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
