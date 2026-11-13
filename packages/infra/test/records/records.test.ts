@@ -122,7 +122,7 @@ describe('NodeRecordFs', () => {
       await recordFs.rename(temp, target);
 
       expect(await recordFs.readdir(folder)).toEqual(['record.json']);
-      expect(await recordFs.lstat(target)).toEqual({ kind: 'file', size: 4 });
+      expect(await recordFs.lstat(target)).toMatchObject({ kind: 'file', size: 4, mode: expect.any(Number) });
       expect(await recordFs.lstat(folder)).toMatchObject({ kind: 'directory' });
       expect(await recordFs.hashFile(target)).toBe('sha256:edeaaff3f1774ad2888673770c6d64097e391bc362d7d6fb34982ddf0efd18cb');
       expect(await recordFs.realpath(target)).toBe(fs.realpathSync.native(target));
