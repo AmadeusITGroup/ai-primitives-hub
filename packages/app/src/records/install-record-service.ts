@@ -247,6 +247,8 @@ export interface RemapSourceInput {
   to: string;
   /** Fields recorded under `sources.<to>`; a missing `hubId` keeps the one recorded for `from`. */
   descriptor: RecordSourceDescriptor;
+  /** Fields of the retired source, for records that name it by its readable id. */
+  fromDescriptor?: RecordSourceDescriptor;
   /** The hub named by the source's `hubId`, recorded under `hubs`. */
   hub?: RecordHubInput;
 }
@@ -1115,7 +1117,10 @@ export class InstallRecordService {
     const loaded = [committedFile, await this.store.load(localOnlyLocation)];
 
     const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
-    const changed = loaded.filter((file) => remapInRecord(file.record, from, to, source, hub));
+    // Records name a source by its readable id; older ones by the configured id.
+    const toId = recordSourceIdOf(source);
+    const fromIds = [from, ...(input.fromDescriptor === undefined ? [] : [recordSourceIdOf(sanitizeSource(input.fromDescriptor))])];
+    const changed = loaded.filter((file) => fromIds.map((fromId) => remapInRecord(file.record, fromId, toId, source, hub)).includes(true));
     const warnings: string[] = [];
     for (const file of changed) {
       warnings.push(...(await this.save(file.location, file.record)).warnings);

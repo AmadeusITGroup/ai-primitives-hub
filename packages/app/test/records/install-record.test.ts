@@ -659,6 +659,21 @@ describe('repository install record', () => {
       expect(fs.readFileSync(committed.path, 'utf8')).toBe(before);
     });
 
+    it('a remap with the retired source moves a readable-id record to the replacement\'s readable id', async () => {
+      await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
+      const moved = { type: 'github', url: 'https://github.com/acme/moved' } as const;
+
+      const result = await service.remapSource({
+        root, from: 'acme-github', to: 'acme-renamed', descriptor: moved, fromDescriptor: { type: 'github', url: 'https://github.com/acme/tools' }
+      });
+
+      const record = read(committed);
+      expect(result.changed.map((location) => location.path)).toEqual([committed.path]);
+      expect(Object.keys(record.sources)).toEqual([recordSourceIdOf(moved)]);
+      expect(Object.values(record.bundles).flatMap((bundle) => Object.values(bundle.tools)).map((entry) => entry.sourceId))
+        .toEqual([recordSourceIdOf(moved)]);
+    });
+
     it('replays from the configured source of the recorded hub before one of the same id from another hub', async () => {
       const other: RegistrySource = { ...configured('other-hub'), url: 'https://github.com/other/tools' };
       const sameHub: RegistrySource = { ...configured(HUB.id), url: 'https://github.com/acme/moved' };
