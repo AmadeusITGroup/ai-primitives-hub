@@ -38,6 +38,9 @@ import {
   createMockInstalledBundle,
   TEST_SOURCE_IDS,
 } from '../helpers/bundle-test-helpers';
+import {
+  initGitRoot,
+} from '../helpers/install-record-test-helpers';
 
 suite('BundleInstaller - Repository Scope', () => {
   let sandbox: sinon.SinonSandbox;
@@ -78,10 +81,11 @@ suite('BundleInstaller - Repository Scope', () => {
       }
     } as any;
 
-    // Create temp directories
+    // Create temp directories; a git root of its own keeps the install record out of this checkout.
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
+    initGitRoot(tempDir);
 
     // Create mock storage
     mockStorage = sandbox.createStubInstance(RegistryStorage);
