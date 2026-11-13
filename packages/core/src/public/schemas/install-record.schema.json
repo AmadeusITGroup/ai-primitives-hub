@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json",
   "title": "AI Primitives Hub install record",
-  "description": "Schema for ai-primitives-hub.lock.json and ai-primitives-hub.local.lock.json (format 3.0.0). Bundles are keyed by bundle id, then by tool (harness). Unknown fields are allowed and kept by readers.",
+  "description": "Schema for the install record files (format 3.0.0): ai-primitives-hub.lock.json, ai-primitives-hub.local.lock.json and ai-primitives-hub.user.lock.json. Sources are keyed by a readable id src:<type>:<host/path>#<branch>:<path>; bundles by <sourceId>/<name>, then by tool (harness). Unknown fields are allowed and kept by readers.",
   "type": "object",
   "required": [
     "$schema",
@@ -50,14 +50,14 @@
     },
     "bundles": {
       "type": "object",
-      "description": "Map of bundle IDs to their tool entries",
+      "description": "Map of <sourceId>/<name> keys, with no version, to their tool entries",
       "additionalProperties": {
         "$ref": "#/definitions/bundle"
       }
     },
     "sources": {
       "type": "object",
-      "description": "Map of source IDs to their configuration (unchanged from 2.0.0)",
+      "description": "Map of readable source ids to the source's fields",
       "additionalProperties": {
         "$ref": "#/definitions/source"
       }
@@ -111,7 +111,6 @@
       "description": "What one tool has installed for one bundle",
       "required": [
         "version",
-        "sourceId",
         "sourceType",
         "installedAt",
         "files"
@@ -124,7 +123,13 @@
         },
         "sourceId": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Key of the entry's source; on disk the bundle key names the source instead"
+        },
+        "bundleId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The hub's bundle id, when it differs from the bundle name"
         },
         "sourceType": {
           "$ref": "#/definitions/name"

@@ -13,6 +13,8 @@ export interface RecordFileStat {
   kind: RecordFileKind;
   /** Reported size in bytes. Never trusted to bound a read. */
   size: number;
+  /** Permission bits (`mode & 0o777`), when the filesystem reports them. */
+  mode?: number;
 }
 
 /** Filesystem operations for install records. All paths are absolute. */

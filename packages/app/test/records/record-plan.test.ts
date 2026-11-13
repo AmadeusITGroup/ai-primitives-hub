@@ -27,6 +27,7 @@ import {
   LOCAL_SOURCE_OUTSIDE_REASON,
   planRecordEntries,
   type RecordPlan,
+  recordSourceIdOf,
   toLockfileBundleEntry,
   toLockfileSourceEntry,
 } from '../../src/records';
@@ -128,7 +129,9 @@ describe('record plan and services', () => {
       });
 
       expect(services.fs).toBeInstanceOf(NodeRecordFs);
-      expect(JSON.parse(fs.readFileSync(committed.path, 'utf8'))).toMatchObject({ generatedBy: GENERATED_BY, bundles: { b1: { tools: { vscode: { version: '1.0.0' } } } } });
+      expect(JSON.parse(fs.readFileSync(committed.path, 'utf8'))).toMatchObject({
+        generatedBy: GENERATED_BY, bundles: { [`${recordSourceIdOf(acme)}/b1`]: { name: 'b1', tools: { vscode: { version: '1.0.0' } } } }
+      });
     });
 
     it('uses the given filesystem port', () => {

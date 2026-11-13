@@ -19,6 +19,8 @@ export interface ToolEntryFields {
   sourceId: string;
   sourceType: string;
   installedAt: string;
+  /** `sha256:` of the downloaded bundle content. */
+  integrity?: string;
   files: readonly RecordedFile[];
   /** Only under the `unknown` tool key. */
   needsReinstall?: true;
