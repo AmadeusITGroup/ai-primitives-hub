@@ -155,6 +155,12 @@ interface PreparedUserInstall {
   profileEntryIds: string[];
 }
 
+/** The installed bundle as the record describes it: the manifest id and the bundle's files by bundle path. */
+interface InstalledContent {
+  name: string;
+  files: ReadonlyMap<string, Uint8Array>;
+}
+
 /** What {@link BundleInstaller.recordHostInstall} records, at either level. */
 interface HostInstallToRecord {
   location: RecordLocation;
@@ -167,6 +173,8 @@ interface HostInstallToRecord {
   written: readonly string[];
   /** Writer-group siblings brought along; repository level only. */
   syncSiblings?: (tool: string) => boolean;
+  /** The installed bundle's manifest id and files: the record's bundle name, `integrity` and `sourcePath`s. */
+  content?: InstalledContent;
   /**
    * The host entry an update replaces when the bundle id changes. With
    * `deleteFilesNow` (repository) its files go with the entry; otherwise with
@@ -282,16 +290,19 @@ export class BundleInstaller {
    * @param written - Absolute paths the writer wrote.
    * @param routeKeys - Kinds the bundle wrote, as `kindRoutes` keys.
    * @param inPlace - The old entry, for an update.
+   * @param content - The installed bundle's manifest id and files.
    */
   private async recordRepositoryInstall(
     bundle: Bundle,
     prepared: PreparedRepositoryInstall,
     written: readonly string[],
     routeKeys: readonly string[],
-    inPlace?: RepositoryUpdateInPlace
+    inPlace?: RepositoryUpdateInPlace,
+    content?: InstalledContent
   ): Promise<void> {
     const group = writerGroupFor(this.records.hostTool, routeKeys);
     const warnings = await this.recordHostInstall(bundle, {
+      content,
       location: prepared.location,
       source: prepared.source,
       hub: prepared.hub,
@@ -337,7 +348,8 @@ export class BundleInstaller {
         sourceType: input.source.type,
         writtenPaths: input.written,
         workspaceRoot: input.workspaceRoot,
-        syncSiblings: input.syncSiblings
+        syncSiblings: input.syncSiblings,
+        ...(input.content === undefined ? {} : { name: input.content.name, bundleFiles: input.content.files })
       });
       changes.push(change);
       warnings.push(...change.warnings);
@@ -460,10 +472,17 @@ export class BundleInstaller {
    * @param bundle - Installed bundle.
    * @param prepared - Result of {@link prepareUserInstall}.
    * @param written - Absolute paths the writer wrote.
+   * @param content - The installed bundle's manifest id and files.
    */
-  private async recordUserInstall(bundle: Bundle, prepared: PreparedUserInstall, written: readonly string[]): Promise<void> {
+  private async recordUserInstall(
+    bundle: Bundle,
+    prepared: PreparedUserInstall,
+    written: readonly string[],
+    content?: InstalledContent
+  ): Promise<void> {
     const root = prepared.location.root;
     const warnings = await this.records.serialize(prepared.location.path, () => this.recordHostInstall(bundle, {
+      content,
       location: prepared.location,
       source: prepared.source,
       hub: prepared.hub,
@@ -1073,9 +1092,12 @@ export class BundleInstaller {
     };
 
     let installDir = '';
+    // The files the writer got: what the record describes as the installed bundle.
+    let installedFiles: ExtractedFiles | undefined;
 
     const writer: TargetWriter = {
       write: async (_target: Target, files: ExtractedFiles): Promise<TargetWriteResult> => {
+        installedFiles = files;
         const written: string[] = [];
 
         if (installSkillsToCopilotDir) {
@@ -1173,6 +1195,8 @@ export class BundleInstaller {
     try {
       const outcome = await pipeline.run(spec, target);
       const manifest = outcome.manifest as unknown as DeploymentManifest;
+      const contentOf = (): InstalledContent | undefined =>
+        installedFiles === undefined ? undefined : { name: outcome.manifest.id, files: installedFiles };
 
       // Create installation record
       const installed: InstalledBundle = {
@@ -1223,11 +1247,11 @@ export class BundleInstaller {
           // Step 11: record the written files in the shared install record.
           const repoService = this.getRepositoryScopeService();
           const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
-          await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
+          await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace, contentOf());
         } else if (user) {
           // The user record is the store of this install: RegistryStorage is not written.
           const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode, owned: user.owned });
-          await this.recordUserInstall(bundle, user, written);
+          await this.recordUserInstall(bundle, user, written, contentOf());
           installed.recordOrigin = 'install-record';
         } else {
           await this.getScopeService(options.scope).syncBundle(bundle.id, installDir, { commitMode: options.commitMode });

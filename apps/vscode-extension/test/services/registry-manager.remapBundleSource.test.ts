@@ -6,6 +6,9 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import {
+  recordSourceIdOf,
+} from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import {
   RegistryManager,
@@ -24,6 +27,7 @@ import {
   createMockContext,
   initGitRoot,
   LOCAL_RECORD_FILE,
+  readRecordView,
   RECORD_FILE,
   recordEntry,
   snapshotTree,
@@ -36,6 +40,8 @@ import {
 
 const OLD_SOURCE_ID = 'old-source-id';
 const NEW_SOURCE_ID = 'new-source-id';
+/** The record's id of the replacement source. */
+const NEW_RECORD_ID = recordSourceIdOf({ type: 'github', url: 'https://github.com/org/renamed', branch: 'main' });
 const OLD_LOCKFILE = 'prompt-registry.lock.json';
 
 suite('RegistryManager.remapBundleSource', () => {
@@ -67,7 +73,7 @@ suite('RegistryManager.remapBundleSource', () => {
     manifest: { id: bundleId, name: bundleId, version: '1.0.0' } as any
   });
 
-  const readJson = (file: string): any => JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'));
+  const readJson = (file: string): any => readRecordView(path.join(root, file));
 
   const recordFromOldSource = (commitMode: 'commit' | 'local-only', bundleId: string): Promise<void> => recordEntry(manager.getRecordAdapter(), root, {
     bundleId, tool: 'vscode', files: [`.github/prompts/${bundleId}.prompt.md`], commitMode,
@@ -104,19 +110,19 @@ suite('RegistryManager.remapBundleSource', () => {
   });
 
   test('migrates the old lockfile, then remaps both record files and the stored installation records', async () => {
-    storage.getSources.resolves([makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old' }), makeSource()]);
+    storage.getSources.resolves([makeSource({ id: OLD_SOURCE_ID, url: 'https://github.com/org/old', config: {} }), makeSource()]);
     storage.getInstalledBundles.withArgs('user').resolves([userBundle('user-bundle', OLD_SOURCE_ID), userBundle('other', 'unrelated')]);
 
     await manager.remapBundleSource(OLD_SOURCE_ID, NEW_SOURCE_ID);
 
     for (const [file, bundleId] of [[RECORD_FILE, 'committed-bundle'], [LOCAL_RECORD_FILE, 'local-bundle']]) {
       const record = readJson(file);
-      assert.deepStrictEqual(Object.keys(record.sources), [NEW_SOURCE_ID], file);
-      assert.strictEqual(record.sources[NEW_SOURCE_ID].url, 'https://github.com/org/renamed', file);
-      assert.strictEqual(record.bundles[bundleId].tools.vscode.sourceId, NEW_SOURCE_ID, file);
+      assert.deepStrictEqual(Object.keys(record.sources), [NEW_RECORD_ID], file);
+      assert.strictEqual(record.sources[NEW_RECORD_ID].url, 'https://github.com/org/renamed', file);
+      assert.strictEqual(record.bundles[bundleId].tools.vscode.sourceId, NEW_RECORD_ID, file);
     }
     assert.ok(!fs.existsSync(path.join(root, OLD_LOCKFILE)), 'the old lockfile was migrated');
-    assert.strictEqual(readJson(RECORD_FILE).bundles['old-bundle'].tools.unknown.sourceId, NEW_SOURCE_ID);
+    assert.strictEqual(readJson(RECORD_FILE).bundles['old-bundle'].tools.unknown.sourceId, NEW_RECORD_ID);
     assert.deepStrictEqual(storage.recordInstallation.getCalls().map((call) => [call.args[0].bundleId, call.args[0].sourceId]), [['user-bundle', NEW_SOURCE_ID]]);
   });
 
