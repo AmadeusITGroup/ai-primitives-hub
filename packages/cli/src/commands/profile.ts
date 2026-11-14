@@ -998,17 +998,19 @@ async function runProfileInstall(
     lockPathsOf(target).map((lockPath) => lockfilesBefore.get(lockPath)?.bundles[bundleId]).find((e) => e !== undefined);
 
   // What this command added: files written for bundles new to a target, per
-  // target and bundle, and the lockfiles each bundle got an entry in that it
-  // did not have before (also for bundles installed before in another lockfile).
+  // target and bundle, and the lockfile entries it created, per bundle and
+  // lockfile, with the bundle's status for the targets using that lockfile
+  // (also for bundles installed before through another lockfile).
   const addedFiles = new Map<string, Map<string, string[]>>();
-  const createdEntries = new Map<string, Set<string>>();
+  const createdEntries = new Map<string, Map<string, 'new' | 'updated' | 'unchanged'>>();
   const statusRank = { unchanged: 0, updated: 1, new: 2 } as const;
   // Each bundle's install outcome across targets (the strongest change wins).
   const installed = new Map<string, { version: string; status: keyof typeof statusRank }>();
 
   const removeAdded = async (bundleIds: string[]): Promise<void> => {
     const leftovers: string[] = [];
-    const removed = new Set(bundleIds);
+    // Lockfiles whose targets still hold files of a bundle, per bundle.
+    const leftoverIn = new Map<string, Set<string>>();
     for (const target of effectiveTargets) {
       const writer = createWriterFactory(ctx, {})(target);
       for (const bundleId of bundleIds) {
@@ -1023,27 +1025,31 @@ async function runProfileInstall(
         for (const file of written) {
           if (await ctx.fs.exists(file)) {
             leftovers.push(file);
-            removed.delete(bundleId);
+            leftoverIn.set(bundleId, (leftoverIn.get(bundleId) ?? new Set<string>()).add(lockfilePathForTarget(ctx, target)));
           }
         }
       }
     }
-    // Drop the entries this command created. A new bundle stays tracked while
-    // any of its files remain, so `uninstall` can still find it. A bundle
-    // installed before keeps its files: its created entry goes only when
-    // nothing changed (its earlier entry still describes the files); after an
-    // update it stays, since it is the one describing the files on disk.
+    // Drop the entries this command created, deciding per lockfile. Where the
+    // bundle was new, its entry goes once its files there are gone (otherwise
+    // it stays, so `uninstall` can still find them). Where it was installed
+    // before, its files stay: the created entry goes only when nothing changed
+    // (the earlier entry still describes the files); after an update it stays,
+    // since it is the one describing the files on disk.
     const newBundles = new Set(bundleIds);
-    const lockPaths = new Set([...createdEntries.values()].flatMap((paths) => [...paths]));
+    const lockPaths = new Set([...createdEntries.values()].flatMap((byLock) => [...byLock.keys()]));
     for (const lockPath of lockPaths) {
       let lock = await readLockfile(lockPath, ctx.fs);
       if (lock === null) {
         continue;
       }
-      for (const [bundleId, paths] of createdEntries) {
+      for (const [bundleId, byLock] of createdEntries) {
         const entry = lock.bundles[bundleId];
-        const drop = newBundles.has(bundleId) ? removed.has(bundleId) : installed.get(bundleId)?.status === 'unchanged';
-        if (entry !== undefined && paths.has(lockPath) && drop) {
+        const status = byLock.get(lockPath);
+        const drop = status === 'new'
+          ? newBundles.has(bundleId) && !(leftoverIn.get(bundleId)?.has(lockPath) ?? false)
+          : status === 'unchanged';
+        if (entry !== undefined && drop) {
           lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
         }
       }
@@ -1077,9 +1083,6 @@ async function runProfileInstall(
             if (previousFiles !== undefined) {
               superseded.push({ previous: previousFiles, next: outcome.entry.files });
             }
-            if (lockfilesBefore.get(lockPath)?.bundles[bundleRef.id] === undefined) {
-              createdEntries.set(bundleRef.id, (createdEntries.get(bundleRef.id) ?? new Set<string>()).add(lockPath));
-            }
             lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
             lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
             let status: keyof typeof statusRank;
@@ -1090,6 +1093,9 @@ async function runProfileInstall(
               addedFiles.set(target.name, files);
             } else {
               status = before.version === outcome.entry.version && before.sourceId === outcome.entry.sourceId ? 'unchanged' : 'updated';
+            }
+            if (lockfilesBefore.get(lockPath)?.bundles[bundleRef.id] === undefined) {
+              createdEntries.set(bundleRef.id, (createdEntries.get(bundleRef.id) ?? new Map<string, typeof status>()).set(lockPath, status));
             }
             const previous = installed.get(bundleRef.id);
             installed.set(bundleRef.id, {

@@ -645,6 +645,42 @@ profiles:
       await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
+    it('keeps an updated entry in one repository while removing the bundle it added to another', async () => {
+      const repo1 = path.join(workspace, 'repo1');
+      const repo2 = path.join(workspace, 'repo2');
+      for (const [name, root] of [['repo1-commit', repo1], ['repo1-local', repo1], ['repo2', repo2]] as const) {
+        await mkdir(root, { recursive: true });
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', root, '-o', 'json'])).exitCode).toBe(0);
+      }
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo1-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo1-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+      const repo1Commit = getLockfilePathForMode(repo1, 'commit');
+      const recorded = JSON.parse(await readFile(repo1Commit, 'utf8')) as { bundles: Record<string, { version: string }> };
+      recorded.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(repo1Commit, JSON.stringify(recorded));
+      const versions = async (root: string, mode: 'commit' | 'local-only'): Promise<Record<string, string>> => {
+        const raw = await readFile(getLockfilePathForMode(root, mode), 'utf8').catch(() => '{"bundles":{}}');
+        const lock = JSON.parse(raw) as { bundles?: Record<string, { version: string }> };
+        return Object.fromEntries(Object.entries(lock.bundles ?? {}).map(([id, entry]) => [id, entry.version]));
+      };
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo1-local,repo2', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      // repo1: the update stays, and so does the entry describing it.
+      expect(await versions(repo1, 'commit')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.0.0' });
+      expect(await versions(repo1, 'local-only')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+      await expect(readFile(path.join(repo1, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      // repo2: the bundle was new there, so it is removed.
+      expect(await versions(repo2, 'commit')).toEqual({});
+      await expect(readFile(path.join(repo2, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    });
+
     it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {
       expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
 
