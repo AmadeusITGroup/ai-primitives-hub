@@ -27,6 +27,9 @@ import {
   createTestWorkspace,
 } from '../helpers/mock-data';
 
+/** User record file name in the temp home. */
+const USER_RECORD = 'ai-primitives-hub.user.lock.json';
+
 suite('Install record listing (repository scope)', () => {
   let sandbox: sinon.SinonSandbox;
   let manager: RegistryManager;
@@ -164,6 +167,21 @@ suite('Install record listing (repository scope)', () => {
       });
 
       const items = await new InstallRecordListing({ hostTool, showProblem: () => undefined }).listRepositoryBundles(root, () => Promise.resolve([]));
+
+      assert.deepStrictEqual(items.map(({ bundleId, version }) => ({ bundleId, version })).toSorted((a, b) => a.bundleId.localeCompare(b.bundleId)), expected);
+    });
+
+    test(`in ${hostTool}, a user record bundle installed only for another tool is not listed; a migrated unknown entry is`, async () => {
+      writeInstallRecord(root, USER_RECORD, {
+        'for-vscode': { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.copilot/prompts/a.prompt.md' } },
+        'for-kiro': { kiro: { version: '2.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.kiro/steering/b.md' } },
+        migrated: { unknown: { version: '0.9.0', installedAt: '2026-10-26T10:00:00.000Z', file: '.copilot/prompts/c.prompt.md' } }
+      });
+      const file = path.join(root, USER_RECORD);
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), level: 'user' }));
+
+      const { items } = await new InstallRecordListing({ showProblem: () => undefined })
+        .listUserBundles({ level: 'user', root, path: file }, hostTool, (bundleId) => path.join(root, 'bundles', bundleId));
 
       assert.deepStrictEqual(items.map(({ bundleId, version }) => ({ bundleId, version })).toSorted((a, b) => a.bundleId.localeCompare(b.bundleId)), expected);
     });

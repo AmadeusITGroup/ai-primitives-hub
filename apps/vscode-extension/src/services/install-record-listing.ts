@@ -309,7 +309,7 @@ export class InstallRecordListing {
 
   /**
    * List the shared user record's bundles as user-scope items, one per bundle,
-   * from the host tool's entry when there is one. The host tool lists one
+   * from the host tool's entry, else a migrated `unknown` one. The host tool lists one
    * version of a bundle, its latest install across the versioned keys. A
    * `RECORD.*` error gives no items.
    * @param location - The user record location.
@@ -341,7 +341,8 @@ export class InstallRecordListing {
     for (const bundleId of new Set(candidates.map((candidate) => candidate.bundleId))) {
       const own = candidates.filter((candidate) => candidate.bundleId === bundleId && listed.has(candidate));
       const host = own.find((candidate) => candidate.tool === hostTool);
-      const chosen = host ?? latestEntry(own);
+      // Another tool's entry is not installed here; a migrated `unknown` entry is listed for reinstall.
+      const chosen = host ?? latestEntry(own.filter((candidate) => candidate.tool === UNKNOWN_TOOL_NAME));
       if (chosen === undefined) {
         continue;
       }
