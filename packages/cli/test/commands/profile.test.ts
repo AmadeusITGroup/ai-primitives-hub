@@ -612,6 +612,39 @@ profiles:
       await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
+    it('keeps the local-only entry for files it updated when a required bundle is missing', async () => {
+      const repoDir = path.join(workspace, 'repo');
+      await mkdir(repoDir, { recursive: true });
+      for (const name of ['repo-commit', 'repo-local']) {
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
+      }
+      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+      // The commit lockfile records an older version than the one the install writes.
+      const commitLock = getLockfilePathForMode(repoDir, 'commit');
+      const recorded = JSON.parse(await readFile(commitLock, 'utf8')) as { bundles: Record<string, { version: string }> };
+      recorded.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(commitLock, JSON.stringify(recorded));
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo-local', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      // The updated files stay, so the entry describing them stays too.
+      const versions = async (mode: 'commit' | 'local-only'): Promise<Record<string, string>> => {
+        const lock = JSON.parse(await readFile(getLockfilePathForMode(repoDir, mode), 'utf8')) as { bundles: Record<string, { version: string }> };
+        return Object.fromEntries(Object.entries(lock.bundles).map(([id, entry]) => [id, entry.version]));
+      };
+      expect(await versions('commit')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.0.0' });
+      expect(await versions('local-only')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+      await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
     it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {
       expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
 

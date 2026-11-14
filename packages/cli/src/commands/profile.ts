@@ -1002,6 +1002,9 @@ async function runProfileInstall(
   // did not have before (also for bundles installed before in another lockfile).
   const addedFiles = new Map<string, Map<string, string[]>>();
   const createdEntries = new Map<string, Set<string>>();
+  const statusRank = { unchanged: 0, updated: 1, new: 2 } as const;
+  // Each bundle's install outcome across targets (the strongest change wins).
+  const installed = new Map<string, { version: string; status: keyof typeof statusRank }>();
 
   const removeAdded = async (bundleIds: string[]): Promise<void> => {
     const leftovers: string[] = [];
@@ -1026,8 +1029,10 @@ async function runProfileInstall(
       }
     }
     // Drop the entries this command created. A new bundle stays tracked while
-    // any of its files remain, so `uninstall` can still find it; a bundle
-    // installed before keeps its files and its earlier entry.
+    // any of its files remain, so `uninstall` can still find it. A bundle
+    // installed before keeps its files: its created entry goes only when
+    // nothing changed (its earlier entry still describes the files); after an
+    // update it stays, since it is the one describing the files on disk.
     const newBundles = new Set(bundleIds);
     const lockPaths = new Set([...createdEntries.values()].flatMap((paths) => [...paths]));
     for (const lockPath of lockPaths) {
@@ -1037,7 +1042,8 @@ async function runProfileInstall(
       }
       for (const [bundleId, paths] of createdEntries) {
         const entry = lock.bundles[bundleId];
-        if (entry !== undefined && paths.has(lockPath) && (!newBundles.has(bundleId) || removed.has(bundleId))) {
+        const drop = newBundles.has(bundleId) ? removed.has(bundleId) : installed.get(bundleId)?.status === 'unchanged';
+        if (entry !== undefined && paths.has(lockPath) && drop) {
           lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
         }
       }
@@ -1050,8 +1056,6 @@ async function runProfileInstall(
 
   const result = await batchInstallProfile({
     installBundles: async (bundleRefs) => {
-      const statusRank = { unchanged: 0, updated: 1, new: 2 } as const;
-      const installed = new Map<string, { version: string; status: keyof typeof statusRank }>();
       try {
         for (const target of effectiveTargets) {
           const writer = createWriterFactory(ctx, {})(target);
