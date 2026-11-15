@@ -218,7 +218,7 @@ describe('repository install record', () => {
     const removal = await service.deleteSuperseded(change);
 
     expect(change).toMatchObject({ deletedFiles: ['docs/old.md'], keptSharedFiles: ['docs/shared.md'] });
-    expect(removal).toEqual({ deleted: ['docs/old.md'], warnings: [] });
+    expect(removal).toEqual({ deleted: ['docs/old.md'], mcpServersRemoved: [], mcpServersModified: [], warnings: [] });
     expect(fs.existsSync(path.join(root, 'docs', 'old.md'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'docs', 'shared.md'))).toBe(true);
     expect(filesOf(committed, 'vscode')).toEqual(['docs/new.md']);

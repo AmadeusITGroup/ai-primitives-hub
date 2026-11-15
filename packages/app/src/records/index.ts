@@ -12,6 +12,7 @@ export * from './install-record-service';
 export * from './install-record-services';
 export * from './legacy-shapes';
 export * from './map-tool-to-target';
+export * from './mcp-servers';
 export * from './modified-files';
 export * from './plan-record-entries';
 export * from './record-file-shape';

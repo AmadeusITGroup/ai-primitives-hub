@@ -224,6 +224,8 @@ export interface RecordChange {
   deletedFiles: string[];
   /** Root-relative paths kept because another entry still lists them. */
   keptSharedFiles: string[];
+  /** MCP servers the caller removes from their files after the save; no other entry lists them. */
+  removedMcpServers?: RecordedMcpServer[];
   /** The file the change was recorded in. */
   location: RecordLocation;
 }
