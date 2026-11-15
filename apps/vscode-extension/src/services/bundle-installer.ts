@@ -224,6 +224,7 @@ export class BundleInstaller {
     this.storage = new RegistryStorage(context);
     this.targetType = targetType ?? detectHostApp();
     this.records = records ?? new ExtensionRecordAdapter({ sources: { listSources: () => this.storage.getSources() }, hostTool: this.targetType });
+    this.mcpManager.setRecordOwnership(this.records.mcpOwnership());
   }
 
   /**
@@ -1362,19 +1363,24 @@ export class BundleInstaller {
         return;
       }
 
+      const mcpLevel = installed.scope === 'repository' ? 'repository' : (installed.scope === 'user' ? 'user' : undefined);
+      const mcpRoot = installed.scope === 'repository' ? getWorkspaceRoot() : undefined;
+      // Tracked servers move to their record entries first, so the record removes them with the entry.
+      if (mcpLevel !== undefined) {
+        await this.mcpManager.migrateTrackingToRecord(mcpLevel, mcpRoot);
+      }
       const userEntry = await this.findUserRecordEntry(installed, 'uninstall');
-
-      // The record removes the MCP servers it lists with the entry; older installs only have the tracking file.
       const recordedMcp = await this.recordedHostMcpServers(installed, userEntry);
       if (recordedMcp.length === 0) {
+        // A bundle no record entry holds the servers of: only the tracking file knows them.
         await this.uninstallMcpServers(installed.bundleId, installed.scope);
         this.logger.debug('MCP servers uninstalled');
       }
-      const forgetMcp = (): Promise<void> => this.mcpManager.forgetServers(
-        recordedMcp.map((server) => server.name),
-        installed.scope === 'repository' ? 'workspace' : 'user',
-        installed.scope === 'repository' ? getWorkspaceRoot() : undefined
-      );
+      const forgetMcp = async (): Promise<void> => {
+        if (mcpLevel !== undefined && recordedMcp.length > 0) {
+          await this.mcpManager.afterRecordRemoval(recordedMcp.map((server) => server.name), mcpLevel, mcpRoot);
+        }
+      };
 
       if (userEntry !== undefined) {
         await this.uninstallUserRecordEntry(installed.bundleId, userEntry);

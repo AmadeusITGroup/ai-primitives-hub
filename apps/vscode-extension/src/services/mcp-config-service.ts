@@ -307,12 +307,15 @@ export class McpConfigService {
    *
    * The first enabled server encountered is kept enabled, subsequent duplicates are disabled.
    * @param scope
+   * @param owners - The bundle id owning each server, from the install record; the tracking file otherwise.
    */
   public async detectAndDisableDuplicates(
-    scope: 'user' | 'workspace'
+    scope: 'user' | 'workspace',
+    owners?: ReadonlyMap<string, string>
   ): Promise<{ duplicatesDisabled: DuplicateInfo[]; config: McpConfiguration }> {
     const config = await this.readMcpConfig(scope);
-    const tracking = await this.readTrackingMetadata(scope);
+    const managed = owners === undefined ? (await this.readTrackingMetadata(scope)).managedServers : undefined;
+    const ownerOf = (serverName: string): string | undefined => owners === undefined ? managed?.[serverName]?.bundleId : owners.get(serverName);
 
     const serverIdentities = new Map<string, { serverName: string; bundleId: string }>();
     const duplicatesDisabled: DuplicateInfo[] = [];
@@ -329,19 +332,17 @@ export class McpConfigService {
           description: `Duplicate of ${existing.serverName} (from bundle ${existing.bundleId})`
         };
 
-        const metadata = tracking.managedServers[serverName];
         duplicatesDisabled.push({
           serverName,
           duplicateOf: existing.serverName,
-          bundleId: metadata?.bundleId || 'unknown',
+          bundleId: ownerOf(serverName) || 'unknown',
           originalBundleId: existing.bundleId
         });
       } else if (!serverConfig.disabled) {
         // First enabled server with this identity - record it
-        const metadata = tracking.managedServers[serverName];
         serverIdentities.set(identity, {
           serverName,
-          bundleId: metadata?.bundleId || 'unknown'
+          bundleId: ownerOf(serverName) || 'unknown'
         });
       }
     }

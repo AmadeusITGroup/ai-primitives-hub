@@ -21,6 +21,7 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileFs,
+  mcpServerChecksumOf,
   type MigratedEntry,
   migrateLevel,
   type MigrationReport,
@@ -76,6 +77,9 @@ import {
 import {
   createInstalledBundleFromLockfile,
 } from './installed-bundle-from-entry';
+import type {
+  McpRecordOwnership,
+} from './mcp-server-manager';
 
 /** Largest old lockfile read, in bytes. */
 const OLD_LOCKFILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -427,6 +431,48 @@ export class ExtensionRecordAdapter {
    * Both repository record files of a workspace folder, committed first.
    * @param workspaceFolder - Workspace folder.
    */
+  /**
+   * The install records' view of MCP servers, for the extension's MCP writer.
+   * Repository installs are always recorded; user installs when the shared user record is used.
+   */
+  public mcpOwnership(): McpRecordOwnership {
+    const locationOf = async (level: 'user' | 'repository', workspaceRoot?: string): Promise<RecordLocation | undefined> => {
+      if (level === 'user') {
+        return this.userLocation();
+      }
+      return workspaceRoot === undefined ? undefined : (await this.locations(workspaceRoot))[0];
+    };
+    return {
+      usesRecord: (level) => level === 'repository' || this.usesSharedUserRecord(),
+      recordedServers: async (level, configPath, workspaceRoot) => {
+        const location = await locationOf(level, workspaceRoot);
+        return location === undefined ? new Map() : this.service.recordedMcpServersIn(location, configPath);
+      },
+      adopt: async (level, configPath, workspaceRoot, servers) => {
+        const location = await locationOf(level, workspaceRoot);
+        const relative = location === undefined ? '' : path.relative(location.root, path.resolve(configPath));
+        if (location === undefined || relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+          return [];
+        }
+        const config = relative.split(path.sep).join('/');
+        const taken: string[] = [];
+        for (const bundleId of new Set(servers.map((server) => server.bundleId))) {
+          const own = servers.filter((server) => server.bundleId === bundleId);
+          const added = await this.service.addMcpServers({
+            location,
+            bundleId,
+            tool: this.hostTool,
+            servers: own.map((server) => ({ config, name: server.name, item: server.item, checksum: mcpServerChecksumOf(server.definition) }))
+          });
+          if (added) {
+            taken.push(...own.map((server) => server.name));
+          }
+        }
+        return taken;
+      }
+    };
+  }
+
   public locations(workspaceFolder: string): Promise<[RecordLocation, RecordLocation]> {
     return this.store.resolveRepository({ start: workspaceFolder });
   }
