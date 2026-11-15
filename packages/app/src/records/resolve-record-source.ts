@@ -17,6 +17,7 @@ import {
 } from '@ai-primitives-hub/core';
 import {
   isRecordSourceId,
+  recordHubIdOf,
   recordSourceIdOf,
 } from './record-file-shape';
 import type {
@@ -146,8 +147,16 @@ export const resolveRecordSource = async (
   // A record names a source by its readable id; older records by the configured id.
   const isSource = (candidate: RegistrySource): boolean =>
     candidate.id === sourceId || (isRecordSourceId(sourceId) && recordSourceIdOf(toRecordSource(candidate, candidate.id)) === sourceId);
+  // A record names a hub by its readable id; older records by the configured id.
+  const isRecordedHub = (hubId: string | undefined): boolean => {
+    if (hubId === undefined) {
+      return false;
+    }
+    const hub = options.hubs?.get(hubId);
+    return hubId === recordedHubId || (hub !== undefined && recordHubIdOf(hub) === recordedHubId);
+  };
   const sameHub = typeof recordedHubId === 'string' && recordedHubId !== ''
-    ? options.candidates?.find((candidate) => isSource(candidate) && candidate.hubId === recordedHubId)
+    ? options.candidates?.find((candidate) => isSource(candidate) && isRecordedHub(candidate.hubId))
     : undefined;
   const match = sameHub ?? configured.get(sourceId) ?? [...configured.values()].find((candidate) => isSource(candidate));
   if (match !== undefined) {

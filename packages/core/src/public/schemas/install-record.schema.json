@@ -64,7 +64,7 @@
     },
     "hubs": {
       "type": "object",
-      "description": "Map of hub IDs, named by a source's hubId, to the hub's import reference; never holds credentials",
+      "description": "Map of readable hub ids (hub:<type>:<location>#<ref>:<configFile>), named by a source's hubId, to the hub's import reference; never holds credentials",
       "additionalProperties": {
         "$ref": "#/definitions/hub"
       }
@@ -250,7 +250,7 @@
         },
         "hubId": {
           "type": "string",
-          "description": "Key in hubs of the shared hub the source came from",
+          "description": "Readable id in hubs of the shared hub the source came from",
           "minLength": 1
         }
       }
