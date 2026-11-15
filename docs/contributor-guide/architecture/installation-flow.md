@@ -145,7 +145,7 @@ Every primitive kind belongs to one install category, defined in core (`packages
 |----------|-------------|------|
 | `file` | every kind not listed below, including `power` and `spec` | The item file |
 | `directory` | `skill`, `plugin` | The whole directory of the item file |
-| `config` | `mcp-server` | An entry in a target config file; `mcp-server` items are not installed yet |
+| `config` | `mcp-server` | An entry in a target config file; the manifest's `mcpServers` are written and recorded per server (see [MCP servers](../../reference/commands.md#mcp-servers)), `mcp-server` items are not installed yet |
 
 A `directory` item is installed as one unit:
 

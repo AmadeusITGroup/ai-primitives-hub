@@ -309,7 +309,7 @@ describe('record plan and services', () => {
         { deletedFiles: ['docs/old.md', 'docs/gone.md', 'docs/missing.md'], location: committed }
       ]);
 
-      expect(result).toEqual({ deleted: ['docs/old.md', 'docs/gone.md'], warnings: [] });
+      expect(result).toEqual({ deleted: ['docs/old.md', 'docs/gone.md'], mcpServersRemoved: [], mcpServersModified: [], warnings: [] });
       expect(fs.existsSync(path.join(root, 'docs', 'still.md'))).toBe(true);
       expect(fs.existsSync(path.join(root, 'docs', 'old.md'))).toBe(false);
     });
@@ -319,7 +319,7 @@ describe('record plan and services', () => {
 
       const result = await services.service.deleteSuperseded({ deletedFiles: ['docs/folder'], location: committed });
 
-      expect(result).toEqual({ deleted: [], warnings: ['Did not remove docs/folder: it is a folder.'] });
+      expect(result).toEqual({ deleted: [], mcpServersRemoved: [], mcpServersModified: [], warnings: ['Did not remove docs/folder: it is a folder.'] });
       expect(fs.existsSync(path.join(root, 'docs', 'folder'))).toBe(true);
     });
   });

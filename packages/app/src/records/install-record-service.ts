@@ -18,6 +18,7 @@ import {
   otherRepositoryLocation,
   type RecordChange,
   type RecordedFile,
+  type RecordedMcpServer,
   recordError,
   type RecordFs,
   type RecordLevel,
@@ -44,6 +45,15 @@ import {
 import {
   removeExcluded,
 } from './git-root';
+import {
+  type McpConfigFile,
+  mcpServerChecksumOf,
+  mcpServerKeyOf,
+  type McpServerToWrite,
+  readMcpConfig,
+  removeMcpServers,
+  writeMcpServers,
+} from './mcp-servers';
 import {
   findModifiedFiles,
 } from './modified-files';
@@ -131,6 +141,12 @@ export interface RecordInstallInput {
   /** The downloaded bundle's files by bundle path: give the entry its `integrity` and each file its `sourcePath`. */
   bundleFiles?: ReadonlyMap<string, Uint8Array>;
   /**
+   * MCP servers the install wrote, `config` relative to the record's root. A
+   * server the replaced entry had and this list lacks is removed after the save;
+   * absent keeps the replaced entry's servers.
+   */
+  mcpServers?: readonly RecordedMcpServer[];
+  /**
    * Which sibling tools that share this tool's files to bring to the same version:
    * all (default), the accepted ones, or none. Pass `false` when re-recording a sibling, so the sync never loops.
    */
@@ -197,6 +213,10 @@ export interface UninstallEntryResult {
   kept: string[];
   /** Kept files still on disk whose content changed since the install, sorted. */
   modified: string[];
+  /** MCP servers removed from their files. */
+  mcpServersRemoved: RecordedMcpServer[];
+  /** MCP servers kept because their definition changed since the install. */
+  mcpServersModified: RecordedMcpServer[];
   warnings: string[];
 }
 
@@ -204,7 +224,11 @@ export interface UninstallEntryResult {
 export interface DeleteSupersededResult {
   /** Root-relative paths that were removed. */
   deleted: string[];
-  /** One message per path that was skipped or could not be removed. */
+  /** MCP servers removed from their files. */
+  mcpServersRemoved: RecordedMcpServer[];
+  /** MCP servers kept because their definition changed since the install. */
+  mcpServersModified: RecordedMcpServer[];
+  /** One message per path or server that was skipped or could not be removed. */
   warnings: string[];
 }
 
@@ -330,6 +354,42 @@ export const listedPaths = (records: readonly InstallRecord[]): Set<string> => {
     }
   }
   return listed;
+};
+
+/**
+ * Every MCP server any entry of the records lists, as {@link mcpServerKeyOf} keys.
+ * @param records - Records of one level.
+ */
+export const listedMcpServers = (records: readonly InstallRecord[]): Set<string> => new Set(records.flatMap((record) =>
+  Object.values(record.bundles).flatMap((bundle) => Object.values(bundle.tools).flatMap((entry) => (entry.mcpServers ?? []).map((server) => mcpServerKeyOf(server))))));
+
+// `config` of an MCP file: relative to the level root, `/`-separated.
+const mcpConfigPathOf = (root: string, file: string): string => {
+  const relative = path.relative(root, path.resolve(file));
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw recordError('RECORD.PATH_OUTSIDE_ROOT', { file: path.basename(file), detail: `the MCP file ${file} is outside ${root}` });
+  }
+  return relative.split(path.sep).join('/');
+};
+
+// Names of the servers any entry of the level records for one MCP file.
+const recordedMcpServerNames = async (store: RecordStore, location: RecordLocation, config: string): Promise<Set<string>> => {
+  const otherLocation = otherRepositoryLocation(location);
+  const records: InstallRecord[] = [];
+  for (const file of otherLocation === undefined ? [location] : [location, otherLocation]) {
+    records.push((await store.load(file)).record);
+  }
+  return new Set(records.flatMap((record) => Object.values(record.bundles).flatMap((bundle) => Object.values(bundle.tools)
+    .flatMap((entry) => (entry.mcpServers ?? []).filter((server) => server.config === config).map((server) => server.name)))));
+};
+
+// One server per file and name, sorted, as prototype-free copies.
+const uniqueMcpServers = (servers: readonly RecordedMcpServer[]): RecordedMcpServer[] => {
+  const byKey = new Map<string, RecordedMcpServer>();
+  for (const server of servers) {
+    byKey.set(mcpServerKeyOf(server), Object.assign(Object.create(null) as RecordedMcpServer, server));
+  }
+  return [...byKey.entries()].toSorted(([left], [right]) => compareCodeUnits(left, right)).map(([, server]) => server);
 };
 
 const isSameSource = (left: SourceRecord, right: SourceRecord): boolean => {
@@ -927,7 +987,9 @@ export class InstallRecordService {
       }
     }
 
-    const { files } = putToolEntry(target.record, bundleId, tool, {
+    const previousMcp = previous.flatMap((prior) => prior.mcpServers ?? []);
+    const mcpServers = input.mcpServers === undefined ? uniqueMcpServers(previousMcp) : uniqueMcpServers(input.mcpServers);
+    const entry = putToolEntry(target.record, bundleId, tool, {
       version: input.version,
       sourceId,
       sourceType: input.sourceType,
@@ -935,6 +997,10 @@ export class InstallRecordService {
       ...(bundleIndex === undefined ? {} : { integrity: integrityOf(bundleIndex) }),
       files: written
     });
+    const { files } = entry;
+    if (mcpServers.length > 0) {
+      entry.mcpServers = mcpServers;
+    }
     if (input.name !== undefined && input.name !== '') {
       target.record.bundles[bundleId].name = recordBundleNameOf(input.name, input.version);
     }
@@ -970,6 +1036,9 @@ export class InstallRecordService {
       keptSharedFiles.push(aliased);
     }
 
+    const stillListedMcp = listedMcpServers(loaded.map((file) => file.record));
+    const removedMcpServers = uniqueMcpServers(previousMcp.filter((server) => !stillListedMcp.has(mcpServerKeyOf(server))));
+
     // A reinstall clears the bundle's `unknown` entries of any version; their files are only no longer listed.
     const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId, identity);
     this.clearUnknown(target.record, bundleId, identity);
@@ -983,6 +1052,7 @@ export class InstallRecordService {
       changedEntries: [{ bundleId, tool }, ...synced.map((sibling) => ({ bundleId, tool: sibling.tool }))],
       deletedFiles: deletedFiles.toSorted(compareCodeUnits),
       keptSharedFiles: keptSharedFiles.toSorted(compareCodeUnits),
+      ...(removedMcpServers.length > 0 ? { removedMcpServers } : {}),
       location,
       warnings,
       siblings: sync.siblings
@@ -1039,6 +1109,11 @@ export class InstallRecordService {
       keptSharedFiles.add(aliased);
     }
 
+    // A server another entry lists, such as a sibling tool sharing the MCP file, stays.
+    const stillListedMcp = listedMcpServers(loaded.map((file) => file.record));
+    const removedMcpServers = uniqueMcpServers(changed.flatMap(({ entry }) => entry.mcpServers ?? [])
+      .filter((server) => !stillListedMcp.has(mcpServerKeyOf(server))));
+
     const warnings: string[] = [];
     for (const { file } of changed) {
       warnings.push(...(await this.saveOther(file)));
@@ -1047,6 +1122,7 @@ export class InstallRecordService {
       changedEntries: [{ bundleId, tool }],
       deletedFiles: [...deletedFiles].toSorted(compareCodeUnits),
       keptSharedFiles: [...keptSharedFiles].toSorted(compareCodeUnits),
+      ...(removedMcpServers.length > 0 ? { removedMcpServers } : {}),
       location: changed[0].file.location,
       warnings,
       siblings: []
@@ -1073,7 +1149,8 @@ export class InstallRecordService {
     const isKept = (recordedPath: string): boolean => changedOrMissing.has(recordedPath) || input.keep?.has(recordedPath) === true;
     const removal = await this.deleteSuperseded({
       location: change.location,
-      deletedFiles: change.deletedFiles.filter((recordedPath) => !isKept(recordedPath))
+      deletedFiles: change.deletedFiles.filter((recordedPath) => !isKept(recordedPath)),
+      ...(change.removedMcpServers === undefined ? {} : { removedMcpServers: change.removedMcpServers })
     });
     const keptOwn = change.deletedFiles.filter((recordedPath) => isKept(recordedPath));
     const modified: string[] = [];
@@ -1088,6 +1165,8 @@ export class InstallRecordService {
       deleted: removal.deleted,
       kept: [...change.keptSharedFiles, ...keptOwn],
       modified,
+      mcpServersRemoved: removal.mcpServersRemoved,
+      mcpServersModified: removal.mcpServersModified,
       warnings: [...change.warnings, ...removal.warnings]
     };
   }
@@ -1317,9 +1396,11 @@ export class InstallRecordService {
    * removed; anything refused or failing becomes a warning.
    * @param change - The saved change.
    */
-  public async deleteSuperseded(change: Pick<RecordChange, 'deletedFiles' | 'location'>): Promise<DeleteSupersededResult> {
+  public async deleteSuperseded(change: Pick<RecordChange, 'deletedFiles' | 'location' | 'removedMcpServers'>): Promise<DeleteSupersededResult> {
     const deleted: string[] = [];
     const warnings: string[] = [];
+    const mcp = await this.removeRecordedMcpServers(change.location.root, change.removedMcpServers ?? []);
+    warnings.push(...mcp.warnings);
     for (const recordedPath of change.deletedFiles) {
       try {
         const decision = await resolveDeleteTarget(this.fs, change.location.root, recordedPath);
@@ -1336,7 +1417,88 @@ export class InstallRecordService {
         warnings.push(`Could not remove ${recordedPath}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    return { deleted, warnings };
+    return { deleted, mcpServersRemoved: mcp.removed, mcpServersModified: mcp.modified, warnings };
+  }
+
+  /**
+   * Write a bundle's MCP servers into a tool's MCP file under the level root. A
+   * name the file has is replaced only when an entry of the level records it.
+   * @param input - The level's record file, the MCP file and the servers.
+   * @param input.location - Record file the install is recorded in.
+   * @param input.file - The tool's MCP file; it must be inside the level root.
+   * @param input.servers - Servers to write.
+   * @returns The servers as recorded, `config` relative to the level root.
+   * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT`, `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`; the file is then unchanged.
+   */
+  public async writeMcpServers(input: {
+    location: RecordLocation;
+    file: McpConfigFile;
+    servers: readonly McpServerToWrite[];
+  }): Promise<RecordedMcpServer[]> {
+    const config = mcpConfigPathOf(input.location.root, input.file.path);
+    const listed = await recordedMcpServerNames(this.store, input.location, config);
+    const written = await writeMcpServers(this.fs, input.file, input.servers, { isRecorded: (name) => listed.has(name), label: config });
+    return written.map((server): RecordedMcpServer => ({ config, ...server }));
+  }
+
+  /**
+   * Describe servers another writer put in a tool's MCP file, as an entry records them.
+   * Names the file does not have are left out.
+   * @param root - Level root.
+   * @param file - The tool's MCP file; it must be inside the level root.
+   * @param servers - Server names with the bundle item each came from.
+   * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT` or `RECORD.MCP_CONFIG_UNREADABLE`.
+   */
+  public async describeMcpServers(root: string, file: McpConfigFile, servers: readonly { name: string; item?: string }[]): Promise<RecordedMcpServer[]> {
+    const config = mcpConfigPathOf(root, file.path);
+    const current = await readMcpConfig(this.fs, file, config);
+    const map = isJsonObject(current[file.serversKey]) ? current[file.serversKey] as Record<string, unknown> : {};
+    return servers.filter((server) => Object.hasOwn(map, server.name)).map((server) => ({
+      config,
+      name: server.name,
+      ...(server.item === undefined ? {} : { item: server.item }),
+      checksum: mcpServerChecksumOf(map[server.name])
+    }));
+  }
+
+  /**
+   * Remove recorded MCP servers from their files under a level root, keeping
+   * those whose definition changed; a file outside the root is never touched.
+   * @param root - Level root the `config` paths are relative to.
+   * @param servers - Servers to remove.
+   */
+  public async removeRecordedMcpServers(
+    root: string,
+    servers: readonly RecordedMcpServer[]
+  ): Promise<{ removed: RecordedMcpServer[]; modified: RecordedMcpServer[]; warnings: string[] }> {
+    const result = { removed: [] as RecordedMcpServer[], modified: [] as RecordedMcpServer[], warnings: [] as string[] };
+    const byConfig = new Map<string, RecordedMcpServer[]>();
+    for (const server of servers) {
+      byConfig.set(server.config, [...(byConfig.get(server.config) ?? []), server]);
+    }
+    for (const [config, ofConfig] of byConfig) {
+      const absolute = path.resolve(root, ...config.split('/'));
+      const relative = path.relative(root, absolute);
+      if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+        result.warnings.push(`Did not change ${config}: it is outside ${root}.`);
+        continue;
+      }
+      for (const serversKey of ['servers', 'mcpServers'] as const) {
+        try {
+          const removal = await removeMcpServers(this.fs, { path: absolute, serversKey }, ofConfig, config);
+          const named = (names: string[]): RecordedMcpServer[] => ofConfig.filter((server) => names.includes(server.name));
+          result.removed.push(...named(removal.removed));
+          result.modified.push(...named(removal.modified));
+        } catch (error) {
+          result.warnings.push(`Did not remove the MCP servers of ${config}: ${error instanceof Error ? error.message : String(error)}`);
+          break;
+        }
+      }
+    }
+    for (const server of result.modified) {
+      result.warnings.push(`Kept MCP server ${server.name} in ${server.config}: it was changed since the install.`);
+    }
+    return result;
   }
 
   /**
@@ -1345,10 +1507,13 @@ export class InstallRecordService {
    * @param changes - The saved changes, in order.
    * @throws {RegistryError} Any `RECORD.*` error from loading a file.
    */
-  public async deleteSupersededAfterAll(changes: readonly Pick<RecordChange, 'deletedFiles' | 'location'>[]): Promise<DeleteSupersededResult> {
+  public async deleteSupersededAfterAll(
+    changes: readonly Pick<RecordChange, 'deletedFiles' | 'location' | 'removedMcpServers'>[]
+  ): Promise<DeleteSupersededResult> {
     const listedByRecord = new Map<string, Set<string>>();
+    const listedMcpByRecord = new Map<string, Set<string>>();
     const handled = new Set<string>();
-    const result: DeleteSupersededResult = { deleted: [], warnings: [] };
+    const result: DeleteSupersededResult = { deleted: [], mcpServersRemoved: [], mcpServersModified: [], warnings: [] };
     for (const change of changes) {
       let listed = listedByRecord.get(change.location.path);
       if (listed === undefined) {
@@ -1360,7 +1525,17 @@ export class InstallRecordService {
         }
         listed = listedPaths(records);
         listedByRecord.set(change.location.path, listed);
+        listedMcpByRecord.set(change.location.path, listedMcpServers(records));
       }
+      const stillMcp = listedMcpByRecord.get(change.location.path) ?? new Set<string>();
+      const removedMcpServers = (change.removedMcpServers ?? []).filter((server) => {
+        const key = `${change.location.root}\u0000mcp\u0000${mcpServerKeyOf(server)}`;
+        if (stillMcp.has(mcpServerKeyOf(server)) || handled.has(key)) {
+          return false;
+        }
+        handled.add(key);
+        return true;
+      });
       const still = listed;
       const deletedFiles = change.deletedFiles.filter((recordedPath) => {
         const key = `${change.location.root}\u0000${recordedPath}`;
@@ -1370,8 +1545,10 @@ export class InstallRecordService {
         handled.add(key);
         return true;
       });
-      const removal = await this.deleteSuperseded({ deletedFiles, location: change.location });
+      const removal = await this.deleteSuperseded({ deletedFiles, location: change.location, removedMcpServers });
       result.deleted.push(...removal.deleted);
+      result.mcpServersRemoved.push(...removal.mcpServersRemoved);
+      result.mcpServersModified.push(...removal.mcpServersModified);
       result.warnings.push(...removal.warnings);
     }
     return result;

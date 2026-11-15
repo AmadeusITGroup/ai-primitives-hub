@@ -98,7 +98,7 @@ The level comes from `--lockfile` (`update` only), then `--scope`, then the defa
 
 - Each item goes to the target layout's route for its type: `skill` → `skills/`, `instructions` → `instructions/`, `prompt` → `prompts/`, `agent` and `chatmode` → `agents/`. Each target maps those routes to its own folders; Kiro, for example, puts instructions and prompts in `steering/`.
 - A skill's whole directory is copied to `skills/<id>/`. Any other item is renamed to `<id>.<type>.md` (for example `<id>.instructions.md`). A trailing type marker in the id is dropped first, so the id `rules.instructions` gives `rules.instructions.md`, not `rules.instructions.instructions.md`. A missing `type:` is detected from the file name and tags.
-- Entries that are not files, such as `mcpServers`, are not placed this way. Entries whose `type:` is not one of the five above, and bundle files no item lists, keep the path-based routing below.
+- Entries that are not files, such as `mcpServers`, are not placed this way; see [MCP servers](#mcp-servers). Entries whose `type:` is not one of the five above, and bundle files no item lists, keep the path-based routing below.
 - When the target cannot place an item (its type is excluded by the target's `--allowed-kinds`, the layout has no route for it, or an earlier item already uses its destination, such as ids `alpha` and `alpha.instructions` of type `instructions`), the install fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing, unless `--skip-unsupported` is set, which skips the item instead (see above).
 - A skill item's `file:` may name the skill directory (`skills/<name>`) or a file in it (`skills/<name>/SKILL.md`); either way only that skill's directory is copied.
 - Re-installing or updating a bundle that is already in the install record removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
@@ -140,6 +140,17 @@ The VS Code extension uses the same record, under the tool of the editor it runs
 - Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the entry of the editor it runs in.
 - Before its first change to a repository record, it migrates the older `prompt-registry` files at the git root, as the CLI does.
 - "Clean Up Stale Repository Bundles" migrates first, lists one row per bundle and tool, offers only entries whose files are all missing (never an `unknown` entry), and removes the entries without deleting files.
+
+### MCP servers
+
+A bundle's `mcpServers` are written into the target tool's MCP file at the install level, for example `.vscode/mcp.json`, `.kiro/settings/mcp.json` or `~/.kiro/settings/mcp.json`. The CLI and the extension name them the same way, `ai-primitives-hub:<owner>:<repo>:<collection>:<server>`, and keep `${env:VAR}` unresolved in the tool's syntax.
+
+- The MCP file is shared with servers you add yourself, so the record lists each server the entry wrote, not the file: `mcpServers[]` with the file (`config`, relative to the level root), the `name`, the bundle `item` and the `checksum` of the definition.
+- Uninstall removes the entry's servers and keeps every other server and key. A server you changed since the install is kept and reported; turning one on or off (`disabled`) is not a change. A server another entry still lists, such as `kiro` and `kiro-cli` sharing `.kiro/settings/mcp.json`, stays. The file is deleted only when nothing but an empty server map is left.
+- An update removes the servers the new version no longer has and rewrites the others under the same name.
+- An install whose server name the file already has, and no entry records, fails with `RECORD.MCP_CONFLICT` and leaves the file unchanged. A file the tools cannot read as plain JSON (comments, trailing commas) is never rewritten: the install fails with `RECORD.MCP_CONFIG_UNREADABLE`, and uninstall leaves its servers and warns.
+- A tool with no MCP file at the level (for example Windsurf at repository level) gets no servers, with a warning.
+- Extension installs recorded before this list existed are still uninstalled through the extension's `prompt-registry-mcp-tracking.json`.
 
 ### User install record
 

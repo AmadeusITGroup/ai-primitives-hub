@@ -18,7 +18,9 @@ export const RECORD_ERROR_CODES = [
   'RECORD.WRITE_FAILED',
   'RECORD.CLI_MANAGED',
   'RECORD.ENTRY_NOT_FOUND',
-  'RECORD.HUB_CONFLICT'
+  'RECORD.HUB_CONFLICT',
+  'RECORD.MCP_CONFLICT',
+  'RECORD.MCP_CONFIG_UNREADABLE'
 ] as const;
 
 /** One of the {@link RECORD_ERROR_CODES}. */
@@ -49,7 +51,9 @@ const DEFAULT_MESSAGES: Readonly<Record<RecordErrorCode, string>> = {
   'RECORD.WRITE_FAILED': 'The install record could not be written; the previous file was left intact.',
   'RECORD.CLI_MANAGED': 'This bundle was installed with the ai-primitives-hub CLI.',
   'RECORD.ENTRY_NOT_FOUND': 'The install record has no entry for this bundle and tool; nothing was removed.',
-  'RECORD.HUB_CONFLICT': 'The source is already recorded from another hub; nothing was recorded.'
+  'RECORD.HUB_CONFLICT': 'The source is already recorded from another hub; nothing was recorded.',
+  'RECORD.MCP_CONFLICT': 'The MCP file already has a server of this name that no install recorded; it was left unchanged.',
+  'RECORD.MCP_CONFIG_UNREADABLE': 'The MCP file is not plain JSON, so its servers were left unchanged.'
 };
 
 const DEFAULT_HINTS: Readonly<Record<RecordErrorCode, string>> = {
@@ -61,7 +65,9 @@ const DEFAULT_HINTS: Readonly<Record<RecordErrorCode, string>> = {
   'RECORD.WRITE_FAILED': 'Check that the folder is writable and has free space, then run the command again.',
   'RECORD.CLI_MANAGED': 'Manage this bundle with the ai-primitives-hub CLI for now.',
   'RECORD.ENTRY_NOT_FOUND': 'Check the bundle id and target with `ai-primitives-hub list`, then run the command again.',
-  'RECORD.HUB_CONFLICT': 'A source belongs to one hub. Uninstall its bundles, or install them through the hub already recorded.'
+  'RECORD.HUB_CONFLICT': 'A source belongs to one hub. Uninstall its bundles, or install them through the hub already recorded.',
+  'RECORD.MCP_CONFLICT': 'Rename or remove that server in the MCP file, then run the command again.',
+  'RECORD.MCP_CONFIG_UNREADABLE': 'Remove comments and trailing commas from the MCP file, or fix it, then run the command again.'
 };
 
 /**
