@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import {
+  mcpServerChecksumOf,
   writeMcpConfigText,
 } from '@ai-primitives-hub/app';
 import {
@@ -54,6 +55,8 @@ export interface TrackedMcpServer {
 export interface McpRecordOwnership {
   /** Whether a level's installs are kept in an install record; otherwise the tracking file is the only store. */
   usesRecord(level: 'user' | 'repository'): boolean;
+  /** Whether the record of a level can list servers of this MCP file: the file is inside the level root. */
+  holdsConfig(level: 'user' | 'repository', configPath: string, workspaceRoot?: string): Promise<boolean>;
   /** Server names the records list for an MCP file, with the bundle id of an entry listing each. */
   recordedServers(level: 'user' | 'repository', configPath: string, workspaceRoot?: string): Promise<Map<string, string>>;
   /** Give tracked servers to the record entries of their bundles; returns the names an entry took. */
@@ -79,6 +82,17 @@ export class McpServerManager {
   // The level whose install record owns the servers; `undefined` when the tracking file does.
   private recordLevel(level: 'user' | 'repository' | undefined): 'user' | 'repository' | undefined {
     return level !== undefined && this.ownership?.usesRecord(level) === true ? level : undefined;
+  }
+
+  // As `recordLevel`, for an install into one MCP file: a file the record cannot list stays tracked.
+  private async recordLevelFor(level: 'user' | 'repository' | undefined, configPath: string, workspaceRoot?: string): Promise<'user' | 'repository' | undefined> {
+    const recorded = this.recordLevel(level);
+    return recorded !== undefined && await (this.ownership as McpRecordOwnership).holdsConfig(recorded, configPath, workspaceRoot) ? recorded : undefined;
+  }
+
+  // Whether a server in the file is the one this install writes: a retry after a failed record finds it there.
+  private static isSameServer(existing: unknown, written: unknown): boolean {
+    return existing !== undefined && mcpServerChecksumOf(existing) === mcpServerChecksumOf(written);
   }
 
   // Names an install may write over: listed by the record, or still tracked from an older install.
@@ -530,14 +544,14 @@ export class McpServerManager {
 
       this.logger.info(`Installing ${Object.keys(serversManifest).length} MCP servers for bundle ${bundleId}`);
 
-      const level = this.recordLevel(options.scope === 'user' ? 'user' : undefined);
+      const location = McpConfigLocator.getMcpConfigLocation(
+        options.scope === 'workspace' ? 'repository' : 'user'
+      );
+      const level = location === undefined ? undefined : await this.recordLevelFor(options.scope === 'user' ? 'user' : undefined, location.configPath);
       if (level !== undefined) {
         await this.migrateTrackingToRecord(level);
       }
       const tracking = await this.configService.readTrackingMetadata(options.scope);
-      const location = McpConfigLocator.getMcpConfigLocation(
-        options.scope === 'workspace' ? 'repository' : 'user'
-      );
       // With a record, the record's update removes servers a new version dropped.
       const owned = level === undefined || location === undefined ? undefined : await this.ownedNames(level, location.configPath, tracking);
       const existingConfig = owned === undefined
@@ -559,7 +573,7 @@ export class McpServerManager {
         );
 
         serversToInstall[prefixedName] = serverConfig;
-        if (owned?.has(prefixedName) === true) {
+        if (owned !== undefined && (owned.has(prefixedName) || McpServerManager.isSameServer(existingConfig.servers[prefixedName], serverConfig))) {
           // Its own server, from this bundle or an earlier version: written over.
           delete existingConfig.servers[prefixedName];
         }
@@ -706,12 +720,12 @@ export class McpServerManager {
 
       this.logger.info(`Installing ${Object.keys(serversManifest).length} MCP servers for bundle ${bundleId} to workspace`);
 
-      const level = this.recordLevel('repository');
+      const workspaceLocation = this.getWorkspaceMcpLocation(workspaceRoot);
+      const level = await this.recordLevelFor('repository', workspaceLocation.configPath, workspaceRoot);
       if (level !== undefined) {
         await this.migrateTrackingToRecord(level, workspaceRoot);
       }
       const tracking = await this.readWorkspaceTrackingMetadata(workspaceRoot);
-      const workspaceLocation = this.getWorkspaceMcpLocation(workspaceRoot);
       // With a record, the record's update removes servers a new version dropped.
       const owned = level === undefined ? undefined : await this.ownedNames(level, workspaceLocation.configPath, tracking, workspaceRoot);
       const existingConfig = owned === undefined
@@ -724,8 +738,19 @@ export class McpServerManager {
       for (const [serverName, definition] of Object.entries(serversManifest)) {
         const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName, options);
 
-        // Check for conflicts; a server the record or the tracking lists is this bundle's and is written over
-        if (existingConfig.servers[prefixedName] && owned?.has(prefixedName) !== true) {
+        const serverConfig = this.configService.processServerDefinition(
+          serverName,
+          definition,
+          bundleId,
+          bundleVersion,
+          workspaceRoot,
+          workspaceLocation.envPlaceholderStyle
+        );
+
+        // Check for conflicts; a server the record or the tracking lists, or one already as written, is this bundle's
+        const isOwn = owned !== undefined
+          && (owned.has(prefixedName) || McpServerManager.isSameServer(existingConfig.servers[prefixedName], serverConfig));
+        if (existingConfig.servers[prefixedName] && !isOwn) {
           if (options.overwrite) {
             result.warnings?.push(`Overwriting existing server: ${prefixedName}`);
           } else if (options.skipOnConflict) {
@@ -736,15 +761,6 @@ export class McpServerManager {
             continue;
           }
         }
-
-        const serverConfig = this.configService.processServerDefinition(
-          serverName,
-          definition,
-          bundleId,
-          bundleVersion,
-          workspaceRoot,
-          workspaceLocation.envPlaceholderStyle
-        );
 
         serversToInstall[prefixedName] = serverConfig;
 

@@ -346,6 +346,33 @@ export class BundleInstaller {
    * @throws {RegistryError} A `RECORD.*` error, after it was shown once.
    */
   /**
+   * Run the file sync and record step of an install; when it fails, remove the
+   * MCP servers the install wrote that no record entry lists, so nothing is left
+   * that no record or tracking file knows.
+   * @param location - Record file the install is recorded in.
+   * @param mcp - The servers the install wrote.
+   * @param step - Sync and record.
+   */
+  private async removingUnrecordedMcpServersOnFailure(location: RecordLocation, mcp: InstalledMcpServers | undefined, step: () => Promise<void>): Promise<void> {
+    try {
+      await step();
+    } catch (error) {
+      if (mcp?.file !== undefined && mcp.servers.length > 0) {
+        try {
+          const recorded = await this.records.service.recordedMcpServersIn(location, mcp.file.path);
+          const unrecorded = mcp.servers.filter((server) => !recorded.has(server.name));
+          const servers = await this.records.service.describeMcpServers(location.root, mcp.file, unrecorded);
+          const removal = await this.records.service.removeRecordedMcpServers(location.root, servers);
+          this.logWarnings(removal.warnings);
+        } catch (cleanup) {
+          this.logger.warn(`[BundleInstaller] Could not remove the MCP servers of the failed install: ${cleanup instanceof Error ? cleanup.message : String(cleanup)}`);
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
    * The MCP servers the record lists for the host entry an uninstall removes.
    * @param installed - Bundle being uninstalled.
    * @param userEntry - Its user record entry, at user level.
@@ -1320,12 +1347,16 @@ export class BundleInstaller {
         if (repository) {
           // Step 11: record the written files in the shared install record.
           const repoService = this.getRepositoryScopeService();
-          const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
-          await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace, contentOf());
+          await this.removingUnrecordedMcpServersOnFailure(repository.location, installedMcp, async () => {
+            const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
+            await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace, contentOf());
+          });
         } else if (user) {
           // The user record is the store of this install: RegistryStorage is not written.
-          const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode, owned: user.owned });
-          await this.recordUserInstall(bundle, user, written, contentOf());
+          await this.removingUnrecordedMcpServersOnFailure(user.location, installedMcp, async () => {
+            const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode, owned: user.owned });
+            await this.recordUserInstall(bundle, user, written, contentOf());
+          });
           installed.recordOrigin = 'install-record';
         } else {
           await this.getScopeService(options.scope).syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
