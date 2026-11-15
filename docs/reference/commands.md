@@ -130,11 +130,11 @@ The VS Code extension uses the same record, under the tool of the editor it runs
 A bundle's `mcpServers` are written into the target tool's MCP file at the install level, for example `.vscode/mcp.json`, `.kiro/settings/mcp.json` or `~/.kiro/settings/mcp.json`. The CLI and the extension name them the same way, `ai-primitives-hub:<owner>:<repo>:<collection>:<server>`, and keep `${env:VAR}` unresolved in the tool's syntax.
 
 - The MCP file is shared with servers you add yourself, so the record lists each server the entry wrote, not the file: `mcpServers[]` with the file (`config`, relative to the level root), the `name`, the bundle `item` and the `checksum` of the definition.
-- Uninstall removes the entry's servers and keeps every other server and key. A server you changed since the install is kept and reported; turning one on or off (`disabled`) is not a change. A server another entry still lists, such as `kiro` and `kiro-cli` sharing `.kiro/settings/mcp.json`, stays. The file is deleted only when nothing but an empty server map is left.
+- Uninstall removes the entry's servers and keeps every other server and key. A server you changed since the install is kept and reported; turning one on or off (`disabled`), or the note duplicate detection writes in `description`, is not a change. A server another entry still lists, such as `kiro` and `kiro-cli` sharing `.kiro/settings/mcp.json`, stays. The file is deleted only when nothing but an empty server map is left.
 - An update removes the servers the new version no longer has and rewrites the others under the same name.
 - An install whose server name the file already has, and no entry records, fails with `RECORD.MCP_CONFLICT` and leaves the file unchanged. A file the tools cannot read as plain JSON (comments, trailing commas) is never rewritten: the install fails with `RECORD.MCP_CONFIG_UNREADABLE`, and uninstall leaves its servers and warns.
 - A tool with no MCP file at the level (for example Windsurf at repository level) gets no servers, with a warning.
-- Extension installs recorded before this list existed are still uninstalled through the extension's `prompt-registry-mcp-tracking.json`.
+- The record replaces the extension's `prompt-registry-mcp-tracking.json` next to the MCP file. On the first install or uninstall at that level, the extension moves each tracked server into the record entry of its bundle and deletes the file. A server whose bundle has no record entry stays in the file and is uninstalled through it. In WSL, where the extension keeps user installs out of the shared user record, user-level servers are still tracked in that file.
 
 ### User install record
 

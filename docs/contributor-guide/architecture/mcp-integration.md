@@ -186,9 +186,11 @@ mcpServers:
 
 ## Ownership in the install record
 
-Each install record entry lists the servers it wrote under `mcpServers[]`: the MCP file relative to the level root, the server name, the bundle item and a checksum of the definition (`disabled` left out). The CLI writes servers through `InstallRecordService.writeMcpServers` (`packages/app/src/records/mcp-servers.ts`); the extension writes them with `McpServerManager` and records them with `describeMcpServers`. Uninstall and update remove recorded servers through the record (`removeRecordedMcpServers`), so a changed server, or one another entry lists, stays. The tracking metadata below is still written by the extension, and is what uninstalls installs recorded before `mcpServers[]` existed.
+Each install record entry lists the servers it wrote under `mcpServers[]`: the MCP file relative to the level root, the server name, the bundle item and a checksum of the definition (`disabled` left out). The CLI writes servers through `InstallRecordService.writeMcpServers` (`packages/app/src/records/mcp-servers.ts`); the extension writes them with `McpServerManager` and records them with `describeMcpServers`. Uninstall and update remove recorded servers through the record (`removeRecordedMcpServers`), so a changed server, or one another entry lists, stays.
 
-## Uninstallation (tracking metadata)
+At a level with a record (repository always; user except in WSL), `BundleInstaller` gives `McpServerManager` the records' view (`ExtensionRecordAdapter.mcpOwnership()`), and the manager neither reads nor writes the tracking metadata for new installs: a name the record or the leftover tracking lists is the bundle's own and is written over; any other existing name is a conflict. Duplicate detection takes each server's bundle from the record. `migrateTrackingToRecord` hands tracked servers to their bundles' record entries (`addMcpServers`) and deletes the tracking file once nothing is left in it.
+
+## Uninstallation (tracking metadata, WSL user level and untracked leftovers)
 
 1. Read tracking metadata for bundle's servers
 2. Remove servers from `mcp.json`

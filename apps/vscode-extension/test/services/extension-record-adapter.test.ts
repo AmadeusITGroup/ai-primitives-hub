@@ -382,6 +382,52 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
       assert.strictEqual(toolsOf().vscode.mcpServers, undefined);
       assert.ok(!fs.existsSync(abs(MCP_FILE)) || !Object.hasOwn(readMcp().servers, SERVER), 'the dropped server is gone');
     });
+
+    const TRACKING_FILE = '.vscode/prompt-registry-mcp-tracking.json';
+
+    test('install writes no tracking file, and installing the same version again writes over its own server', async () => {
+      await install(WITH_SERVER);
+      await install(WITH_SERVER);
+
+      assert.ok(!fs.existsSync(abs(TRACKING_FILE)), 'the record is the only store');
+      assert.deepStrictEqual(readMcp().servers, { [SERVER]: { command: 'db-server' } });
+      assert.strictEqual(toolsOf().vscode.mcpServers?.length, 1);
+    });
+
+    const writeOlderInstall = (bundleIds: string[]): void => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({
+        servers: Object.fromEntries(bundleIds.map((bundleId) => [`ai-primitives-hub:${bundleId}:db`, { command: 'db-server' }]))
+      }));
+      fs.writeFileSync(abs(TRACKING_FILE), JSON.stringify({
+        managedServers: Object.fromEntries(bundleIds.map((bundleId) => [`ai-primitives-hub:${bundleId}:db`, {
+          bundleId, bundleVersion: '1.0.0', originalName: 'db', originalConfig: { command: 'db-server' }, installedAt: '2026-10-01T10:00:00.000Z', scope: 'workspace'
+        }])),
+        lastUpdated: '2026-10-01T10:00:00.000Z',
+        version: '1.0.0'
+      }));
+    };
+
+    test('an older install\'s tracked server moves into its record entry, the tracking file goes, and uninstall removes the server', async () => {
+      await install(V1);
+      writeOlderInstall([BUNDLE_ID]);
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.ok(!fs.existsSync(abs(TRACKING_FILE)), 'the tracking file is removed');
+      assert.ok(!fs.existsSync(abs(MCP_FILE)), 'the server, the last one in the file, is gone with the file');
+    });
+
+    test('a tracked server of a bundle no record entry holds stays tracked', async () => {
+      await install(V1);
+      writeOlderInstall([BUNDLE_ID, 'gone-bundle']);
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      const tracking = JSON.parse(read(TRACKING_FILE)) as { managedServers: Record<string, unknown> };
+      assert.deepStrictEqual(Object.keys(tracking.managedServers), ['ai-primitives-hub:gone-bundle:db']);
+      assert.deepStrictEqual(Object.keys(readMcp().servers), ['ai-primitives-hub:gone-bundle:db']);
+    });
   });
 
   test('uninstall removes only the vscode entry; the kiro entry and its files stay byte-identical', async () => {
