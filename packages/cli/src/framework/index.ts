@@ -111,6 +111,7 @@ export type {
 } from './install-record';
 export {
   CLI_RECORD_GENERATED_BY,
+  checkRecordSourceHub,
   configuredRecordSources,
   configuredSources,
   createLayoutLoader,

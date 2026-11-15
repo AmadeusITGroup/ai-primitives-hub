@@ -24,6 +24,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   type Lockfile,
+  recordHubIdOf,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
@@ -548,6 +549,8 @@ describe('install command (local --from mode)', () => {
 
   describe('--source resolved through the hub', () => {
     const SHARED_HUB_URL = 'https://hubs.example/hub-config.yml';
+    /** The record's id of the shared hub, whatever id it is added under. */
+    const SHARED_HUB_ID = recordHubIdOf({ type: 'url', location: SHARED_HUB_URL });
     const hubYaml = (name: string): string => [
       'version: 1.0.0',
       'metadata:',
@@ -663,11 +666,11 @@ describe('install command (local --from mode)', () => {
       await installIntoRepository();
 
       const record = await readRecord(workspace);
-      expect(Object.values(record.sources)).toEqual([{ type: 'github', url: 'https://github.com/acme-org/sample-skills', hubId: 'shared-hub' }]);
-      expect(record.hubs).toEqual({ 'shared-hub': { name: 'Shared Hub', type: 'url', location: SHARED_HUB_URL } });
+      expect(Object.values(record.sources)).toEqual([{ type: 'github', url: 'https://github.com/acme-org/sample-skills', hubId: SHARED_HUB_ID }]);
+      expect(record.hubs).toEqual({ [SHARED_HUB_ID]: { name: 'Shared Hub', type: 'url', location: SHARED_HUB_URL } });
       const status = parseJson<{ entries: { bundleId: string; hubId?: string }[] }>((await runWithHub(['status', '-o', 'json'])).stdout);
-      expect(status.data.entries).toEqual([expect.objectContaining({ bundleId: 'sample-skills', tool: 'vscode', hubId: 'shared-hub' })]);
-      expect((await runWithHub(['status'])).stdout).toContain('(vscode)  hub shared-hub');
+      expect(status.data.entries).toEqual([expect.objectContaining({ bundleId: 'sample-skills', tool: 'vscode', hubId: SHARED_HUB_ID })]);
+      expect((await runWithHub(['status'])).stdout).toContain(`(vscode)  hub ${SHARED_HUB_ID}`);
     });
 
     it('keeps the shared hub when the record is replayed', async () => {
@@ -681,8 +684,29 @@ describe('install command (local --from mode)', () => {
       expect(replay.exitCode, replay.stdout).toBe(0);
       expect(parseJson<{ replayed: unknown[] }>(replay.stdout).data.replayed).toHaveLength(1);
       const record = await readRecord(workspace);
-      expect(Object.values(record.sources).map((source) => source.hubId)).toEqual(['shared-hub']);
+      expect(Object.values(record.sources).map((source) => source.hubId)).toEqual([SHARED_HUB_ID]);
       expect(record.hubs).toEqual(JSON.parse(recorded).hubs);
+    });
+
+    it('refuses, before writing any file, a source the record holds from another hub', async () => {
+      expect((await runWithHub(['hub', 'add', '--type', 'url', '--location', SHARED_HUB_URL, '--id', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runWithHub(['hub', 'use', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      await installIntoRepository();
+      // The record now says the source came from another hub.
+      const file = JSON.parse(await readFile(recordPathIn(workspace), 'utf8')) as { hubs: Record<string, { location: string }>; sources: Record<string, { hubId?: string }> };
+      const otherHub = { name: 'Other Hub', type: 'url', location: 'https://hubs.example/other-hub.yml' };
+      file.hubs = { [recordHubIdOf(otherHub)]: otherHub };
+      for (const source of Object.values(file.sources)) {
+        source.hubId = recordHubIdOf(otherHub);
+      }
+      await writeFile(recordPathIn(workspace), JSON.stringify(file));
+      expect((await runWithHub(['target', 'add', 'repo-kiro', '--type', 'kiro', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runWithHub(['install', 'acme-org-sample-skills-sample-skills', '--source', 'sample-collections', '--target', 'repo-kiro', '-o', 'json']);
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout + result.stderr).toContain('RECORD.HUB_CONFLICT');
+      expect(await stat(path.join(workspace, '.kiro')).then(() => true, () => false)).toBe(false);
     });
 
     it('does not record a hub that is only a local path', async () => {

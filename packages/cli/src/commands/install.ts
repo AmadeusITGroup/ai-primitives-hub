@@ -88,6 +88,7 @@ import {
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
+  checkRecordSourceHub,
   Command,
   configuredRecordSources,
   type Context,
@@ -1582,15 +1583,17 @@ async function performRemoteInstall(
     const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
     // Optional hub metadata, looked up before any file is written; a failed lookup records no hub.
     const hub = prepared === undefined ? undefined : await recordHubOf(ctx, opts.sourceConfig).catch(() => undefined);
+    // No configured source: the GitHub repository the bundle was resolved from.
+    const recordSource = opts.sourceConfig === undefined
+      ? { type: 'github', url: `https://github.com/${repoSlug}` }
+      : toRecordSource(opts.sourceConfig, installable.ref.sourceId, hub);
+    // A source recorded from another hub is refused before any file is written.
+    await checkRecordSourceHub(prepared, { ...recordSource, sourceId: installable.ref.sourceId }, hub);
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
-    // No configured source: the GitHub repository the bundle was resolved from.
-    const recordSource = opts.sourceConfig === undefined
-      ? { type: 'github', url: `https://github.com/${repoSlug}` }
-      : toRecordSource(opts.sourceConfig, installable.ref.sourceId, hub);
     // The old lockfile never kept a branch.
     const { branch: _branch, ...sourceDetails } = toLockfileSourceEntry(recordSource);
     const { lockPath, warnings } = await persistInstall(prepared, {
