@@ -20,6 +20,7 @@ import {
   pathToFileURL,
 } from 'node:url';
 import {
+  mcpServerChecksumOf,
   recordHubIdOf,
   recordSourceIdOf,
   resolveUserConfigPaths,
@@ -99,6 +100,8 @@ interface BundleVersion {
   version: string;
   files: Record<string, string>;
   items: { id: string; file: string; type: string }[];
+  /** The manifest's `mcpServers`, as YAML lines under it. */
+  mcpServers?: string;
 }
 
 /** 1.0.0 writes a prompt and an instruction. */
@@ -119,7 +122,8 @@ const sha256 = (text: string): string => `sha256:${createHash('sha256').update(t
 
 const manifestOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): string => {
   const prompts = bundle.items.map((item) => `  - id: ${item.id}\n    file: ${item.file}\n    type: ${item.type}\n`).join('');
-  return `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`;
+  const mcp = bundle.mcpServers === undefined ? '' : `mcpServers:\n${bundle.mcpServers}`;
+  return `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}${mcp}`;
 };
 
 const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
@@ -337,6 +341,47 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(Object.keys(toolsOf()).toSorted(), ['kiro', 'vscode']);
     assert.strictEqual(JSON.stringify(toolsOf().kiro), kiroBefore);
     assert.strictEqual((await listed()).version, V1.version);
+  });
+
+  suite('MCP servers', () => {
+    const MCP_FILE = '.vscode/mcp.json';
+    const SERVER = 'ai-primitives-hub:record-bundle:db';
+    const WITH_SERVER: BundleVersion = { ...V1, mcpServers: '  db:\n    command: db-server\n' };
+    const readMcp = (): { servers: Record<string, unknown> } => JSON.parse(read(MCP_FILE)) as { servers: Record<string, unknown> };
+
+    test('install records the server it wrote in the MCP file, and uninstall removes it through the record, keeping the user\'s own', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { mine: { command: 'my-server' } } }));
+
+      await install(WITH_SERVER);
+
+      assert.deepStrictEqual(toolsOf().vscode.mcpServers, [{ config: MCP_FILE, name: SERVER, item: 'db', checksum: mcpServerChecksumOf({ command: 'db-server' }) }]);
+      assert.deepStrictEqual(Object.keys(readMcp().servers).toSorted(), [SERVER, 'mine']);
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.deepStrictEqual(readMcp().servers, { mine: { command: 'my-server' } });
+    });
+
+    test('uninstall keeps a server the user changed since the install', async () => {
+      await install(WITH_SERVER);
+      const edited = readMcp();
+      edited.servers[SERVER] = { command: 'db-server', args: ['--verbose'] };
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify(edited));
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.deepStrictEqual(readMcp().servers, { [SERVER]: { command: 'db-server', args: ['--verbose'] } });
+    });
+
+    test('an update to a version without the server removes it and records none', async () => {
+      await install(WITH_SERVER);
+
+      await update(V2);
+
+      assert.strictEqual(toolsOf().vscode.mcpServers, undefined);
+      assert.ok(!fs.existsSync(abs(MCP_FILE)) || !Object.hasOwn(readMcp().servers, SERVER), 'the dropped server is gone');
+    });
   });
 
   test('uninstall removes only the vscode entry; the kiro entry and its files stay byte-identical', async () => {
