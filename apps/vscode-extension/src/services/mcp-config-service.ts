@@ -4,6 +4,7 @@ import type {
 import {
   autoDeriveMissingInputs,
   mergeInputDeclarations,
+  writeMcpConfigText,
 } from '@ai-primitives-hub/app';
 import type {
   McpEnvPlaceholderStyle,
@@ -13,6 +14,9 @@ import {
   resolveMcpServerKey,
   rewriteEnvPlaceholders,
 } from '@ai-primitives-hub/core';
+import {
+  NodeRecordFs,
+} from '@ai-primitives-hub/infra';
 import * as fs from 'fs-extra';
 import {
   isRemoteServerConfig,
@@ -49,7 +53,6 @@ export interface DuplicateInfo {
 }
 
 export class McpConfigService {
-  private static readonly BACKUP_SUFFIX = '.backup';
   private static readonly SCHEMA_VERSION = '1.0.0';
   private readonly logger: Logger;
 
@@ -109,16 +112,6 @@ export class McpConfigService {
     };
   }
 
-  private async createBackup(configPath: string): Promise<void> {
-    const backupPath = configPath + McpConfigService.BACKUP_SUFFIX;
-    try {
-      await fs.copyFile(configPath, backupPath);
-      this.logger.debug(`Created backup at ${backupPath}`);
-    } catch (error) {
-      this.logger.warn(`Failed to create backup: ${(error as Error).message}`);
-    }
-  }
-
   /**
    * Map this service's scope vocabulary onto the layout config's scopes.
    * The layout file uses `repository` for what this service calls `workspace`.
@@ -154,17 +147,11 @@ export class McpConfigService {
     }
   }
 
-  public async writeMcpConfig(config: McpConfiguration, scope: 'user' | 'workspace', createBackup = true): Promise<void> {
+  public async writeMcpConfig(config: McpConfiguration, scope: 'user' | 'workspace'): Promise<void> {
     const layoutScope = McpConfigService.toLayoutScope(scope);
     const location = McpConfigLocator.getMcpConfigLocation(layoutScope);
     if (!location) {
       throw new Error(`Cannot determine ${scope}-level configuration path`);
-    }
-
-    await McpConfigLocator.ensureConfigDirectory(layoutScope);
-
-    if (createBackup && location.exists) {
-      await this.createBackup(location.configPath);
     }
 
     try {
@@ -173,7 +160,7 @@ export class McpConfigService {
       // so adding an IDE needs no change here.
       const serialized = serializeMcpConfig(config, location.serversKey);
       const content = JSON.stringify(serialized, null, 2);
-      await fs.writeFile(location.configPath, content, 'utf8');
+      await writeMcpConfigText(new NodeRecordFs(), location.configPath, content);
       this.logger.info(`MCP configuration written to ${location.configPath}`);
     } catch (error) {
       this.logger.error(`Failed to write mcp.json to ${location.configPath}`, error as Error);
@@ -484,7 +471,7 @@ export class McpConfigService {
 
     if (removedServers.length > 0) {
       const cleanedConfig = this.removeOrphanedInputs(config);
-      await this.writeMcpConfig(cleanedConfig, scope, true);
+      await this.writeMcpConfig(cleanedConfig, scope);
       await this.writeTrackingMetadata(tracking, scope);
       this.logger.info(`Removed ${removedServers.length} MCP servers for bundle ${bundleId}`);
     }

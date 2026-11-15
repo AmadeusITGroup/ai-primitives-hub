@@ -196,7 +196,7 @@ At a level with a record (repository always; user except in WSL), `BundleInstall
 2. Remove servers from `mcp.json`
 3. Remove **orphaned inputs** — any `${input:id}` no longer referenced by any remaining server is removed from the `inputs` array
 4. Update tracking metadata
-5. Atomic operations with backup/rollback
+5. The file is replaced atomically (temp file, then rename), so a failed write leaves it intact; no `.backup` copy is kept, and one an earlier release left is removed
 
 > **Shared inputs are preserved**: if another installed bundle's server still references an input, it is kept.
 

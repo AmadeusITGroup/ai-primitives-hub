@@ -92,7 +92,7 @@ suite('McpConfigService — Kiro workspace round-trip', () => {
       servers: { 'my-server': { command: 'node' } },
       tasks: { build: { command: 'echo hi' } },
       inputs: [{ id: 'api-key', type: 'promptString', password: true }]
-    }, 'workspace', false);
+    }, 'workspace');
 
     const onDisk = await fsExtra.readJson(kiroMcpPath) as Record<string, unknown>;
 
@@ -124,7 +124,7 @@ suite('McpConfigService — Kiro workspace round-trip', () => {
       { 'new-server': { command: 'npx', args: ['-y', 'pkg'] } },
       { scope: 'workspace', overwrite: false, skipOnConflict: false }
     );
-    await service.writeMcpConfig(merged.config, 'workspace', false);
+    await service.writeMcpConfig(merged.config, 'workspace');
 
     const onDisk = await fsExtra.readJson(kiroMcpPath) as Record<string, unknown>;
 
@@ -149,7 +149,7 @@ suite('McpConfigService — Kiro workspace round-trip', () => {
 
     const service = new McpConfigService();
     const config = await service.readMcpConfig('workspace');
-    await service.writeMcpConfig(config, 'workspace', false);
+    await service.writeMcpConfig(config, 'workspace');
 
     const onDisk = await fsExtra.readJson(kiroMcpPath) as Record<string, unknown>;
 

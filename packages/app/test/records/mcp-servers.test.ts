@@ -228,6 +228,21 @@ describe('MCP servers in the install record', () => {
     expect(mcpServerChecksumOf({ command: 'x', description: 'Duplicate of y (from bundle z)', disabled: true })).toBe(mcpServerChecksumOf({ command: 'x' }));
   });
 
+  it('writes the MCP file in place of a symlink\'s target, keeps no backup, and removes one an earlier release left', async () => {
+    const real = path.join(base, 'shared-mcp.json');
+    fs.writeFileSync(real, JSON.stringify({ servers: { mine: { command: 'my-server' } } }));
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.symlinkSync(real, configPath());
+    fs.writeFileSync(`${configPath()}.backup`, 'old copy');
+
+    await install('vscode', { db: { command: 'db-server' } });
+
+    expect(fs.lstatSync(configPath()).isSymbolicLink()).toBe(true);
+    expect(Object.keys((JSON.parse(fs.readFileSync(real, 'utf8')) as { servers: object }).servers).toSorted()).toEqual([`${KEY}:db`, 'mine']);
+    expect(fs.existsSync(`${configPath()}.backup`)).toBe(false);
+    expect(fs.readdirSync(path.dirname(configPath()))).toEqual(['mcp.json']);
+  });
+
   it('never touches an MCP file the record places outside the level root', async () => {
     const outside = path.join(base, 'elsewhere.json');
     fs.writeFileSync(outside, JSON.stringify({ servers: { x: { command: 'x' } } }));

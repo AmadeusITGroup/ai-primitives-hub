@@ -155,10 +155,23 @@ const serversIn = (config: Record<string, unknown>, serversKey: McpServersKey): 
   return isJsonObject(servers) ? servers : {};
 };
 
-const writeMcpConfig = async (fs: RecordFs, file: McpConfigFile, config: Record<string, unknown>): Promise<void> => {
-  await fs.mkdir(path.dirname(file.path), { recursive: true });
-  await writeFileAtomically(fs, file.path, `${JSON.stringify(config, null, 2)}\n`);
+/**
+ * Replace an MCP file atomically (temp file, then rename): a failed write leaves
+ * the old file intact, so no backup copy is kept. A symlinked file keeps its link,
+ * and a `<file>.backup` copy an earlier release left is removed.
+ * @param fs - Filesystem port.
+ * @param filePath - Absolute MCP file path.
+ * @param text - New contents.
+ */
+export const writeMcpConfigText = async (fs: RecordFs, filePath: string, text: string): Promise<void> => {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const target = (await fs.lstat(filePath))?.kind === 'symlink' ? await fs.realpath(filePath) : filePath;
+  await writeFileAtomically(fs, target, text);
+  await fs.unlink(`${filePath}.backup`).catch(() => undefined);
 };
+
+const writeMcpConfig = (fs: RecordFs, file: McpConfigFile, config: Record<string, unknown>): Promise<void> =>
+  writeMcpConfigText(fs, file.path, `${JSON.stringify(config, null, 2)}\n`);
 
 /**
  * Write servers into an MCP file, keeping every other key and server. A name the
