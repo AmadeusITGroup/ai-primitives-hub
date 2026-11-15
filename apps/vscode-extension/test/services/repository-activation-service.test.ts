@@ -8,6 +8,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  recordHubIdOf,
   recordSourceIdOf,
   type RecordSourceInput,
 } from '@ai-primitives-hub/app';
@@ -163,14 +164,28 @@ suite('RepositoryActivationService', () => {
       const recorded = await createService().readRepositorySources();
       const result = await createService().checkAndOfferMissingSources(recorded!);
 
-      assert.deepStrictEqual({ ...recorded?.hubs?.['acme-hub'] as object }, { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' });
+      const hubId = recordHubIdOf({ type: 'github', location: 'acme/hub', ref: 'main' });
+      assert.deepStrictEqual({ ...recorded?.hubs?.[hubId] as object }, { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' });
       const prompts = importPrompts();
       assert.strictEqual(prompts.length, 1);
-      assert.ok(String(prompts[0].args[0]).includes('"Acme Hub" (acme-hub)'), String(prompts[0].args[0]));
+      assert.ok(String(prompts[0].args[0]).startsWith('The install records use hub "Acme Hub", which is not configured.'), String(prompts[0].args[0]));
       assert.ok(String(prompts[0].args[0]).includes('github acme/hub @ main'), String(prompts[0].args[0]));
-      assert.ok(hubManager.importHub.calledOnceWithExactly({ type: 'github', location: 'acme/hub', ref: 'main' }, 'acme-hub'));
-      assert.deepStrictEqual(result.importedHubs, ['acme-hub']);
+      // The hub gets its own configured id; the record's id names it on every machine.
+      assert.ok(hubManager.importHub.calledOnceWithExactly({ type: 'github', location: 'acme/hub', ref: 'main' }, undefined));
+      assert.deepStrictEqual(result.importedHubs, [hubId]);
       assert.ok(!String(showInfo.firstCall.args[0]).includes('hub-src'), 'a source of the offered hub is not listed again');
+    });
+
+    test('is known when this editor has the same hub under another id', async () => {
+      await recordHub({ name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' });
+      hubManager.listHubs.resolves([{ id: 'acme-hub-196473', name: 'Acme Hub', description: '', reference: { type: 'github', location: 'acme/hub', ref: 'main' } }]);
+      showInfo.resolves(IMPORT_HUB_ACTION);
+
+      const result = await createService().checkAndOfferMissingSources((await createService().readRepositorySources())!);
+
+      assert.ok(!result.missingHubs.includes(recordHubIdOf({ type: 'github', location: 'acme/hub', ref: 'main' })), result.missingHubs.join(', '));
+      assert.strictEqual(importPrompts().length, 0);
+      assert.ok(hubManager.importHub.notCalled);
     });
 
     test('is not imported when the user does not confirm', async () => {
@@ -196,7 +211,7 @@ suite('RepositoryActivationService', () => {
 
         assert.strictEqual(importPrompts().length, 0);
         assert.ok(hubManager.importHub.notCalled);
-        assert.ok(String(showInfo.firstCall.args[0]).includes('acme-hub'), String(showInfo.firstCall.args[0]));
+        assert.ok(String(showInfo.firstCall.args[0]).includes(recordHubIdOf({ type: testCase.hub.type, location: testCase.hub.location })), String(showInfo.firstCall.args[0]));
       });
     });
   });

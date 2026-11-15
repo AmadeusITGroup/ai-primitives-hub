@@ -260,6 +260,7 @@ export class BundleInstaller {
     const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
     try {
       const location = inPlace?.location ?? await this.records.prepareInstall(workspaceRoot, commitMode);
+      await this.records.checkSourceHub(location, source, hub);
       return { workspaceRoot, location, source, hub, modified: inPlace?.modified ?? await this.modifiedOfSameIdentity(workspaceRoot, bundle) };
     } catch (error) {
       this.rethrowRecordError(error);
@@ -433,6 +434,7 @@ export class BundleInstaller {
     const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
     try {
       const location = await this.records.prepareUserInstall(this.copilotSync.userFolders());
+      await this.records.checkSourceHub(location, source, hub);
       // Every host entry the install replaces: any version of the bundle, and the installed id of an update.
       const replaced = await this.records.findUserHostEntries(bundle.id, bundle.version);
       if (previousBundleId !== undefined && !replaced.some((located) => located.bundleId === previousBundleId)) {

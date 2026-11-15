@@ -726,6 +726,17 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * Refuse, before any file is written, a source the record holds from another hub.
+   * @param location - Record file the install changes.
+   * @param source - Source to record, from {@link buildRecordSource}.
+   * @param hub - Its hub, from {@link buildRecordSource}.
+   * @throws {RegistryError} `RECORD.HUB_CONFLICT`, or any `RECORD.*` load error.
+   */
+  public checkSourceHub(location: RecordLocation, source: RecordSourceInput, hub?: RecordHubInput): Promise<void> {
+    return this.service.checkSourceHub(location, source, hub);
+  }
+
+  /**
    * Remap a source id in both record files; the caller migrates the old files first.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param from - Source id being retired.
