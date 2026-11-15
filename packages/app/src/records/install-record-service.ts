@@ -53,8 +53,11 @@ import {
   putToolEntry,
 } from './record-entry';
 import {
+  isRecordHubId,
   isRecordSourceId,
   recordBundleNameOf,
+  recordHubIdOf,
+  recordHubKeyIn,
   recordSourceIdOf,
 } from './record-file-shape';
 import {
@@ -357,6 +360,52 @@ const hubEntryIn = (record: InstallRecord | undefined, hubId: string): Record<st
  * @param fallback - Another record that may hold the entry.
  * @returns Whether `hubs` changed.
  */
+/**
+ * The hub to record, under its readable id; the source's `hubId` is changed to
+ * that id when it names this hub. A hub that cannot be recorded gives `undefined`.
+ * @param source - Sanitized source; changed in place.
+ * @param input - The hub named by the source's `hubId`.
+ */
+const recordedHubOf = (source: SourceRecord, input: RecordHubInput | undefined): RecordHubInput | undefined => {
+  const hub = input === undefined ? undefined : toRecordHub(input.id, input.name, input);
+  if (hub === undefined) {
+    return undefined;
+  }
+  const id = recordHubIdOf(hub);
+  if (source.hubId === hub.id) {
+    source.hubId = id;
+  }
+  hub.id = id;
+  return hub;
+};
+
+/**
+ * Refuse a source already recorded from another hub. Hubs are compared by
+ * readable id, so one hub imported under two configured ids is the same hub.
+ * @param files - Loaded record files of the level.
+ * @param sourceId - Readable source id.
+ * @param hubId - The install's hub: a readable id when its hub is known.
+ * @throws {RegistryError} `RECORD.HUB_CONFLICT` naming the file and both hubs.
+ */
+const assertOneHub = (files: readonly LoadedRecord[], sourceId: string, hubId: string | undefined): void => {
+  if (hubId === undefined || !isRecordHubId(hubId)) {
+    return;
+  }
+  for (const file of files) {
+    for (const [key, recorded] of Object.entries(file.record.sources)) {
+      const sameSource = (isRecordSourceId(key) ? key : recordSourceIdOf(recorded)) === sourceId;
+      const recordedHubId = typeof recorded.hubId === 'string' ? recordHubKeyIn(file.record.hubs, recorded.hubId) : undefined;
+      if (sameSource && recordedHubId !== undefined && recordedHubId !== hubId) {
+        throw recordError('RECORD.HUB_CONFLICT', {
+          file: path.basename(file.location.path),
+          detail: `source ${JSON.stringify(sourceId)} is recorded from hub ${JSON.stringify(recordedHubId)}, not ${JSON.stringify(hubId)}`,
+          context: { sourceId, recordedHubId, hubId }
+        });
+      }
+    }
+  }
+};
+
 const attachHub = (record: InstallRecord, source: SourceRecord, hub: RecordHubInput | undefined, fallback?: InstallRecord): boolean => {
   const { hubId } = source;
   if (hubId === undefined) {
@@ -829,16 +878,42 @@ export class InstallRecordService {
     return serializeByRoot(input.location.root, () => this.applyInstall(input));
   }
 
+  /**
+   * Refuse, before any file is written, an install of a source the record holds from another hub.
+   * @param location - Record file the install will change.
+   * @param source - Source to record.
+   * @param hub - The hub named by `source.hubId`.
+   * @throws {RegistryError} `RECORD.HUB_CONFLICT`, or any `RECORD.*` load error.
+   */
+  public async checkSourceHub(location: RecordLocation, source: RecordSourceInput, hub?: RecordHubInput): Promise<void> {
+    const sanitized = sanitizeSource(source);
+    recordedHubOf(sanitized, hub);
+    const otherLocation = otherRepositoryLocation(location);
+    const files = [await this.store.load(location), ...(otherLocation === undefined ? [] : [await this.store.load(otherLocation)])];
+    assertOneHub(files, recordSourceIdOf(sanitized), sanitized.hubId);
+  }
+
   // eslint-disable-next-line @typescript-eslint/member-ordering -- kept next to the public method that serializes it
   private async applyInstall(input: RecordInstallInput): Promise<RecordInstallResult> {
     this.validateInput(input);
     const source: SourceRecord = sanitizeSource(input.source);
     // Recorded under its readable id, the same on every machine, whatever the configured id.
     const sourceId = recordSourceIdOf(source);
+    const hub = recordedHubOf(source, input.hub);
     const { location, bundleId, tool } = input;
     const target = await this.store.load(location);
     const otherLocation = otherRepositoryLocation(location);
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
+    assertOneHub(other === undefined ? [target] : [target, other], sourceId, source.hubId);
+    // Without the hub's details, a configured hub id keeps the hub the source is recorded from.
+    if (hub === undefined && source.hubId !== undefined && !isRecordHubId(source.hubId)) {
+      const recordedHubId = [target, other]
+        .map((file) => file !== undefined && Object.hasOwn(file.record.sources, sourceId) ? file.record.sources[sourceId].hubId : undefined)
+        .find((id) => id !== undefined && isRecordHubId(id));
+      if (recordedHubId !== undefined) {
+        source.hubId = recordedHubId;
+      }
+    }
     const bundleIndex = input.bundleFiles === undefined ? undefined : indexBundleFiles(input.bundleFiles);
     const written = await this.toRecordedFiles(location.root, input.writtenPaths, input.workspaceRoot, bundleIndex);
 
@@ -863,21 +938,7 @@ export class InstallRecordService {
     if (input.name !== undefined && input.name !== '') {
       target.record.bundles[bundleId].name = recordBundleNameOf(input.name, input.version);
     }
-    // A source belongs to one hub: one already recorded from another hub is refused before anything is saved.
-    for (const file of other === undefined ? [target] : [target, other]) {
-      for (const [key, recorded] of Object.entries(file.record.sources)) {
-        const sameSource = (isRecordSourceId(key) ? key : recordSourceIdOf(recorded)) === sourceId;
-        if (sameSource && typeof recorded.hubId === 'string' && typeof source.hubId === 'string' && recorded.hubId !== source.hubId) {
-          throw recordError('RECORD.HUB_CONFLICT', {
-            file: path.basename(file.location.path),
-            detail: `source ${JSON.stringify(sourceId)} is recorded from hub ${JSON.stringify(recorded.hubId)}, not ${JSON.stringify(source.hubId)}`,
-            context: { sourceId, recordedHubId: recorded.hubId, hubId: source.hubId }
-          });
-        }
-      }
-    }
     target.record.sources[sourceId] = source;
-    const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
     attachHub(target.record, source, hub, other?.record);
 
     const loaded = other === undefined ? [target] : [target, other];
@@ -1159,7 +1220,7 @@ export class InstallRecordService {
     const committedFile = await this.store.load(committedLocation);
     const loaded = [committedFile, await this.store.load(localOnlyLocation)];
 
-    const hub = input.hub === undefined ? undefined : toRecordHub(input.hub.id, input.hub.name, input.hub);
+    const hub = recordedHubOf(source, input.hub);
     // Records name a source by its readable id; older ones by the configured id.
     const toId = recordSourceIdOf(source);
     const fromIds = [from, ...(input.fromDescriptor === undefined ? [] : [recordSourceIdOf(sanitizeSource(input.fromDescriptor))])];

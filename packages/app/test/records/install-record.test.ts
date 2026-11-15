@@ -52,6 +52,7 @@ import {
 } from '../../src/records';
 import {
   fromRecordFile,
+  recordHubIdOf,
   recordSourceIdOf,
 } from '../../src/records/record-file-shape';
 import {
@@ -555,6 +556,9 @@ describe('repository install record', () => {
 
   describe('hub reference', () => {
     const HUB: RecordHubInput = { id: 'acme-hub', name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' };
+    /** The record's id of {@link HUB}, whatever id it was imported under. */
+    const HUB_ID = recordHubIdOf(HUB);
+    const HUB_ENTRY = { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' };
     const hubSource = { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools', hubId: HUB.id };
     const installFromHub = (tool: string, files: string[], overrides: Partial<RecordInstallInput> = {}): ReturnType<typeof install> =>
       install(tool, files, { source: hubSource, hub: HUB, ...overrides });
@@ -572,6 +576,42 @@ describe('repository install record', () => {
       expect(fs.readFileSync(committed.path, 'utf8')).toBe(before);
     });
 
+    it('records the same hub imported under another id as the same hub', async () => {
+      await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
+      const sameHub: RecordHubInput = { ...HUB, id: 'acme-hub-2' };
+
+      await installFromHub('kiro', ['.kiro/steering/a.md'], { source: { ...hubSource, hubId: sameHub.id }, hub: sameHub });
+
+      const record = read(committed);
+      expect(toolsIn(committed)).toEqual(['kiro', 'vscode']);
+      expect(record.sources[ACME].hubId).toBe(HUB_ID);
+      expect(record.hubs).toEqual({ [HUB_ID]: HUB_ENTRY });
+    });
+
+    it('checkSourceHub refuses a source from another hub before an install writes, and accepts the same hub under another id', async () => {
+      await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
+      const other: RecordHubInput = { ...HUB, id: 'other-hub', location: 'other/hub' };
+      const sameHub: RecordHubInput = { ...HUB, id: 'acme-hub-2' };
+
+      await expectCode(service.checkSourceHub(committed, { ...hubSource, hubId: other.id }, other), 'RECORD.HUB_CONFLICT');
+      await expect(service.checkSourceHub(localOnly, { ...hubSource, hubId: other.id }, other)).rejects.toMatchObject({ code: 'RECORD.HUB_CONFLICT' });
+      await expect(service.checkSourceHub(committed, { ...hubSource, hubId: sameHub.id }, sameHub)).resolves.toBeUndefined();
+    });
+
+    it('rewrites an older record\'s configured hub id to the readable id, and compares hubs by it', async () => {
+      writeRecord(committed, ['.github/prompts/a.prompt.md'], { top: { hubs: { 'acme-hub-171538': HUB_ENTRY } } });
+      const legacy = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as InstallRecord;
+      legacy.sources['acme-github'].hubId = 'acme-hub-171538';
+      fs.writeFileSync(committed.path, JSON.stringify(legacy));
+      const imported: RecordHubInput = { ...HUB, id: 'acme-hub-196473' };
+
+      await installFromHub('kiro', ['.kiro/steering/a.md'], { source: { ...hubSource, hubId: imported.id }, hub: imported });
+
+      const record = read(committed);
+      expect(record.hubs).toEqual({ [HUB_ID]: HUB_ENTRY });
+      expect(record.sources[ACME].hubId).toBe(HUB_ID);
+    });
+
     it('records the same source with no hub next to a hub install, keeping its hub', async () => {
       await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
       const { hubId: _hubId, ...withoutHub } = hubSource;
@@ -585,9 +625,10 @@ describe('repository install record', () => {
       await install('vscode', ['.github/prompts/a.prompt.md'], { source: toRecordSource(configured(HUB.id), 'acme-github', HUB), hub: HUB });
 
       const record = read(committed);
-      expect(record.sources[ACME]).toEqual({ type: 'github', url: 'https://github.com/acme/tools', hubId: 'acme-hub' });
-      expect(record.hubs).toEqual({ 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
-      expect(await service.listEntries([committed])).toMatchObject([{ bundleId: BUNDLE, tool: 'vscode', hubId: 'acme-hub' }]);
+      expect(HUB_ID).toBe('hub:github:acme/hub#main:');
+      expect(record.sources[ACME]).toEqual({ type: 'github', url: 'https://github.com/acme/tools', hubId: HUB_ID });
+      expect(record.hubs).toEqual({ [HUB_ID]: HUB_ENTRY });
+      expect(await service.listEntries([committed])).toMatchObject([{ bundleId: BUNDLE, tool: 'vscode', hubId: HUB_ID }]);
     });
 
     it('never records a credential or an unknown hub field', async () => {
@@ -599,9 +640,8 @@ describe('repository install record', () => {
       await installFromHub('vscode', ['.github/prompts/a.prompt.md'], { hub });
 
       const text = fs.readFileSync(committed.path, 'utf8');
-      expect(read(committed).hubs).toEqual({
-        'acme-hub': { name: 'Acme Hub', type: 'artifactory', location: 'https://art.example/hub?x=1', ref: 'main', configFile: 'hubs/hub-config.yml' }
-      });
+      const entry = { name: 'Acme Hub', type: 'artifactory', location: 'https://art.example/hub?x=1', ref: 'main', configFile: 'hubs/hub-config.yml' };
+      expect(read(committed).hubs).toEqual({ [recordHubIdOf(entry)]: entry });
       expect(text).not.toMatch(/SECRET|pass|ART_TOKEN|bearer/);
     });
 
@@ -636,7 +676,7 @@ describe('repository install record', () => {
     it('drops the hubs entry with the last source that names it', async () => {
       await installFromHub('vscode', ['.github/prompts/a.prompt.md']);
       await install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'other-bundle', source: { sourceId: 'plain', type: 'github', url: 'https://github.com/acme/plain' } });
-      expect(Object.keys(read(committed).hubs ?? {})).toEqual(['acme-hub']);
+      expect(Object.keys(read(committed).hubs ?? {})).toEqual([HUB_ID]);
 
       await service.recordUninstall({ location: committed, bundleId: BUNDLE, tool: 'vscode' });
 
@@ -658,7 +698,7 @@ describe('repository install record', () => {
 
       await install('kiro', ['.kiro/steering/a.md'], { source: hubSource });
 
-      expect(read(committed).hubs).toEqual({ 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
+      expect(read(committed).hubs).toEqual({ [HUB_ID]: HUB_ENTRY });
     });
 
     it('drops a hubId no hub entry backs and keeps one that has an entry', async () => {
@@ -668,7 +708,7 @@ describe('repository install record', () => {
       await install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'other-bundle', source: otherSource });
 
       const { sources } = read(committed);
-      expect([sources[ACME].hubId, sources[recordSourceIdOf(otherSource)].hubId]).toEqual(['acme-hub', undefined]);
+      expect([sources[ACME].hubId, sources[recordSourceIdOf(otherSource)].hubId]).toEqual([HUB_ID, undefined]);
     });
 
     it('moves the hub with an entry to the other repository file', async () => {
@@ -676,8 +716,8 @@ describe('repository install record', () => {
 
       await service.moveEntry({ location: committed, bundleId: BUNDLE, tool: 'vscode' });
 
-      expect(read(localOnly).sources[ACME].hubId).toBe('acme-hub');
-      expect(read(localOnly).hubs).toEqual({ 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
+      expect(read(localOnly).sources[ACME].hubId).toBe(HUB_ID);
+      expect(read(localOnly).hubs).toEqual({ [HUB_ID]: HUB_ENTRY });
       expect(fs.existsSync(committed.path)).toBe(false);
     });
 
@@ -693,9 +733,9 @@ describe('repository install record', () => {
 
       const record = read(committed);
       expect(record.sources).toEqual({
-        [recordSourceIdOf({ type: 'github', url: 'https://github.com/acme/moved' })]: { type: 'github', url: 'https://github.com/acme/moved', hubId: 'acme-hub' }
+        [recordSourceIdOf({ type: 'github', url: 'https://github.com/acme/moved' })]: { type: 'github', url: 'https://github.com/acme/moved', hubId: HUB_ID }
       });
-      expect(Object.keys(record.hubs ?? {})).toEqual(['acme-hub']);
+      expect(Object.keys(record.hubs ?? {})).toEqual([HUB_ID]);
     });
 
     it('a remap leaves a record that names its sources by readable id unchanged', async () => {
@@ -732,6 +772,16 @@ describe('repository install record', () => {
       expect(decision).toEqual({
         use: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/moved', hubId: HUB.id }, configured: true, hub: HUB
       });
+    });
+
+    it('replays from the configured source of the hub a record names by its readable id', async () => {
+      const other: RegistrySource = { ...configured('other-hub'), url: 'https://github.com/other/tools' };
+      const sameHub: RegistrySource = { ...configured('acme-hub-2'), url: 'https://github.com/acme/moved' };
+      const imported: RecordHubInput = { ...HUB, id: 'acme-hub-2' };
+      const decision = await resolveRecordSource('acme-github', { type: 'github', url: 'https://github.com/acme/tools', hubId: HUB_ID },
+        new Map([['acme-github', other]]), root, new NodeRecordFs(), { candidates: [other, sameHub], hubs: new Map([[imported.id, imported]]) });
+
+      expect(decision).toMatchObject({ use: { url: 'https://github.com/acme/moved', hubId: imported.id }, configured: true, hub: imported });
     });
   });
 

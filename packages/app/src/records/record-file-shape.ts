@@ -1,8 +1,8 @@
 /**
  * The install record as stored on disk, and the record the services work on.
  *
- * On disk (#688): sources are keyed by a readable id that is the same on every
- * machine, bundles by `<sourceId>/<name>` with no version, and an entry names
+ * On disk (#688): sources and hubs are keyed by a readable id that is the same
+ * on every machine, bundles by `<sourceId>/<name>` with no version, and an entry names
  * no source, since its key does. An entry keeps the hub's bundle id as
  * `bundleId` when it differs from the name, so commands can still look the
  * bundle up, and carries a stable `installationId`.
@@ -28,6 +28,17 @@ import {
 
 /** Prefix of a readable source id. */
 export const RECORD_SOURCE_ID_PREFIX = 'src:';
+
+/** Prefix of a readable hub id. */
+export const RECORD_HUB_ID_PREFIX = 'hub:';
+
+/** Hub fields the readable id is made of. */
+export interface RecordHubIdFields {
+  type: string;
+  location: string;
+  ref?: string;
+  configFile?: string;
+}
 
 /** Source fields the readable id is made of. */
 export interface RecordSourceIdFields {
@@ -97,6 +108,41 @@ export const recordBundleNameOf = (bundleId: string, version: string): string =>
 export const installationIdOf = (level: string, bundleKey: string, tool: string): string =>
   `inst-${createHash('sha256').update(`${level}\u0000${bundleKey}\u0000${tool}`).digest('hex').slice(0, 16)}`;
 
+/**
+ * Readable hub id `hub:<type>:<location>#<ref>:<configFile>`, the same on every
+ * machine and in every tool, unlike a configured hub id.
+ * @param hub - Recorded hub fields.
+ */
+export const recordHubIdOf = (hub: RecordHubIdFields): string =>
+  `${RECORD_HUB_ID_PREFIX}${hub.type}:${locationOf(hub.location)}#${hub.ref ?? ''}:${trimSlashes(hub.configFile ?? '')}`;
+
+/**
+ * Whether an id is a readable hub id.
+ * @param id - Hub id.
+ */
+export const isRecordHubId = (id: string): boolean => id.startsWith(RECORD_HUB_ID_PREFIX);
+
+/**
+ * The readable id of a recorded hub: the key itself when readable, else built
+ * from the `hubs` entry; `undefined` when the record has no such entry.
+ * @param hubs - The record's `hubs`.
+ * @param hubId - A source's `hubId`.
+ */
+export const recordHubKeyIn = (hubs: unknown, hubId: string): string | undefined => {
+  if (isRecordHubId(hubId)) {
+    return hubId;
+  }
+  const entry = isJsonObject(hubs) && Object.hasOwn(hubs, hubId) ? hubs[hubId] : undefined;
+  return isJsonObject(entry) && typeof entry.type === 'string' && typeof entry.location === 'string'
+    ? recordHubIdOf({
+      type: entry.type,
+      location: entry.location,
+      ...(typeof entry.ref === 'string' ? { ref: entry.ref } : {}),
+      ...(typeof entry.configFile === 'string' ? { configFile: entry.configFile } : {})
+    })
+    : undefined;
+};
+
 const nullObject = <T>(): T => Object.create(null) as T;
 
 // Of two entries for the same key and tool, the later install wins.
@@ -104,12 +150,26 @@ const later = (current: ToolEntry | undefined, candidate: ToolEntry): ToolEntry 
   current === undefined || Date.parse(candidate.installedAt) >= Date.parse(current.installedAt) ? candidate : current;
 
 /**
- * The record as stored on disk: readable source ids, `<sourceId>/<name>` bundle keys.
+ * The record as stored on disk: readable source and hub ids, `<sourceId>/<name>` bundle keys.
  * @param record - In-memory record; left unchanged.
  */
 export const toRecordFile = (record: InstallRecord): InstallRecord => {
   const { bundles, sources, ...rest } = record;
   const file = Object.assign(nullObject<InstallRecord>(), rest);
+  // A hub under its readable id is the current copy; an older id of the same hub only fills a gap.
+  const hubIdOf = new Map<string, string>();
+  if (isJsonObject(rest.hubs)) {
+    const hubs = nullObject<Record<string, unknown>>();
+    const orderedHubs = Object.entries(rest.hubs).toSorted(([left], [right]) => Number(isRecordHubId(right)) - Number(isRecordHubId(left)));
+    for (const [key, hub] of orderedHubs) {
+      const id = recordHubKeyIn(rest.hubs, key) ?? key;
+      hubIdOf.set(key, id);
+      if (!Object.hasOwn(hubs, id)) {
+        hubs[id] = isJsonObject(hub) ? Object.assign(nullObject<Record<string, unknown>>(), hub) : hub;
+      }
+    }
+    file.hubs = hubs;
+  }
   const idOf = new Map<string, string>();
   file.sources = nullObject<InstallRecord['sources']>();
   // A source under its readable id is the current copy; an older id of the same source only fills a gap.
@@ -121,7 +181,11 @@ export const toRecordFile = (record: InstallRecord): InstallRecord => {
     const kept = Object.hasOwn(file.sources, id) ? file.sources[id] : undefined;
     // Of two older ids of one source, the copy that names its hub.
     if (kept === undefined || (!current.has(id) && kept.hubId === undefined && source.hubId !== undefined)) {
-      file.sources[id] = Object.assign(nullObject<SourceRecord>(), source);
+      const copy = Object.assign(nullObject<SourceRecord>(), source);
+      if (copy.hubId !== undefined && hubIdOf.has(copy.hubId)) {
+        copy.hubId = hubIdOf.get(copy.hubId);
+      }
+      file.sources[id] = copy;
     }
     if (isRecordSourceId(key)) {
       current.add(id);
