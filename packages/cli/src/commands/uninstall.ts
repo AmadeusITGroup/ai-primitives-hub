@@ -570,6 +570,8 @@ interface BundleUninstalled {
   bundleId: string;
   /** Paths removed. */
   removed: readonly string[];
+  /** Names of the MCP servers removed. */
+  mcpServersRemoved?: readonly string[];
   /** Lockfile or install record updated. */
   lockfile: string;
   /** Non-fatal problems to report; none for the old lockfile path. */
@@ -599,12 +601,14 @@ function renderBundleUninstalled(ctx: Context, fmt: OutputFormat, target: Target
       target: target.name,
       bundle: outcome.bundleId,
       removed: [...outcome.removed],
+      ...(outcome.mcpServersRemoved === undefined || outcome.mcpServersRemoved.length === 0 ? {} : { mcpServersRemoved: [...outcome.mcpServersRemoved] }),
       lockfile: outcome.lockfile,
       ...(outcome.migration === undefined ? {} : { migration: outcome.migration })
     },
     warnings: outcome.warnings !== undefined && outcome.warnings.length > 0 ? [...outcome.warnings] : undefined,
     textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
-      + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
+      + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'}`
+      + `${d.mcpServersRemoved === undefined ? '' : ` and ${d.mcpServersRemoved.length} MCP server${d.mcpServersRemoved.length === 1 ? '' : 's'}`} removed). `
       + `Updated ${d.lockfile}.\n`
       + renderMigration(outcome.migration)
       + (outcome.record === undefined ? '' : renderRecordLine(outcome.record))
@@ -736,19 +740,23 @@ async function performRecordBundleUninstall(
   }
 
   const removed: string[] = [];
+  const mcpServersRemoved: string[] = [];
   const warnings = [...notes];
   for (const key of others) {
     const older = await recordRepositoryUninstall(prepared, key);
     removed.push(...older.removed);
+    mcpServersRemoved.push(...older.mcpServersRemoved);
     warnings.push(...older.warnings);
   }
   const recorded = await recordRepositoryUninstall(prepared, bundleId);
   removed.push(...recorded.removed);
+  mcpServersRemoved.push(...recorded.mcpServersRemoved);
   warnings.push(...recorded.warnings);
 
   return renderBundleUninstalled(ctx, fmt, target, {
     bundleId,
     removed,
+    mcpServersRemoved,
     lockfile: recorded.lockfile,
     warnings,
     record: { level: prepared.location.level, records: [recorded.lockfile] },
