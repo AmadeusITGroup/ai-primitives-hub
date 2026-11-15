@@ -462,17 +462,54 @@ describe('repository install record', () => {
   });
 
   it.each([
-    [{ type: 'github', url: 'https://github.com/acme/tools', branch: 'main' }, 'src:github:github.com/acme/tools#main:'],
-    [{ type: 'github', url: 'https://GitHub.com/acme/tools.git/' }, 'src:github:github.com/acme/tools#:'],
+    [{ type: 'github', url: 'https://github.com/acme/tools', branch: 'main' }, 'src:github:github.com/acme/tools#main'],
+    [{ type: 'github', url: 'https://GitHub.com/acme/tools.git/' }, 'src:github:github.com/acme/tools'],
     [{ type: 'awesome-copilot', url: 'https://github.com/github/awesome-copilot', branch: 'main', collectionsPath: 'collections' },
       'src:awesome-copilot:github.com/github/awesome-copilot#main:collections'],
     [{ type: 'artifactory', url: 'https://art.example/repo', indexFile: 'index-v1.json' }, 'src:artifactory:art.example/repo#:index-v1.json'],
-    [{ type: 'github', url: 'git@github.com:acme/tools.git' }, 'src:github:github.com/acme/tools#:']
+    [{ type: 'github', url: 'git@github.com:acme/tools.git' }, 'src:github:github.com/acme/tools']
   ])('names source %o %s, the same on every machine', (source, expected) => {
     expect(recordSourceIdOf(source)).toBe(expected);
   });
 
-  it('writes the agreed layout: readable source id, <sourceId>/<name> key, name, bundleId, installationId, integrity and sourcePath', async () => {
+  it.each([
+    [{ type: 'github', location: 'Amadeus-xDLC/genai.prompt-registry-config', ref: 'main' }, 'hub:github:github.com/Amadeus-xDLC/genai.prompt-registry-config#main'],
+    [{ type: 'github', location: 'https://github.com/acme/hub.git' }, 'hub:github:github.com/acme/hub'],
+    [{ type: 'url', location: 'https://hubs.example/hub-config.yml' }, 'hub:url:hubs.example/hub-config.yml'],
+    [{ type: 'artifactory', location: 'https://art.example/hub', configFile: 'hubs/hub-config.yml' }, 'hub:artifactory:art.example/hub#:hubs/hub-config.yml']
+  ])('names hub %o %s, the same on every machine', (hub, expected) => {
+    expect(recordHubIdOf(hub)).toBe(expected);
+  });
+
+  it('rewrites readable ids of the earlier form, with every part, on read and on the next save', async () => {
+    await install('vscode', ['.github/prompts/a.prompt.md']);
+    const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    const [currentSource] = Object.keys(raw.sources);
+    const [currentKey] = Object.keys(raw.bundles);
+    const hub = { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' };
+    const earlier = {
+      ...raw,
+      hubs: { 'hub:github:acme/hub#main:': hub },
+      sources: { [`${currentSource}#:`]: { ...raw.sources[currentSource], hubId: 'hub:github:acme/hub#main:' } },
+      bundles: { [currentKey.replace(currentSource, `${currentSource}#:`)]: raw.bundles[currentKey] }
+    };
+    earlier.bundles[currentKey.replace(currentSource, `${currentSource}#:`)].tools.vscode.installationId = 'inst-0123456789abcdef';
+    fs.writeFileSync(committed.path, JSON.stringify(earlier));
+
+    const view = read(committed);
+    expect(view.bundles[BUNDLE].tools.vscode.sourceId).toBe(currentSource);
+    expect(view.sources[currentSource].hubId).toBe(recordHubIdOf(hub));
+    await store.save(committed, (await store.load(committed)).record);
+
+    const saved = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    expect(Object.keys(saved.sources)).toEqual([currentSource]);
+    expect(saved.sources[currentSource].hubId).toBe(recordHubIdOf(hub));
+    expect(Object.keys(saved.hubs)).toEqual([recordHubIdOf(hub)]);
+    expect(Object.keys(saved.bundles)).toEqual([currentKey]);
+    expect(saved.bundles[currentKey].tools.vscode.installationId).toBeUndefined();
+  });
+
+  it('writes the agreed layout: readable source id, <sourceId>/<name> key, name, bundleId, integrity and sourcePath', async () => {
     const bundleFiles = new Map([['prompts/a.prompt.md', new TextEncoder().encode('content of .github/prompts/a.prompt.md\n')]]);
 
     await install('vscode', ['.github/prompts/a.prompt.md'], {
@@ -481,7 +518,7 @@ describe('repository install record', () => {
     });
 
     const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
-    const sourceId = 'src:github:github.com/acme/tools#main:';
+    const sourceId = 'src:github:github.com/acme/tools#main';
     expect(Object.keys(raw)).toEqual(['$schema', 'version', 'level', 'generatedAt', 'generatedBy', 'sources', 'bundles']);
     expect(Object.keys(raw.sources)).toEqual([sourceId]);
     expect(Object.keys(raw.bundles)).toEqual([`${sourceId}/coll`]);
@@ -489,21 +526,17 @@ describe('repository install record', () => {
     expect(raw.bundles[`${sourceId}/coll`].name).toBe('coll');
     expect(entry).toMatchObject({ version: '1.0.0', bundleId: 'acme-tools-coll-1.0.0', sourceType: 'github' });
     expect(entry.sourceId).toBeUndefined();
-    expect(entry.installationId).toMatch(/^inst-[0-9a-f]{16}$/);
+    expect(Object.keys(entry)).not.toContain('installationId');
     expect(entry.integrity).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(entry.files).toEqual([{ path: '.github/prompts/a.prompt.md', checksum: expect.any(String), sourcePath: 'prompts/a.prompt.md' }]);
     // Read back, the services see the bundle id and the source again.
     expect(read(committed).bundles['acme-tools-coll-1.0.0'].tools.vscode.sourceId).toBe(sourceId);
   });
 
-  it('keeps the bundle key and installationId when the bundle is upgraded', async () => {
+  it('keeps the bundle key when the bundle is upgraded', async () => {
     const options = (version: string): Partial<RecordInstallInput> => ({ bundleId: `acme-tools-coll-${version}`, version, name: 'coll' });
     await install('vscode', ['.github/prompts/a.prompt.md'], options('1.0.0'));
-    const keyOf = (): [string, string] => {
-      const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as { bundles: Record<string, { tools: { vscode: { installationId: string } } }> };
-      const [key] = Object.keys(raw.bundles);
-      return [key, raw.bundles[key].tools.vscode.installationId];
-    };
+    const keyOf = (): string[] => Object.keys((JSON.parse(fs.readFileSync(committed.path, 'utf8')) as { bundles: Record<string, unknown> }).bundles);
     const before = keyOf();
 
     await install('vscode', ['.github/prompts/a.prompt.md'], options('2.0.0'));
@@ -625,7 +658,7 @@ describe('repository install record', () => {
       await install('vscode', ['.github/prompts/a.prompt.md'], { source: toRecordSource(configured(HUB.id), 'acme-github', HUB), hub: HUB });
 
       const record = read(committed);
-      expect(HUB_ID).toBe('hub:github:acme/hub#main:');
+      expect(HUB_ID).toBe('hub:github:github.com/acme/hub#main');
       expect(record.sources[ACME]).toEqual({ type: 'github', url: 'https://github.com/acme/tools', hubId: HUB_ID });
       expect(record.hubs).toEqual({ [HUB_ID]: HUB_ENTRY });
       expect(await service.listEntries([committed])).toMatchObject([{ bundleId: BUNDLE, tool: 'vscode', hubId: HUB_ID }]);
