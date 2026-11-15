@@ -59,8 +59,8 @@ export interface PrepareMcpServersInput {
   envPlaceholderStyle?: McpEnvPlaceholderStyle;
 }
 
-/** Fields that do not count as a change of the definition: the tools set them themselves. */
-const VOLATILE_FIELDS = new Set(['disabled']);
+/** Fields that do not count as a change of the definition: tools set them, as duplicate detection sets both. */
+const VOLATILE_FIELDS = new Set(['disabled', 'description']);
 
 const canonical = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -73,7 +73,7 @@ const canonical = (value: unknown): unknown => {
 };
 
 /**
- * `sha256:` of a server definition, keys sorted, without fields the tools change themselves (`disabled`).
+ * `sha256:` of a server definition, keys sorted, without fields the tools change themselves (`disabled`, `description`).
  * @param definition - Server definition as in the MCP file.
  */
 export const mcpServerChecksumOf = (definition: unknown): string => {

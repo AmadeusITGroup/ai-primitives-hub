@@ -1442,6 +1442,75 @@ export class InstallRecordService {
   }
 
   /**
+   * Add MCP servers to an entry that already exists, as a migration from another
+   * store of them does. Servers the entry lists are left as they are.
+   * @param input - Record file, bundle id, tool and servers.
+   * @param input.location - Either record file of the level; both repository files are searched.
+   * @param input.bundleId - Bundle id.
+   * @param input.tool - Tool key.
+   * @param input.servers - Servers to add, `config` relative to the level root.
+   * @returns `true` when an entry took the servers.
+   * @throws {RegistryError} Any `RECORD.*` load or save error.
+   */
+  public addMcpServers(input: {
+    location: RecordLocation;
+    bundleId: string;
+    tool: string;
+    servers: readonly RecordedMcpServer[];
+  }): Promise<boolean> {
+    return serializeByRoot(input.location.root, async () => {
+      const otherLocation = otherRepositoryLocation(input.location);
+      for (const location of otherLocation === undefined ? [input.location] : [input.location, otherLocation]) {
+        const file = await this.store.load(location);
+        const bundle = Object.hasOwn(file.record.bundles, input.bundleId) ? file.record.bundles[input.bundleId] : undefined;
+        const entry = bundle !== undefined && Object.hasOwn(bundle.tools, input.tool) ? bundle.tools[input.tool] : undefined;
+        if (entry === undefined) {
+          continue;
+        }
+        const merged = uniqueMcpServers([...(entry.mcpServers ?? []), ...input.servers.filter((server) =>
+          !(entry.mcpServers ?? []).some((recorded) => mcpServerKeyOf(recorded) === mcpServerKeyOf(server)))]);
+        if (merged.length !== (entry.mcpServers ?? []).length) {
+          entry.mcpServers = merged;
+          await this.save(location, file.record);
+        }
+        return true;
+      }
+      return false;
+    });
+  }
+
+  /**
+   * Every MCP server the entries of a level list for one MCP file, by name, with
+   * the bundle id of an entry listing it.
+   * @param location - Either record file of the level.
+   * @param file - The tool's MCP file; a file outside the level root has none.
+   * @throws {RegistryError} Any `RECORD.*` load error.
+   */
+  public async recordedMcpServersIn(location: RecordLocation, file: string): Promise<Map<string, string>> {
+    let config: string;
+    try {
+      config = mcpConfigPathOf(location.root, file);
+    } catch {
+      return new Map();
+    }
+    const otherLocation = otherRepositoryLocation(location);
+    const owners = new Map<string, string>();
+    for (const recordFile of otherLocation === undefined ? [location] : [location, otherLocation]) {
+      const { record } = await this.store.load(recordFile);
+      for (const [bundleId, bundle] of Object.entries(record.bundles)) {
+        for (const entry of Object.values(bundle.tools)) {
+          for (const server of entry.mcpServers ?? []) {
+            if (server.config === config && !owners.has(server.name)) {
+              owners.set(server.name, bundleId);
+            }
+          }
+        }
+      }
+    }
+    return owners;
+  }
+
+  /**
    * Describe servers another writer put in a tool's MCP file, as an entry records them.
    * Names the file does not have are left out.
    * @param root - Level root.
