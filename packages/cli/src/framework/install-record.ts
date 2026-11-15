@@ -547,6 +547,23 @@ export const prepareRecordForTarget = async (ctx: Context, target: Target): Prom
 };
 
 /**
+ * Refuse, before any file is written, a source the record holds from another hub.
+ * @param prepared - From {@link prepareRecordForTarget}; nothing is checked without it.
+ * @param source - Source to record.
+ * @param hub - The hub named by `source.hubId`.
+ * @throws {RegistryError} `RECORD.HUB_CONFLICT`, or any `RECORD.*` load error.
+ */
+export const checkRecordSourceHub = async (
+  prepared: PreparedRepositoryRecord | undefined,
+  source: RecordSourceInput,
+  hub: RecordHubInput | undefined
+): Promise<void> => {
+  if (prepared !== undefined) {
+    await prepared.service.checkSourceHub(prepared.location, source, hub);
+  }
+};
+
+/**
  * Load and check the install record a target uninstalls from, before anything is removed.
  * @param ctx - CLI context.
  * @param target - Effective target.
