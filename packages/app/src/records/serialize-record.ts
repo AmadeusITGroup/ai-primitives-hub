@@ -38,7 +38,7 @@ const filePathOf = (file: unknown): string =>
 const KEY_ORDER = {
   top: ['$schema', 'version', 'level', 'generatedAt', 'generatedBy', 'hubs', 'sources', 'bundles'],
   bundle: ['name', 'tools'],
-  entry: ['version', 'bundleId', 'sourceId', 'sourceType', 'installedAt', 'installationId', 'integrity', 'root', 'needsReinstall', 'files', 'plugins', 'mcpServers'],
+  entry: ['version', 'bundleId', 'sourceId', 'sourceType', 'installedAt', 'integrity', 'root', 'needsReinstall', 'files', 'plugins', 'mcpServers'],
   file: ['path', 'checksum', 'sourcePath', 'mode']
 } as const;
 

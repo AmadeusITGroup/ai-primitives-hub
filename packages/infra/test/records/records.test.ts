@@ -67,9 +67,8 @@ describe('RecordSchemaValidator', () => {
     sources: { acme: { type: 'github', url: 'https://github.com/acme/tools' } }
   }));
 
-  it('accepts the entry fields of the finalized lockfile: installationId, integrity, root, sourcePath, mode, plugins and MCP servers', () => {
+  it('accepts the entry fields of the finalized lockfile: integrity, root, sourcePath, mode, plugins and MCP servers', () => {
     const parsed = recordWith({
-      installationId: 'inst-3c9e1f0a',
       integrity: `sha256:${'b'.repeat(64)}`,
       root: '~/.kiro',
       plugins: [{ name: 'inspector', version: '0.4.0', manifestDigest: `sha256:${'c'.repeat(64)}`, root: 'plugins/inspector', skills: [], mcpServers: ['inspector'] }],
@@ -81,7 +80,6 @@ describe('RecordSchemaValidator', () => {
 
   it.each([
     ['an integrity that is not sha256', { integrity: 'md5:abc' }, {}],
-    ['an installationId of another form', { installationId: 'rcpt-1' }, {}],
     ['a file mode that is not octal', {}, { mode: 'rwx' }],
     ['an MCP server without its config file', { mcpServers: [{ name: 'inspector' }] }, {}]
   ])('refuses %s with RECORD.MALFORMED', (_label, entry, file) => {

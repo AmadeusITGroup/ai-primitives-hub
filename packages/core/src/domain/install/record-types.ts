@@ -111,8 +111,6 @@ export interface ToolEntry {
   sourceType: string;
   /** ISO 8601 UTC time the entry was written. */
   installedAt: string;
-  /** Stable id of this install, `inst-<hex>`. */
-  installationId?: string;
   /** `sha256:` of the downloaded bundle content: each bundle path with its file's sha256, sorted. */
   integrity?: string;
   /** Folder the tool writes to when it is not the level root, `~`-relative; `files[].path` is relative to it. */

@@ -5,16 +5,14 @@
  * on every machine, bundles by `<sourceId>/<name>` with no version, and an entry names
  * no source, since its key does. An entry keeps the hub's bundle id as
  * `bundleId` when it differs from the name, so commands can still look the
- * bundle up, and carries a stable `installationId`.
+ * bundle up.
  *
  * In memory: bundles are keyed by the hub's bundle id and every entry has its
- * `sourceId`, so the services and the commands keep one id per bundle. Records
- * written before this layout are read as they are; the next save rewrites them.
+ * `sourceId`, so the services and the commands keep one id per bundle. Readable
+ * ids of an earlier form are rewritten on read; records keyed by configured ids
+ * are read as they are, and the next save rewrites them.
  * @module records/record-file-shape
  */
-import {
-  createHash,
-} from 'node:crypto';
 import {
   type BundleRecord,
   type InstallRecord,
@@ -71,13 +69,22 @@ const locationOf = (url: string): string => {
   return url.replaceAll('\\', '/').replace(/\/+$/, '');
 };
 
+// `#<ref>` and `:<path>`, each left out when empty and nothing follows it.
+const suffixOf = (ref: string | undefined, subPath: string): string => {
+  if (subPath !== '') {
+    return `#${ref ?? ''}:${subPath}`;
+  }
+  return ref === undefined || ref === '' ? '' : `#${ref}`;
+};
+
 /**
- * Readable source id `src:<type>:<host/path>#<branch>:<path>`, the same on every
- * machine. `<path>` is the collections folder, or the index file of an Artifactory source.
+ * Readable source id `src:<type>:<host/path>[#<branch>][:<path>]`, the same on
+ * every machine. `<path>` is the collections folder, or the index file of an
+ * Artifactory source; an empty branch or path is left out.
  * @param source - Recorded source fields.
  */
 export const recordSourceIdOf = (source: RecordSourceIdFields): string =>
-  `${RECORD_SOURCE_ID_PREFIX}${source.type}:${locationOf(source.url)}#${source.branch ?? ''}:${trimSlashes(source.collectionsPath ?? source.indexFile ?? '')}`;
+  `${RECORD_SOURCE_ID_PREFIX}${source.type}:${locationOf(source.url)}${suffixOf(source.branch, trimSlashes(source.collectionsPath ?? source.indexFile ?? ''))}`;
 
 /**
  * Whether an id is a readable source id.
@@ -99,22 +106,22 @@ export const recordBundleKeyOf = (sourceId: string, name: string): string => `${
  */
 export const recordBundleNameOf = (bundleId: string, version: string): string => recordIdentityOf(bundleId, version);
 
-/**
- * Stable id of one install: the same for a bundle, tool and level on every machine.
- * @param level - Record level.
- * @param bundleKey - On-disk bundle key.
- * @param tool - Tool key.
- */
-export const installationIdOf = (level: string, bundleKey: string, tool: string): string =>
-  `inst-${createHash('sha256').update(`${level}\u0000${bundleKey}\u0000${tool}`).digest('hex').slice(0, 16)}`;
+/** A GitHub `owner/repo` location, without a host. */
+const GITHUB_SHORTHAND_PATTERN = /^[\w.-]+\/[\w.-]+\/?$/;
 
 /**
- * Readable hub id `hub:<type>:<location>#<ref>:<configFile>`, the same on every
- * machine and in every tool, unlike a configured hub id.
+ * Readable hub id `hub:<type>:<host/path>[#<ref>][:<configFile>]`, the same on
+ * every machine and in every tool, unlike a configured hub id. A GitHub
+ * `owner/repo` location gets its `github.com` host; an empty ref or config
+ * file is left out.
  * @param hub - Recorded hub fields.
  */
-export const recordHubIdOf = (hub: RecordHubIdFields): string =>
-  `${RECORD_HUB_ID_PREFIX}${hub.type}:${locationOf(hub.location)}#${hub.ref ?? ''}:${trimSlashes(hub.configFile ?? '')}`;
+export const recordHubIdOf = (hub: RecordHubIdFields): string => {
+  const location = hub.type === 'github' && GITHUB_SHORTHAND_PATTERN.test(hub.location)
+    ? `github.com/${trimSlashes(hub.location).replace(/\.git$/, '')}`
+    : locationOf(hub.location);
+  return `${RECORD_HUB_ID_PREFIX}${hub.type}:${location}${suffixOf(hub.ref, trimSlashes(hub.configFile ?? ''))}`;
+};
 
 /**
  * Whether an id is a readable hub id.
@@ -123,24 +130,43 @@ export const recordHubIdOf = (hub: RecordHubIdFields): string =>
 export const isRecordHubId = (id: string): boolean => id.startsWith(RECORD_HUB_ID_PREFIX);
 
 /**
- * The readable id of a recorded hub: the key itself when readable, else built
- * from the `hubs` entry; `undefined` when the record has no such entry.
+ * The readable id of a recorded hub, built from its `hubs` entry; a readable
+ * key with no such entry is kept, anything else gives `undefined`.
  * @param hubs - The record's `hubs`.
  * @param hubId - A source's `hubId`.
  */
 export const recordHubKeyIn = (hubs: unknown, hubId: string): string | undefined => {
-  if (isRecordHubId(hubId)) {
-    return hubId;
-  }
   const entry = isJsonObject(hubs) && Object.hasOwn(hubs, hubId) ? hubs[hubId] : undefined;
-  return isJsonObject(entry) && typeof entry.type === 'string' && typeof entry.location === 'string'
-    ? recordHubIdOf({
+  if (isJsonObject(entry) && typeof entry.type === 'string' && typeof entry.location === 'string') {
+    return recordHubIdOf({
       type: entry.type,
       location: entry.location,
       ...(typeof entry.ref === 'string' ? { ref: entry.ref } : {}),
       ...(typeof entry.configFile === 'string' ? { configFile: entry.configFile } : {})
-    })
-    : undefined;
+    });
+  }
+  return isRecordHubId(hubId) ? hubId : undefined;
+};
+
+// The current readable id for a key of the earlier form, which always had `#<ref>:<path>`
+// and kept a GitHub hub's `owner/repo` without a host; any other key is kept.
+const currentSourceIdOf = (key: string, source: unknown): string => {
+  if (!isJsonObject(source) || typeof source.type !== 'string' || typeof source.url !== 'string') {
+    return key;
+  }
+  const fields = source as unknown as RecordSourceIdFields;
+  const earlier = `${RECORD_SOURCE_ID_PREFIX}${fields.type}:${locationOf(fields.url)}#${fields.branch ?? ''}:${trimSlashes(fields.collectionsPath ?? fields.indexFile ?? '')}`;
+  return key === earlier ? recordSourceIdOf(fields) : key;
+};
+
+const currentHubIdOf = (key: string, hub: unknown): string => {
+  if (!isJsonObject(hub) || typeof hub.type !== 'string' || typeof hub.location !== 'string') {
+    return key;
+  }
+  const ref = typeof hub.ref === 'string' ? hub.ref : '';
+  const configFile = typeof hub.configFile === 'string' ? hub.configFile : '';
+  const earlier = `${RECORD_HUB_ID_PREFIX}${hub.type}:${locationOf(hub.location)}#${ref}:${trimSlashes(configFile)}`;
+  return key === earlier ? recordHubKeyIn({ [key]: hub }, key) ?? key : key;
 };
 
 const nullObject = <T>(): T => Object.create(null) as T;
@@ -162,7 +188,7 @@ export const toRecordFile = (record: InstallRecord): InstallRecord => {
     const hubs = nullObject<Record<string, unknown>>();
     const orderedHubs = Object.entries(rest.hubs).toSorted(([left], [right]) => Number(isRecordHubId(right)) - Number(isRecordHubId(left)));
     for (const [key, hub] of orderedHubs) {
-      const id = recordHubKeyIn(rest.hubs, key) ?? key;
+      const id = isRecordHubId(key) ? key : recordHubKeyIn(rest.hubs, key) ?? key;
       hubIdOf.set(key, id);
       if (!Object.hasOwn(hubs, id)) {
         hubs[id] = isJsonObject(hub) ? Object.assign(nullObject<Record<string, unknown>>(), hub) : hub;
@@ -206,7 +232,6 @@ export const toRecordFile = (record: InstallRecord): InstallRecord => {
       if (bundleId !== name) {
         stored.bundleId = bundleId;
       }
-      stored.installationId = installationIdOf(record.level, key, tool);
       const target = file.bundles[key].tools;
       target[tool] = later(Object.hasOwn(target, tool) ? target[tool] : undefined, stored);
     }
@@ -221,6 +246,34 @@ export const toRecordFile = (record: InstallRecord): InstallRecord => {
 export const fromRecordFile = (file: InstallRecord): InstallRecord => {
   const { bundles, ...rest } = file;
   const record = Object.assign(nullObject<InstallRecord>(), rest);
+  // Readable hub and source ids of an earlier form are built again from their fields.
+  const hubIdOf = new Map<string, string>();
+  if (isJsonObject(rest.hubs)) {
+    const hubs = nullObject<Record<string, unknown>>();
+    for (const [key, hub] of Object.entries(rest.hubs)) {
+      const id = currentHubIdOf(key, hub);
+      hubIdOf.set(key, id);
+      if (!Object.hasOwn(hubs, id) || id === key) {
+        hubs[id] = hub;
+      }
+    }
+    record.hubs = hubs;
+  }
+  const sourceIdOf = new Map<string, string>();
+  if (isJsonObject(rest.sources)) {
+    record.sources = nullObject<InstallRecord['sources']>();
+    for (const [key, source] of Object.entries(rest.sources)) {
+      const id = currentSourceIdOf(key, source);
+      sourceIdOf.set(key, id);
+      if (!Object.hasOwn(record.sources, id) || id === key) {
+        const copy = Object.assign(nullObject<SourceRecord>(), source);
+        if (copy.hubId !== undefined && hubIdOf.has(copy.hubId)) {
+          copy.hubId = hubIdOf.get(copy.hubId);
+        }
+        record.sources[id] = copy;
+      }
+    }
+  }
   record.bundles = nullObject<InstallRecord['bundles']>();
   for (const [key, bundle] of Object.entries(bundles)) {
     const slash = key.lastIndexOf('/');
@@ -233,13 +286,16 @@ export const fromRecordFile = (file: InstallRecord): InstallRecord => {
     const { tools, ...extra } = bundle;
     for (const [tool, stored] of Object.entries(tools)) {
       const entry = Object.assign(nullObject<ToolEntry>(), stored);
-      // Written on every save; derived, so the services never carry it.
-      delete entry.installationId;
+      // Written by earlier builds; derived from the key, so it is dropped.
+      delete (entry as Partial<Record<string, unknown>>).installationId;
       let bundleId = key;
       if (keyed) {
-        entry.sourceId = key.slice(0, slash);
+        const recordedId = key.slice(0, slash);
+        entry.sourceId = sourceIdOf.get(recordedId) ?? recordedId;
         bundleId = typeof stored.bundleId === 'string' && stored.bundleId !== '' ? stored.bundleId : key.slice(slash + 1);
         delete entry.bundleId;
+      } else if (typeof entry.sourceId === 'string' && sourceIdOf.has(entry.sourceId)) {
+        entry.sourceId = sourceIdOf.get(entry.sourceId) as string;
       }
       if (!Object.hasOwn(record.bundles, bundleId)) {
         record.bundles[bundleId] = Object.assign(nullObject<BundleRecord>(), extra, { tools: nullObject<BundleRecord['tools']>() });
