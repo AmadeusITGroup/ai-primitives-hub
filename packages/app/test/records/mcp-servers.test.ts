@@ -212,6 +212,22 @@ describe('MCP servers in the install record', () => {
     expect(result.warnings.join('\n')).toContain(`Did not remove the MCP servers of ${CONFIG}`);
   });
 
+  it('addMcpServers gives servers to an existing entry once, and recordedMcpServersIn lists them with their bundle', async () => {
+    await install('vscode', {});
+    const server = { config: CONFIG, name: `${KEY}:db`, item: 'db', checksum: mcpServerChecksumOf({ command: 'db-server' }) };
+
+    expect(await service.addMcpServers({ location: committed, bundleId: BUNDLE, tool: 'vscode', servers: [server] })).toBe(true);
+    expect(await service.addMcpServers({ location: committed, bundleId: BUNDLE, tool: 'vscode', servers: [server] })).toBe(true);
+    expect(await service.addMcpServers({ location: committed, bundleId: 'no-such-bundle', tool: 'vscode', servers: [server] })).toBe(false);
+
+    expect(read().bundles[BUNDLE].tools.vscode.mcpServers).toEqual([server]);
+    expect(await service.recordedMcpServersIn(committed, configPath())).toEqual(new Map([[`${KEY}:db`, BUNDLE]]));
+  });
+
+  it('the note duplicate detection writes in description is not a change of the definition', () => {
+    expect(mcpServerChecksumOf({ command: 'x', description: 'Duplicate of y (from bundle z)', disabled: true })).toBe(mcpServerChecksumOf({ command: 'x' }));
+  });
+
   it('never touches an MCP file the record places outside the level root', async () => {
     const outside = path.join(base, 'elsewhere.json');
     fs.writeFileSync(outside, JSON.stringify({ servers: { x: { command: 'x' } } }));
