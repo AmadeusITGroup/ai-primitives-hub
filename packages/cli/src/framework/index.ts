@@ -106,6 +106,7 @@ export type {
   RecordedRepositoryUninstall,
   RecordOutputFields,
   RecordSelectionInput,
+  BundleMcpServers,
   InstalledBundleContent,
   RepositoryInstallToRecord,
 } from './install-record';
@@ -115,7 +116,9 @@ export {
   configuredRecordSources,
   configuredSources,
   createLayoutLoader,
+  bundleMcpOf,
   createRecordServices,
+  writeBundleMcpServers,
   finishRecordRun,
   migrateDecision,
   oldFileOnlyBundles,
