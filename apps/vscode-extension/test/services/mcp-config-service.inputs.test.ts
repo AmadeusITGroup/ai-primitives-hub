@@ -238,7 +238,7 @@ suite('McpConfigService - Input Merging', () => {
 
       const existingConfig = await configService.readMcpConfig('user');
       const { config } = await configService.mergeServers(existingConfig, {}, { scope: 'user', overwrite: false, skipOnConflict: false }, inputs);
-      await configService.writeMcpConfig(config, 'user', false);
+      await configService.writeMcpConfig(config, 'user');
 
       const written = JSON.parse(await fs.readFile(mockConfigPath, 'utf8')) as McpConfiguration;
       assert.strictEqual(written.inputs?.length, 2);

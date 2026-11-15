@@ -868,7 +868,6 @@ export class BundleInstaller {
             commitMode: commitMode ?? 'commit',
             overwrite: false,
             skipOnConflict: false,
-            createBackup: true,
             ...naming
           },
           manifest.mcpInputs
@@ -894,7 +893,6 @@ export class BundleInstaller {
           scope,
           overwrite: false,
           skipOnConflict: false,
-          createBackup: true,
           ...naming
         },
         manifest.mcpInputs

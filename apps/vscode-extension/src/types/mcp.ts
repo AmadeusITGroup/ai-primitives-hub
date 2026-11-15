@@ -187,7 +187,6 @@ export interface McpInstallOptions extends McpServerNaming {
   scope: 'user' | 'workspace';
   overwrite?: boolean;
   skipOnConflict?: boolean;
-  createBackup?: boolean;
 }
 
 /**
@@ -197,5 +196,4 @@ export interface McpWorkspaceInstallOptions extends McpServerNaming {
   commitMode: 'commit' | 'local-only';
   overwrite?: boolean;
   skipOnConflict?: boolean;
-  createBackup?: boolean;
 }

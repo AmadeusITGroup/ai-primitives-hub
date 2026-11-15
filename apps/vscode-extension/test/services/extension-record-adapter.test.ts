@@ -385,6 +385,18 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
     const TRACKING_FILE = '.vscode/prompt-registry-mcp-tracking.json';
 
+    test('install keeps no backup copy of the MCP file and removes one an earlier release left', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { mine: { command: 'my-server' } } }));
+      fs.writeFileSync(abs(`${MCP_FILE}.backup`), 'old copy');
+
+      await install(WITH_SERVER);
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.deepStrictEqual(fs.readdirSync(abs('.vscode')), ['mcp.json']);
+      assert.deepStrictEqual(readMcp().servers, { mine: { command: 'my-server' } });
+    });
+
     test('install writes no tracking file, and installing the same version again writes over its own server', async () => {
       await install(WITH_SERVER);
       await install(WITH_SERVER);

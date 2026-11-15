@@ -1,7 +1,13 @@
 import * as path from 'node:path';
 import {
+  writeMcpConfigText,
+} from '@ai-primitives-hub/app';
+import {
   isSameBundleIdentity,
 } from '@ai-primitives-hub/core';
+import {
+  NodeRecordFs,
+} from '@ai-primitives-hub/infra';
 import * as fs from 'fs-extra';
 import {
   McpConfiguration,
@@ -145,7 +151,7 @@ export class McpServerManager {
       if (needsUpdate) {
         // Re-run duplicate detection to ensure only one is active per identity
         const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(scope, owners);
-        await this.configService.writeMcpConfig(deduplicatedConfig, scope, false);
+        await this.configService.writeMcpConfig(deduplicatedConfig, scope);
 
         if (duplicatesDisabled.length > 0) {
           this.logger.info(`Re-enabled and re-evaluated duplicates: ${duplicatesDisabled.length} still disabled`);
@@ -259,34 +265,18 @@ export class McpServerManager {
    * Write MCP configuration to workspace .vscode/mcp.json
    * @param workspaceRoot
    * @param config
-   * @param createBackup
    */
-  private async writeWorkspaceMcpConfig(workspaceRoot: string, config: McpConfiguration, createBackup = true): Promise<void> {
+  private async writeWorkspaceMcpConfig(workspaceRoot: string, config: McpConfiguration): Promise<void> {
     // Resolve once: the location carries both the path and the server key.
     const location = this.getWorkspaceMcpLocation(workspaceRoot);
     const configPath = location.configPath;
-    const configDir = path.dirname(configPath);
-
-    // Ensure .vscode directory exists
-    await fs.ensureDir(configDir);
-
-    // Create backup if requested and file exists
-    if (createBackup && await fs.pathExists(configPath)) {
-      const backupPath = configPath + '.backup';
-      try {
-        await fs.copyFile(configPath, backupPath);
-        this.logger.debug(`Created backup at ${backupPath}`);
-      } catch (error) {
-        this.logger.warn(`Failed to create backup: ${(error as Error).message}`);
-      }
-    }
 
     try {
       // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
       // The key comes from default-layouts.json via McpConfigLocator.
       const serialized = serializeMcpConfig(config, location.serversKey);
       const content = JSON.stringify(serialized, null, 2);
-      await fs.writeFile(configPath, content, 'utf8');
+      await writeMcpConfigText(new NodeRecordFs(), configPath, content);
       this.logger.info(`Workspace MCP configuration written to ${configPath}`);
     } catch (error) {
       this.logger.error(`Failed to write workspace mcp.json to ${configPath}`, error as Error);
@@ -611,7 +601,7 @@ export class McpServerManager {
         return result;
       }
 
-      await this.configService.writeMcpConfig(mergeResult.config, options.scope, options.createBackup !== false);
+      await this.configService.writeMcpConfig(mergeResult.config, options.scope);
       if (owned === undefined) {
         await this.configService.writeTrackingMetadata(tracking, options.scope);
       }
@@ -623,7 +613,7 @@ export class McpServerManager {
       const owners = owned === undefined ? undefined : new Map([...owned, ...Object.keys(serversToInstall).map((name): [string, string] => [name, bundleId])]);
       const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(options.scope, owners);
       if (duplicatesDisabled.length > 0) {
-        await this.configService.writeMcpConfig(deduplicatedConfig, options.scope, false);
+        await this.configService.writeMcpConfig(deduplicatedConfig, options.scope);
         const duplicateNames = duplicatesDisabled.map((d) => d.serverName).join(', ');
         result.warnings?.push(`Disabled ${duplicatesDisabled.length} duplicate server(s): ${duplicateNames}`);
         this.logger.info(`Disabled ${duplicatesDisabled.length} duplicate MCP servers: ${duplicateNames}`);
@@ -819,7 +809,7 @@ export class McpServerManager {
       };
 
       // Write config and tracking
-      await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig, options.createBackup !== false);
+      await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig);
       if (owned === undefined) {
         await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
       }
@@ -880,7 +870,7 @@ export class McpServerManager {
 
       if (removedServers.length > 0) {
         const cleanedConfig = this.configService.removeOrphanedInputs(config);
-        await this.writeWorkspaceMcpConfig(workspaceRoot, cleanedConfig, true);
+        await this.writeWorkspaceMcpConfig(workspaceRoot, cleanedConfig);
         await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
         this.logger.info(`Removed ${removedServers.length} MCP servers for bundle ${bundleId} from workspace`);
       } else {
