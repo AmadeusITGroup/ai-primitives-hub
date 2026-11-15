@@ -20,6 +20,7 @@ import {
   pathToFileURL,
 } from 'node:url';
 import {
+  recordHubIdOf,
   recordSourceIdOf,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
@@ -243,20 +244,61 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(readRecord().sources[recordSourceIdOf(recorded)], recorded);
   });
 
-  test('install from a hub source records its hubId and the hub import reference from the HubManager', async () => {
-    ((manager as any).storage.getSources as sinon.SinonStub).resolves([{ ...SOURCE, hubId: 'acme-hub' }]);
+  /**
+   * Configure {@link SOURCE} from a hub at `location`, imported here as `hubId`.
+   * @param hubId
+   * @param location
+   */
+  const useHub = (hubId: string, location = 'acme/hub'): void => {
+    ((manager as any).storage.getSources as sinon.SinonStub).resolves([{ ...SOURCE, hubId }]);
     (manager as any).hubManager = {
-      getActiveHubId: () => Promise.resolve('acme-hub'),
-      getHub: (hubId: string) => Promise.resolve(hubId === 'acme-hub'
-        ? { id: hubId, config: { metadata: { name: 'Acme Hub' } }, reference: { type: 'github', location: 'acme/hub', ref: 'main', credentialRef: 'HUB_TOKEN' } }
+      getActiveHubId: () => Promise.resolve(hubId),
+      getHub: (id: string) => Promise.resolve(id === hubId
+        ? { id, config: { metadata: { name: 'Acme Hub' } }, reference: { type: 'github', location, ref: 'main', credentialRef: 'HUB_TOKEN' } }
         : null)
     };
+  };
+  const HUB_ENTRY = { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' };
+  const HUB_RECORD_ID = recordHubIdOf(HUB_ENTRY);
+
+  test('install from a hub source records its hub under the readable hub id, with the import reference from the HubManager', async () => {
+    useHub('acme-hub');
 
     await install(V1);
 
     const record = readRecord();
-    assert.deepStrictEqual(record.sources[SOURCE_RECORD_ID], { type: 'github', url: SOURCE.url, hubId: 'acme-hub' });
-    assert.deepStrictEqual(record.hubs, { 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
+    assert.deepStrictEqual(record.sources[SOURCE_RECORD_ID], { type: 'github', url: SOURCE.url, hubId: HUB_RECORD_ID });
+    assert.deepStrictEqual(record.hubs, { [HUB_RECORD_ID]: HUB_ENTRY });
+  });
+
+  test('install from the same hub imported under another id, as the CLI recorded it, is not a conflict', async () => {
+    useHub('acme-hub-171538');
+    await recordOtherTool('kiro', ['.kiro/steering/hello.md']);
+    const cliRecord = JSON.parse(fs.readFileSync(abs(RECORD_FILE), 'utf8'));
+    cliRecord.hubs = { 'acme-hub-171538': HUB_ENTRY };
+    for (const source of Object.values<{ hubId?: string }>(cliRecord.sources)) {
+      source.hubId = 'acme-hub-171538';
+    }
+    fs.writeFileSync(abs(RECORD_FILE), JSON.stringify(cliRecord));
+    useHub('acme-hub-196473');
+
+    await install(V1);
+
+    assert.deepStrictEqual(Object.keys(toolsOf()).toSorted(), ['kiro', 'vscode']);
+    assert.deepStrictEqual(readRecord().hubs, { [HUB_RECORD_ID]: HUB_ENTRY });
+  });
+
+  test('install of a source recorded from another hub is refused before any file is written', async () => {
+    useHub('other-hub', 'other/hub');
+    await install(V1);
+    useHub('acme-hub');
+    fs.rmSync(abs(HELLO));
+    fs.rmSync(abs(STYLE));
+    const before = snapshotTree(root);
+
+    await assert.rejects(install(V1), { code: 'RECORD.HUB_CONFLICT' });
+
+    assert.deepStrictEqual(snapshotTree(root), before);
   });
 
   const refusedInstalls: { name: string; arrange: () => void; sourceId?: string; expected: RegExp | { code: string }; errorShown: boolean }[] = [

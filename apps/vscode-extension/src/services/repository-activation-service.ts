@@ -13,6 +13,8 @@ import * as path from 'node:path';
 import {
   isLocalSourceInsideRoot,
   isLocalType,
+  isRecordHubId,
+  recordHubIdOf,
   recordSourceIdOf,
   toRecordHub,
   toRecordSource,
@@ -372,7 +374,11 @@ export class RepositoryActivationService {
 
       if (recorded.hubs) {
         const configuredHubs = await this.hubManager.listHubs();
-        const configuredHubIds = new Set(configuredHubs.map((h) => h.id));
+        // A record names a hub by its readable id, the same whatever id it was imported under here.
+        const configuredHubIds = new Set(configuredHubs.flatMap((h) => {
+          const hub = toRecordHub(h.id, h.name, h.reference);
+          return hub === undefined ? [h.id] : [h.id, recordHubIdOf(hub)];
+        }));
         result.missingHubs = Object.keys(recorded.hubs).filter((id) => !configuredHubIds.has(id));
       }
 
@@ -408,7 +414,7 @@ export class RepositoryActivationService {
       for (const [id, hub] of importable) {
         result.offeredToAdd = true;
         const choice = await vscode.window.showInformationMessage(
-          `The install records use hub "${hub.name}" (${id}), which is not configured. Import it from ${describeReference(hub.reference)}?`,
+          `The install records use hub "${hub.name}"${isRecordHubId(id) ? '' : ` (${id})`}, which is not configured. Import it from ${describeReference(hub.reference)}?`,
           IMPORT_HUB_ACTION,
           'Not now'
         );
@@ -416,7 +422,8 @@ export class RepositoryActivationService {
           continue;
         }
         try {
-          await this.hubManager.importHub(hub.reference, id);
+          // A readable id is not a configured hub id: the hub gets its own.
+          await this.hubManager.importHub(hub.reference, isRecordHubId(id) ? undefined : id);
           result.importedHubs.push(id);
           this.logger.info(`Imported hub ${id} from ${describeReference(hub.reference)}`);
         } catch (error) {
