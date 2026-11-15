@@ -562,6 +562,9 @@ export class McpServerManager {
 
       await this.configService.writeMcpConfig(mergeResult.config, options.scope, options.createBackup !== false);
       await this.configService.writeTrackingMetadata(tracking, options.scope);
+      if (location !== undefined) {
+        result.config = { path: location.configPath, serversKey: location.serversKey };
+      }
 
       // Detect and disable duplicate servers across all bundles
       const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(options.scope);
@@ -756,6 +759,7 @@ export class McpServerManager {
       // Write config and tracking
       await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig, options.createBackup !== false);
       await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
+      result.config = { path: workspaceLocation.configPath, serversKey: workspaceLocation.serversKey };
 
       // Handle git exclude for local-only mode
       if (options.commitMode === 'local-only') {
@@ -836,5 +840,39 @@ export class McpServerManager {
     }
 
     return result;
+  }
+
+  /**
+   * Drop servers the install record removed from the tracking metadata, so the
+   * record alone decides what a bundle owns.
+   * @param serverNames - Names of the servers.
+   * @param scope - `workspace` for the repository MCP file at `workspaceRoot`.
+   * @param workspaceRoot - Workspace root, for the repository MCP file.
+   */
+  public async forgetServers(serverNames: readonly string[], scope: 'user' | 'workspace', workspaceRoot?: string): Promise<void> {
+    if (serverNames.length === 0) {
+      return;
+    }
+    try {
+      if (scope === 'workspace' && workspaceRoot !== undefined) {
+        const workspaceTracking = await this.readWorkspaceTrackingMetadata(workspaceRoot);
+        for (const name of serverNames) {
+          delete workspaceTracking.managedServers[name];
+        }
+        await this.writeWorkspaceTrackingMetadata(workspaceRoot, workspaceTracking);
+        if (Object.keys(workspaceTracking.managedServers).length === 0) {
+          await this.removeFromGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
+        }
+        return;
+      }
+      const tracking = await this.configService.readTrackingMetadata(scope);
+      for (const name of serverNames) {
+        delete tracking.managedServers[name];
+      }
+      await this.configService.writeTrackingMetadata(tracking, scope);
+      await this.reEnableDuplicatesAfterRemoval(scope, [...serverNames]);
+    } catch (error) {
+      this.logger.warn(`[McpServerManager] Failed to update MCP tracking: ${error}`);
+    }
   }
 }
