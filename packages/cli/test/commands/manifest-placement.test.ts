@@ -349,7 +349,7 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     const refused = await run(['install', '--from', bundleDir, '--target', 'kiro-ide', '-o', 'json']);
 
     expect(refused.exitCode).not.toBe(0);
-    expect(refused.stdout + refused.stderr).toContain('RECORD.MCP_CONFLICT');
+    expect(refused.stdout).toContain('RECORD.MCP_CONFLICT');
     expect(JSON.parse(await readFile(path.join(kiroDir, KIRO_MCP), 'utf8'))).toEqual({ mcpServers: { [SERVER_KEY]: { command: 'hand-written' } } });
   });
 

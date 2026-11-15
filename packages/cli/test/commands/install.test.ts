@@ -705,7 +705,7 @@ describe('install command (local --from mode)', () => {
       const result = await runWithHub(['install', 'acme-org-sample-skills-sample-skills', '--source', 'sample-collections', '--target', 'repo-kiro', '-o', 'json']);
 
       expect(result.exitCode).not.toBe(0);
-      expect(result.stdout + result.stderr).toContain('RECORD.HUB_CONFLICT');
+      expect(result.stdout).toContain('RECORD.HUB_CONFLICT');
       expect(await stat(path.join(workspace, '.kiro')).then(() => true, () => false)).toBe(false);
     });
 

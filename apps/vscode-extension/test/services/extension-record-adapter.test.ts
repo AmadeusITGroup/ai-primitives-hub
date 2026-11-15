@@ -397,6 +397,26 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
       assert.deepStrictEqual(readMcp().servers, { mine: { command: 'my-server' } });
     });
 
+    test('a server already in the file exactly as the install writes it, from a failed earlier install, is taken over and recorded', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { [SERVER]: { command: 'db-server' } } }));
+
+      await install(WITH_SERVER);
+
+      assert.deepStrictEqual(toolsOf().vscode.mcpServers?.map((server: { name: string }) => server.name), [SERVER]);
+      assert.ok(!showError.called && !showWarning.called, 'no conflict reported');
+    });
+
+    test('a server of that name with another definition, that no entry records, is a conflict and is left as it is', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { [SERVER]: { command: 'hand-written' } } }));
+
+      await install(WITH_SERVER);
+
+      assert.deepStrictEqual(readMcp().servers, { [SERVER]: { command: 'hand-written' } });
+      assert.deepStrictEqual(toolsOf().vscode.mcpServers, undefined);
+    });
+
     test('install writes no tracking file, and installing the same version again writes over its own server', async () => {
       await install(WITH_SERVER);
       await install(WITH_SERVER);

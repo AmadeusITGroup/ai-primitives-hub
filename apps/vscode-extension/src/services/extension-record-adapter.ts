@@ -444,6 +444,11 @@ export class ExtensionRecordAdapter {
     };
     return {
       usesRecord: (level) => level === 'repository' || this.usesSharedUserRecord(),
+      holdsConfig: async (level, configPath, workspaceRoot) => {
+        const location = await locationOf(level, workspaceRoot);
+        const relative = location === undefined ? '' : path.relative(location.root, path.resolve(configPath));
+        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+      },
       recordedServers: async (level, configPath, workspaceRoot) => {
         const location = await locationOf(level, workspaceRoot);
         return location === undefined ? new Map() : this.service.recordedMcpServersIn(location, configPath);
