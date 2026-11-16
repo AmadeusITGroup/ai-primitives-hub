@@ -1,0 +1,11 @@
+id: nested-automated
+name: nested-automated
+description: Nested skill layout fixture (nested-automated)
+version: 1.0.0
+items:
+  - path: skills/generate-test/automated-test_test-generation/SKILL.md
+    kind: skill
+  - path: skills/generate-test/automated-test_generation-checks/SKILL.md
+    kind: skill
+  - path: skills/flat-control/SKILL.md
+    kind: skill

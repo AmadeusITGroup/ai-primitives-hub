@@ -18,6 +18,8 @@
     "test:unit": "pnpm -C apps/vscode-extension run test:unit",
     "build:live:replica-consumers": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile",
     "test:live:replica-consumers": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile && node apps/vscode-extension/test/run-live-hub-consumer-tests.js",
+    "build:acceptance:nested-skills": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile",
+    "test:acceptance:nested-skills": "pnpm run build:acceptance:nested-skills && node apps/vscode-extension/test/run-nested-skills-acceptance.js",
     "package:vsix": "pnpm -C apps/vscode-extension run package:vsix"
   },
   "devDependencies": {
