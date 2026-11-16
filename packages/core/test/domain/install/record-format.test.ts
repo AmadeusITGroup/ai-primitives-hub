@@ -105,7 +105,8 @@ describe('checkRecordedPath', () => {
     'sub/.git/config',
     '.git./config',
     'GIT~1/config',
-    '.git::$INDEX_ALLOCATION/config'
+    '.git::$INDEX_ALLOCATION/config',
+    'docs/bad\0.md'
   ])('refuses %s with RECORD.PATH_OUTSIDE_ROOT', (recordedPath) => {
     expect(codeOf(() => checkRecordedPath(recordedPath, FILE))).toBe('RECORD.PATH_OUTSIDE_ROOT');
   });

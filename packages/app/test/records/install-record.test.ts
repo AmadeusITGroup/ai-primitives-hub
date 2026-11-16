@@ -264,6 +264,54 @@ describe('repository install record', () => {
     expect(fs.readdirSync(root).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
+  it('refuses to save a record larger than 10 MB and leaves the previous one intact', async () => {
+    writeRecord(committed, ['.github/prompts/a.prompt.md']);
+    const before = fs.readFileSync(committed.path, 'utf8');
+    const { record } = await store.load(committed);
+    Object.assign(record.bundles[BUNDLE].tools.vscode, { note: 'x'.repeat(RECORD_MAX_BYTES) });
+
+    await expectCode(store.save(committed, record), 'RECORD.WRITE_FAILED');
+
+    expect(fs.readFileSync(committed.path, 'utf8')).toBe(before);
+  });
+
+  it('reads a recorded path written with backslashes in its stored form', async () => {
+    writeRecord(committed, [String.raw`.github\prompts\a.prompt.md`]);
+
+    const { record } = await store.load(committed);
+
+    expect(record.bundles[BUNDLE].tools.vscode.files.map((file) => file.path)).toEqual(['.github/prompts/a.prompt.md']);
+  });
+
+  it('keeps removing the other superseded files when one cannot be checked', async () => {
+    write('docs/a.md', 'docs/b.md');
+    const flaky = new (class extends NodeRecordFs {
+      public override lstat(file: string): ReturnType<NodeRecordFs['lstat']> {
+        return file.endsWith('a.md') ? Promise.reject(new Error('EIO: lstat failed')) : super.lstat(file);
+      }
+    })();
+    await build(flaky);
+
+    const removal = await service.deleteSuperseded({ deletedFiles: ['docs/a.md', 'docs/b.md'], location: committed });
+
+    expect(removal.deleted).toEqual(['docs/b.md']);
+    expect(removal.warnings).toEqual([expect.stringContaining('Could not remove docs/a.md: EIO: lstat failed')]);
+  });
+
+  it.skipIf(POSIX_ONLY)('keeps a file another tool lists through a symlinked folder of the same files', async () => {
+    fs.mkdirSync(path.join(root, 'real'), { recursive: true });
+    fs.symlinkSync(path.join(root, 'real'), path.join(root, 'alias'), 'dir');
+    await install('vscode', ['real/a.md']);
+    await install('kiro', ['alias/a.md'], { writtenPaths: [path.join(root, 'alias', 'a.md')] });
+
+    const change = await service.recordUninstall({ location: committed, bundleId: BUNDLE, tool: 'vscode' });
+    await service.deleteSuperseded(change);
+
+    expect(change.deletedFiles).toEqual([]);
+    expect(change.keptSharedFiles).toEqual(['real/a.md']);
+    expect(fs.existsSync(path.join(root, 'real', 'a.md'))).toBe(true);
+  });
+
   it.each([
     ['larger than 10 MB', (file: string): void => fs.writeFileSync(file, ' '.repeat(RECORD_MAX_BYTES + 1))],
     ['a folder', (file: string): void => fs.mkdirSync(file)],
@@ -312,6 +360,7 @@ describe('repository install record', () => {
     ['https://host.example/repo?auth=Bearer%20x&Authorization=y&credential=z&ref=main', 'https://host.example/repo?ref=main'],
     ['deploy@host.example:acme/tools.git', 'host.example:acme/tools.git'],
     ['git@github.com:acme/tools.git', 'git@github.com:acme/tools.git'],
+    ['https:/registry.example/index.json?token=secret&ref=main', 'https://registry.example/index.json?ref=main'],
     [String.raw`C:\Users\a@b\x`, String.raw`C:\Users\a@b\x`]
   ])('records source %s as %s', async (url, expected) => {
     await install('vscode', ['.github/prompts/a.prompt.md'], {

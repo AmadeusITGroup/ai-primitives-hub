@@ -14,8 +14,8 @@ const OPTIONAL_SOURCE_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authM
 /** Query parameter names that look like a credential. */
 const TOKEN_PARAM_PATTERN = /token|^sig$|^signature$|^key$|^api[-_]?key$|secret|password|^auth|credential/i;
 
-/** A `scheme://` prefix. */
-const SCHEME_PATTERN = /^[a-z][\d+.a-z-]*:\/\//i;
+/** A URL scheme of two or more characters (one is a drive letter), with any number of slashes after it. */
+const SCHEME_PATTERN = /^[a-z][\d+.a-z-]+:/i;
 
 /** An absolute local path: drive letter, POSIX root or UNC. */
 const ABSOLUTE_LOCAL_PATH_PATTERN = /^(?:[a-z]:[/\\]|\/|\\\\)/i;

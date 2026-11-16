@@ -29,6 +29,9 @@ const segmentProblem = (segment: string): string | undefined => {
   if (segment.includes(':')) {
     return 'segment contains ":"';
   }
+  if (segment.includes('\0')) {
+    return 'segment contains a NUL character';
+  }
   return undefined;
 };
 

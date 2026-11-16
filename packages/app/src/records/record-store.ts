@@ -177,6 +177,8 @@ export class RecordStore {
       for (const entry of Object.values(bundle.tools)) {
         for (const recorded of entry.files) {
           await confinePath(this.fs, location.root, recorded.path, file);
+          // `/` is the stored separator; a `\` written by hand is read as one, so ownership compares one spelling.
+          recorded.path = recorded.path.replaceAll('\\', '/');
         }
       }
     }
@@ -282,6 +284,10 @@ export class RecordStore {
     const stamped = this.stamp(location, record);
     this.validator.validate(stamped, file);
     const text = serializeRecord(stamped);
+    // A file `load` would refuse is never written: the previous one stays usable.
+    if (new TextEncoder().encode(text).byteLength > RECORD_MAX_BYTES) {
+      throw recordError('RECORD.WRITE_FAILED', { file, detail: 'the record would be larger than 10 MB' });
+    }
     const warnings: string[] = [];
     // Exclude a local-only file before it exists, so it is never on disk unexcluded.
     if (location.level === 'repository' && location.commitMode === 'local-only') {

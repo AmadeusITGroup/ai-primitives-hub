@@ -115,6 +115,7 @@ export interface InstallRecordServiceOptions {
   store: RecordStore;
   /** Filesystem port used for confinement, checksums and deletions. */
   fs: RecordFs;
+
   /** Clock for `installedAt`; defaults to the current time. */
   now?: () => Date;
 }
@@ -186,6 +187,40 @@ export class InstallRecordService {
     this.store = options.store;
     this.fs = options.fs;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /**
+   * The paths to delete that another entry lists through an aliased parent
+   * folder: both name the same file, so it is still owned. Parent folders are
+   * resolved and the leaf name kept; an unresolvable parent compares as written.
+   * @param root - Level root.
+   * @param deleted - Paths to delete.
+   * @param listed - Paths the level's entries still list.
+   */
+  private async aliasedListedPaths(root: string, deleted: readonly string[], listed: ReadonlySet<string>): Promise<string[]> {
+    if (deleted.length === 0 || listed.size === 0) {
+      return [];
+    }
+    const parents = new Map<string, Promise<string>>();
+    const keyOf = async (recordedPath: string): Promise<string> => {
+      const segments = recordedPath.split(/[/\\]/);
+      const leaf = segments.pop() as string;
+      const parent = segments.join('/');
+      let resolved = parents.get(parent);
+      if (resolved === undefined) {
+        resolved = this.fs.realpath(path.join(root, ...segments)).catch(() => path.join(root, ...segments));
+        parents.set(parent, resolved);
+      }
+      return path.join(await resolved, leaf);
+    };
+    const listedKeys = new Set(await Promise.all([...listed].map((listedPath) => keyOf(listedPath))));
+    const aliased: string[] = [];
+    for (const recordedPath of deleted) {
+      if (listedKeys.has(await keyOf(recordedPath))) {
+        aliased.push(recordedPath);
+      }
+    }
+    return aliased;
   }
 
   private validateInput(input: RecordInstallInput): void {
@@ -393,6 +428,10 @@ export class InstallRecordService {
       }
       (stillListed.has(oldPath) ? keptSharedFiles : deletedFiles).push(oldPath);
     }
+    for (const aliased of await this.aliasedListedPaths(location.root, deletedFiles, stillListed)) {
+      deletedFiles.splice(deletedFiles.indexOf(aliased), 1);
+      keptSharedFiles.push(aliased);
+    }
 
     const warnings = [...(await this.store.save(location, target.record)).warnings];
     if (other !== undefined && moved.length > 0) {
@@ -447,6 +486,10 @@ export class InstallRecordService {
       }
       this.dropUnusedSource(file.record, entry.sourceId);
     }
+    for (const aliased of await this.aliasedListedPaths(location.root, [...deletedFiles], stillListed)) {
+      deletedFiles.delete(aliased);
+      keptSharedFiles.add(aliased);
+    }
 
     const warnings: string[] = [];
     for (const { file } of changed) {
@@ -470,15 +513,15 @@ export class InstallRecordService {
     const deleted: string[] = [];
     const warnings: string[] = [];
     for (const recordedPath of change.deletedFiles) {
-      const decision = await resolveDeleteTarget(this.fs, change.location.root, recordedPath);
-      if (decision.status === 'missing') {
-        continue;
-      }
-      if (decision.status === 'skip') {
-        warnings.push(`Did not remove ${recordedPath}: ${decision.reason}.`);
-        continue;
-      }
       try {
+        const decision = await resolveDeleteTarget(this.fs, change.location.root, recordedPath);
+        if (decision.status === 'missing') {
+          continue;
+        }
+        if (decision.status === 'skip') {
+          warnings.push(`Did not remove ${recordedPath}: ${decision.reason}.`);
+          continue;
+        }
         await this.fs.unlink(decision.absolute);
         deleted.push(recordedPath);
       } catch (error) {
