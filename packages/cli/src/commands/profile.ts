@@ -600,42 +600,6 @@ async function deactivateProfileBundles(ctx: Context, state: ProfileActivationSt
 }
 
 /**
- * Remove bundles (files and lockfile entries) from one target. Best
- * effort: a bundle missing from the target's lockfile is skipped.
- * @param ctx CLI context.
- * @param bundleIds Bundles to remove.
- * @param configuredTarget Target to remove them from.
- */
-async function removeBundlesFromTarget(ctx: Context, bundleIds: string[], configuredTarget: Target): Promise<void> {
-  const target = resolveEffectiveTarget(ctx, configuredTarget);
-  if (target.scope === 'repository') {
-    const pipeline = new UninstallPipeline({
-      fs: ctx.fs,
-      target,
-      repositoryPath: target.rootPath ?? ctx.cwd(),
-      writerFactory: createUninstallWriterFactory(ctx, {})
-    });
-    for (const bundleId of bundleIds) {
-      try {
-        await pipeline.run(bundleId);
-      } catch {
-        // Best-effort cleanup.
-      }
-    }
-  } else {
-    const lockPath = lockfilePathForTarget(ctx, target);
-    const writer = createUninstallWriterFactory(ctx, {})(target);
-    for (const bundleId of bundleIds) {
-      try {
-        await runUserScopeUninstall(bundleId, lockPath, target, ctx, writer);
-      } catch {
-        // Best-effort cleanup.
-      }
-    }
-  }
-}
-
-/**
  * Result of {@link runProfileActivation}.
  */
 export interface ProfileActivationResult {
@@ -917,9 +881,9 @@ async function refuseSameToolTargets(ctx: Context, targets: readonly Target[]): 
   }
 }
 
-const sameToolTargetsError = (owner: string, target: Target, record: string): RegistryError => new RegistryError({
+const sameToolTargetsError = (owner: string, target: Target, record: string, command = 'profile activate'): RegistryError => new RegistryError({
   code: 'USAGE.INVALID_FLAG',
-  message: `profile activate: targets "${owner}" and "${target.name}" both record ${target.type} bundles in ${record}`,
+  message: `${command}: targets "${owner}" and "${target.name}" both record ${target.type} bundles in ${record}`,
   hint: 'The install record keeps one entry per bundle and tool at a level. Pick one of them with --target.',
   context: { targets: [owner, target.name], tool: target.type, record }
 });
@@ -929,9 +893,14 @@ const sameToolTargetsError = (owner: string, target: Target, record: string): Re
  * Refuses two targets of one tool at one level, since the record keeps one entry per bundle and tool.
  * @param ctx - CLI context
  * @param targets - effective targets
+ * @param command - message prefix
  * @returns The prepared record per target name; workspace targets have none.
  */
-async function prepareProfileRecords(ctx: Context, targets: readonly Target[]): Promise<Map<string, PreparedRepositoryRecord>> {
+async function prepareProfileRecords(
+  ctx: Context,
+  targets: readonly Target[],
+  command = 'profile activate'
+): Promise<Map<string, PreparedRepositoryRecord>> {
   const prepared = new Map<string, PreparedRepositoryRecord>();
   const owners = new Map<string, string>();
   for (const target of targets) {
@@ -942,7 +911,7 @@ async function prepareProfileRecords(ctx: Context, targets: readonly Target[]): 
     const key = `${record.location.level}\u0000${record.location.root}\u0000${target.type}`;
     const owner = owners.get(key);
     if (owner !== undefined) {
-      throw sameToolTargetsError(owner, target, record.location.path);
+      throw sameToolTargetsError(owner, target, record.location.path, command);
     }
     owners.set(key, target.name);
     prepared.set(target.name, record);
@@ -1190,26 +1159,34 @@ interface ProfileInstallRunResult {
   result: BatchInstallProfileResult;
   /** Per-bundle/per-target install failures. */
   failures: TargetProfileSyncReport['failures'];
+  /** Install record files written. */
+  records: ProfileRecordFile[];
+  /** Migration reports of the levels migrated before the first write. */
+  migrations: MigrationReport[];
+  warnings: string[];
 }
+
+/** How a bundle's install changed a target: new to it, another version, or the same. */
+type InstallStatus = 'new' | 'updated' | 'unchanged';
 
 /**
  * Install `profile`'s bundles onto every target as ordinary installs,
  * through app's shared `batchInstallProfile`, without activating the
- * profile: each target's lockfile records the bundles, no activation
- * state is saved, and active profiles stay active.
+ * profile: no activation state is saved and active profiles stay active.
  *
- * Whether a bundle was installed before is read once, before anything is
- * written, from every lockfile the target uses (user targets share one;
- * a repository has a `commit` and a `local-only` one). Only bundles new
- * to a target count as added: undoing the batch removes the files this
- * command wrote for them and, once those are gone, their lockfile
- * entries. Files that cannot be removed stay tracked and are reported.
+ * Repository and user targets record the bundles in the install record,
+ * prepared before anything is written; workspace targets keep the older
+ * lockfile. What a target held before is read once, before anything is
+ * written. Only bundles new to a target count as added: undoing the batch
+ * removes the files this command wrote for them and, once those are gone,
+ * their entries. Files that cannot be removed stay tracked and are reported.
  * @param ctx CLI context.
  * @param built HubManager + HTTP/token deps (from `buildHubMgr`).
  * @param hubId Hub the profile belongs to.
  * @param profile Profile whose bundles to install.
  * @param targets Targets to install onto.
- * @returns The batch outcome plus per-target failures.
+ * @returns The batch outcome plus per-target failures and the record files written.
+ * @throws {RegistryError} A `RECORD.*` error naming the file, or `USAGE.INVALID_FLAG` for two same-tool targets; nothing was written.
  */
 async function runProfileInstall(
   ctx: Context,
@@ -1221,39 +1198,112 @@ async function runProfileInstall(
   const effectiveTargets = targets.map((target) => resolveEffectiveTarget(ctx, target));
   const sources: Record<string, RegistrySource> = Object.fromEntries((await built.mgr.listSources(hubId)).map((s) => [s.id, s]));
   const failures: TargetProfileSyncReport['failures'] = [];
+  const records: ProfileRecordFile[] = [];
+  const migrations: MigrationReport[] = [];
+  const warnings: string[] = [];
   const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
     ? createSourceAwareInstallDependencyCache(built.http, ctx)
     : undefined;
 
-  // Lockfiles as they were before this command, by path.
+  // Record entries before this command, per record target.
+  const prepared = new Map<string, PreparedRepositoryRecord>();
+  const recordedBefore = new Map<string, { bundleId: string; version: string }[]>();
+  try {
+    for (const [name, record] of await prepareProfileRecords(ctx, effectiveTargets, 'profile install')) {
+      prepared.set(name, record);
+      if (record.migration !== undefined) {
+        migrations.push(record.migration);
+      }
+    }
+    for (const target of effectiveTargets.filter((candidate) => prepared.has(candidate.name))) {
+      const uninstall = await prepareUninstallForTarget(ctx, target);
+      if (uninstall !== undefined) {
+        recordedBefore.set(target.name, (await uninstall.service.listEntries(uninstall.locations))
+          .filter((row) => row.tool === uninstall.tool));
+      }
+    }
+  } catch (error) {
+    throw toProfileRecordError('profile install', error);
+  }
+
+  // Lockfiles of workspace targets as they were before this command, by path.
   const lockfilesBefore = new Map<string, Lockfile | null>();
-  const lockPathsOf = (target: Target): string[] => (target.scope === 'repository'
-    ? (['commit', 'local-only'] as const).map((mode) => lockfilePathForTarget(ctx, target, mode))
-    : [lockfilePathForTarget(ctx, target)]);
-  for (const lockPath of effectiveTargets.flatMap((target) => lockPathsOf(target))) {
+  for (const target of effectiveTargets.filter((candidate) => !prepared.has(candidate.name))) {
+    const lockPath = lockfilePathForTarget(ctx, target);
     if (!lockfilesBefore.has(lockPath)) {
       lockfilesBefore.set(lockPath, await readLockfile(lockPath, ctx.fs));
     }
   }
-  const entryBefore = (target: Target, bundleId: string): LockfileBundleEntry | undefined =>
-    lockPathsOf(target).map((lockPath) => lockfilesBefore.get(lockPath)?.bundles[bundleId]).find((e) => e !== undefined);
+  const versionBefore = (target: Target, bundleId: string, version: string): { version: string; sourceId?: string } | undefined => {
+    const rows = recordedBefore.get(target.name);
+    if (rows === undefined) {
+      return lockfilesBefore.get(lockfilePathForTarget(ctx, target))?.bundles[bundleId];
+    }
+    const identity = recordIdentityOf(bundleId, version);
+    return rows.find((row) => row.bundleId === bundleId || recordIdentityOf(row.bundleId, row.version) === identity);
+  };
 
   // What this command added: files written for bundles new to a target, per
-  // target and bundle, and the lockfile entries it created, per bundle and
-  // lockfile, with the bundle's status for the targets using that lockfile
-  // (also for bundles installed before through another lockfile).
+  // target and bundle, and the entries it created, per target and bundle,
+  // with the bundle's status there.
   const addedFiles = new Map<string, Map<string, string[]>>();
-  const createdEntries = new Map<string, Map<string, 'new' | 'updated' | 'unchanged'>>();
+  const createdEntries = new Map<string, Map<string, InstallStatus>>();
   const statusRank = { unchanged: 0, updated: 1, new: 2 } as const;
   // Each bundle's install outcome across targets (the strongest change wins).
-  const installed = new Map<string, { version: string; status: keyof typeof statusRank }>();
+  const installed = new Map<string, { version: string; status: InstallStatus }>();
+
+  /**
+   * Drop the entry this command created for a bundle on a target. Where the
+   * bundle was new, it goes once its files there are gone (otherwise it stays,
+   * so `uninstall` can still find them). Where it was installed before, its
+   * files stay: a lockfile entry goes only when nothing changed; after an
+   * update it stays, since it describes the files on disk. A record keeps one
+   * entry per bundle and tool, so only a new bundle's entry is removed there.
+   * @param target - effective target
+   * @param bundleIds - bundles being removed
+   * @param leftover - bundles whose files are still on this target
+   */
+  const dropCreatedEntries = async (target: Target, bundleIds: ReadonlySet<string>, leftover: ReadonlySet<string>): Promise<void> => {
+    const created = createdEntries.get(target.name) ?? new Map<string, InstallStatus>();
+    const record = prepared.get(target.name);
+    if (record !== undefined) {
+      const drop = [...created].filter(([bundleId, status]) => status === 'new' && bundleIds.has(bundleId) && !leftover.has(bundleId));
+      if (drop.length === 0) {
+        return;
+      }
+      const uninstall = await prepareUninstallForTarget(ctx, target);
+      for (const [bundleId] of drop) {
+        if (uninstall !== undefined) {
+          await recordRepositoryUninstall(uninstall, bundleId);
+        }
+      }
+      const written = drop.flatMap(([bundleId]) => addedFiles.get(target.name)?.get(bundleId) ?? []);
+      if (target.scope === 'repository' && target.commitMode === 'local-only' && written.length > 0) {
+        await uninstall?.exclusion?.remove(written);
+      }
+      return;
+    }
+    const lockPath = lockfilePathForTarget(ctx, target);
+    let lock = await readLockfile(lockPath, ctx.fs);
+    if (lock === null) {
+      return;
+    }
+    for (const [bundleId, status] of created) {
+      const entry = lock.bundles[bundleId];
+      const drop = status === 'new' ? bundleIds.has(bundleId) && !leftover.has(bundleId) : status === 'unchanged';
+      if (entry !== undefined && drop) {
+        lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
+      }
+    }
+    await writeLockfile(lockPath, lock, ctx.fs);
+  };
 
   const removeAdded = async (bundleIds: string[]): Promise<void> => {
     const leftovers: string[] = [];
-    // Lockfiles whose targets still hold files of a bundle, per bundle.
-    const leftoverIn = new Map<string, Set<string>>();
+    const removing = new Set(bundleIds);
     for (const target of effectiveTargets) {
       const writer = createWriterFactory(ctx, {})(target);
+      const leftover = new Set<string>();
       for (const bundleId of bundleIds) {
         const written = addedFiles.get(target.name)?.get(bundleId) ?? [];
         try {
@@ -1266,38 +1316,97 @@ async function runProfileInstall(
         for (const file of written) {
           if (await ctx.fs.exists(file)) {
             leftovers.push(file);
-            leftoverIn.set(bundleId, (leftoverIn.get(bundleId) ?? new Set<string>()).add(lockfilePathForTarget(ctx, target)));
+            leftover.add(bundleId);
           }
         }
       }
-    }
-    // Drop the entries this command created, deciding per lockfile. Where the
-    // bundle was new, its entry goes once its files there are gone (otherwise
-    // it stays, so `uninstall` can still find them). Where it was installed
-    // before, its files stay: the created entry goes only when nothing changed
-    // (the earlier entry still describes the files); after an update it stays,
-    // since it is the one describing the files on disk.
-    const newBundles = new Set(bundleIds);
-    const lockPaths = new Set([...createdEntries.values()].flatMap((byLock) => [...byLock.keys()]));
-    for (const lockPath of lockPaths) {
-      let lock = await readLockfile(lockPath, ctx.fs);
-      if (lock === null) {
-        continue;
-      }
-      for (const [bundleId, byLock] of createdEntries) {
-        const entry = lock.bundles[bundleId];
-        const status = byLock.get(lockPath);
-        const drop = status === 'new'
-          ? newBundles.has(bundleId) && !(leftoverIn.get(bundleId)?.has(lockPath) ?? false)
-          : status === 'unchanged';
-        if (entry !== undefined && drop) {
-          lock = cleanupOrphanedSource(removeBundleEntry(lock, bundleId), entry.sourceId);
-        }
-      }
-      await writeLockfile(lockPath, lock, ctx.fs);
+      await dropCreatedEntries(target, removing, leftover);
     }
     if (leftovers.length > 0) {
       throw new Error(`could not remove ${leftovers.join(', ')}`);
+    }
+  };
+
+  /**
+   * Note a bundle's install on a target: the files it added and the entry it created.
+   * @param target - effective target
+   * @param bundleId - bundle id
+   * @param version - installed version
+   * @param status - how the install changed the target
+   * @param written - files written
+   */
+  const noteInstalled = (target: Target, bundleId: string, version: string, status: InstallStatus, written: string[]): void => {
+    if (status === 'new') {
+      const files = addedFiles.get(target.name) ?? new Map<string, string[]>();
+      addedFiles.set(target.name, files.set(bundleId, written));
+    }
+    createdEntries.set(target.name, (createdEntries.get(target.name) ?? new Map<string, InstallStatus>()).set(bundleId, status));
+    const previous = installed.get(bundleId);
+    installed.set(bundleId, {
+      version,
+      status: previous !== undefined && statusRank[previous.status] > statusRank[status] ? previous.status : status
+    });
+  };
+
+  /**
+   * Install the bundles onto one target and record them.
+   * @param target - effective target
+   * @param bundleRefs - bundles to install
+   */
+  const installOnTarget = async (target: Target, bundleRefs: readonly HubProfileBundle[]): Promise<void> => {
+    const writer = createWriterFactory(ctx, {})(target);
+    const record = prepared.get(target.name);
+    const lockPath = lockfilePathForTarget(ctx, target);
+    let lock: Lockfile | undefined = record === undefined
+      ? await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli')
+      : undefined;
+    const superseded: { previous: LockfileBundleEntry['files']; next: LockfileBundleEntry['files'] }[] = [];
+    for (const bundleRef of bundleRefs) {
+      const outcome = await activateBundleForTarget(
+        bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache
+      );
+      if (!outcome.ok) {
+        failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
+        continue;
+      }
+      const before = versionBefore(target, bundleRef.id, outcome.entry.version);
+      let status: InstallStatus = 'new';
+      if (before !== undefined) {
+        const sameSource = before.sourceId === undefined || before.sourceId === outcome.entry.sourceId;
+        status = before.version === outcome.entry.version && sameSource ? 'unchanged' : 'updated';
+      }
+      if (lock !== undefined) {
+        // Like `install`, drop files a replaced version no longer ships.
+        const previousFiles = lockfilesBefore.get(lockPath)?.bundles[bundleRef.id]?.files;
+        if (previousFiles !== undefined) {
+          superseded.push({ previous: previousFiles, next: outcome.entry.files });
+        }
+        lock = upsertSource(upsertBundleEntry(lock, bundleRef.id, outcome.entry), outcome.entry.sourceId, outcome.sourceEntry);
+      } else if (record !== undefined && status !== 'unchanged') {
+        // An unchanged bundle keeps its entry, so a failed batch moves nothing between record files.
+        if (status === 'new') {
+          // Noted before recording, so a failed record still undoes the files.
+          addedFiles.set(target.name, (addedFiles.get(target.name) ?? new Map<string, string[]>()).set(bundleRef.id, outcome.written));
+        }
+        const recorded = await recordRepositoryInstall(record, {
+          bundleId: bundleRef.id,
+          version: outcome.entry.version,
+          tool: target.type,
+          source: outcome.source,
+          writtenPaths: outcome.written
+        });
+        if (!records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {
+          records.push({ target: target.name, level: record.location.level, path: recorded.lockfile });
+        }
+        warnings.push(...recorded.warnings);
+      }
+      noteInstalled(target, bundleRef.id, outcome.entry.version, status, outcome.written);
+    }
+    if (lock !== undefined) {
+      await writeLockfile(lockPath, lock, ctx.fs);
+      for (const { previous, next } of superseded) {
+        await removeSupersededFiles(writer, target, previous, next);
+      }
     }
   };
 
@@ -1305,61 +1414,18 @@ async function runProfileInstall(
     installBundles: async (bundleRefs) => {
       try {
         for (const target of effectiveTargets) {
-          const writer = createWriterFactory(ctx, {})(target);
-          const lockPath = lockfilePathForTarget(ctx, target);
-          let lock: Lockfile = await readLockfile(lockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
-          const superseded: { previous: LockfileBundleEntry['files']; next: LockfileBundleEntry['files'] }[] = [];
-          for (const bundleRef of bundleRefs) {
-            const outcome = await activateBundleForTarget(
-              bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache
-            );
-            if (!outcome.ok) {
-              failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
-              continue;
-            }
-            const before = entryBefore(target, bundleRef.id);
-            // Compare with this lockfile as it was before the command: user
-            // targets share it, so an earlier target may already have rewritten the entry.
-            const previousFiles = lockfilesBefore.get(lockPath)?.bundles[bundleRef.id]?.files;
-            if (previousFiles !== undefined) {
-              superseded.push({ previous: previousFiles, next: outcome.entry.files });
-            }
-            lock = upsertBundleEntry(lock, bundleRef.id, outcome.entry);
-            lock = upsertSource(lock, outcome.entry.sourceId, outcome.sourceEntry);
-            let status: keyof typeof statusRank;
-            if (before === undefined) {
-              status = 'new';
-              const files = addedFiles.get(target.name) ?? new Map<string, string[]>();
-              files.set(bundleRef.id, outcome.written);
-              addedFiles.set(target.name, files);
-            } else {
-              status = before.version === outcome.entry.version && before.sourceId === outcome.entry.sourceId ? 'unchanged' : 'updated';
-            }
-            if (lockfilesBefore.get(lockPath)?.bundles[bundleRef.id] === undefined) {
-              createdEntries.set(bundleRef.id, (createdEntries.get(bundleRef.id) ?? new Map<string, typeof status>()).set(lockPath, status));
-            }
-            const previous = installed.get(bundleRef.id);
-            installed.set(bundleRef.id, {
-              version: outcome.entry.version,
-              status: previous !== undefined && statusRank[previous.status] > statusRank[status] ? previous.status : status
-            });
-          }
-          await writeLockfile(lockPath, lock, ctx.fs);
-          // Like `install`, drop files a replaced version no longer ships.
-          for (const { previous, next } of superseded) {
-            await removeSupersededFiles(writer, target, previous, next);
-          }
+          await installOnTarget(target, bundleRefs);
         }
       } catch (err) {
-        // e.g. lockfile I/O: undo what this command added, then report the
-        // error, together with what could not be undone.
+        // e.g. record or lockfile I/O: undo what this command added, then
+        // report the error, together with what could not be undone.
+        const error = toProfileRecordError('profile install', err);
         const newBundles = [...new Set([...addedFiles.values()].flatMap((files) => [...files.keys()]))];
         const undoError = await removeAdded(newBundles).then(() => undefined, (e: unknown) => e);
         if (undoError === undefined) {
-          throw err;
+          throw error;
         }
-        const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-        throw new Error(`${message(err)}; undoing this install also failed: ${message(undoError)}`, { cause: err });
+        throw new Error(`${errorMessage(error)}; undoing this install also failed: ${errorMessage(undoError)}`, { cause: error });
       }
       return {
         installed: [...installed].map(([bundleId, v]) => ({ bundleId, ...v })),
@@ -1373,7 +1439,7 @@ async function runProfileInstall(
     },
     removeBundles: removeAdded
   }, profile.bundles);
-  return { result, failures };
+  return { result, failures, records, migrations, warnings };
 }
 
 /**
@@ -1388,10 +1454,11 @@ export class ProfileInstallCommand extends BaseProfileCommand {
       Usage: ai-primitives-hub profile install <profile-id> [options]
 
       Installs every bundle of the profile as an ordinary install, recorded in
-      each target's lockfile. The profile is not activated, active profiles stay
-      active, and \`profile deactivate\` does not remove these bundles; use
-      \`uninstall\` for that. When a required bundle cannot be installed, the
-      bundles this command added are removed again and the command fails.
+      the install record (workspace targets keep the older lockfile). The profile
+      is not activated, active profiles stay active, and \`profile deactivate\`
+      does not remove these bundles; use \`uninstall\` for that. When a required
+      bundle cannot be installed, the bundles this command added are removed
+      again and the command fails.
 
       Options:
         --hub <hub-id>           Hub ID containing the profile
@@ -1449,11 +1516,11 @@ export class ProfileInstallCommand extends BaseProfileCommand {
         : new RegistryError({
           code: 'FS.PROFILE_INSTALL_FAILED',
           message: `profile install: ${err instanceof Error ? err.message : String(err)}`,
-          hint: 'Check that the targets and the lockfile are writable, remove any file named above, then re-run the command.',
+          hint: 'Check that the targets and the install record are writable, remove any file named above, then re-run the command.',
           context: { hubId, profileId: profile.id }
         }));
     }
-    const { result, failures } = run;
+    const { result, failures, records, migrations } = run;
     if (!result.success) {
       return failWith(ctx, fmt, 'profile', requiredBundleMissingError(
         'install', hubId, profile.id, result.missingRequiredBundles ?? [], failures,
@@ -1463,6 +1530,7 @@ export class ProfileInstallCommand extends BaseProfileCommand {
       ));
     }
 
+    const warnings = [...failures.map((f) => `${f.bundleId} (${f.target}): ${f.reason}`), ...run.warnings];
     const status = failures.length === 0 ? 'ok' : 'warning';
     formatOutput({
       ctx, command: 'profile.install', output: fmt, status,
@@ -1472,9 +1540,11 @@ export class ProfileInstallCommand extends BaseProfileCommand {
         installed: result.installed,
         alreadyInstalled: result.alreadyInstalled,
         failures,
-        targets: targets.map((t) => t.name)
+        targets: targets.map((t) => t.name),
+        records,
+        ...(migrations.length > 0 ? { migrations } : {})
       },
-      warnings: failures.length > 0 ? failures.map((f) => `${f.bundleId} (${f.target}): ${f.reason}`) : undefined,
+      warnings: warnings.length > 0 ? warnings : undefined,
       textRenderer: (d) => `Installed the bundles of profile "${d.profileId}" from hub "${d.hubId}" (profile not activated):\n`
         + `  Installed: ${d.installed.map((b) => `${b.bundleId}@${b.version}`).join(', ') || 'none'}\n`
         + (d.alreadyInstalled.length > 0
@@ -1484,6 +1554,8 @@ export class ProfileInstallCommand extends BaseProfileCommand {
         + (d.failures.length > 0
           ? `  Failures:\n${d.failures.map((f) => `    - ${f.bundleId} (${f.target}): ${f.reason}\n`).join('')}`
           : '')
+        + (d.migrations ?? []).map((migration) => renderMigration(migration)).join('')
+        + renderProfileRecordLines(d.records)
     });
     return failures.length === 0 ? 0 : 1;
   }

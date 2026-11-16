@@ -25,10 +25,12 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  getLockfilePathForMode,
-  readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
+import {
+  LOCAL_RECORD_FILE_NAME,
+  RECORD_FILE_NAME,
+} from '@ai-primitives-hub/core';
 import type {
   ArtifactorySourceIndex,
   HttpClient,
@@ -604,19 +606,46 @@ profiles:
   });
 
   describe('profile install', () => {
-    const lockedBundleIds = async (): Promise<string[]> => {
-      const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
-      return Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {});
+    const bundleId = 'acme-org-sample-skills-sample-skills';
+    type RecordFile = { bundles?: Record<string, { tools: Record<string, { version: string; files: { path: string; checksum: string }[] }> }> };
+    const readRecordFile = (file: string): Promise<RecordFile> => readInstallRecord<RecordFile>(file).catch(() => ({ bundles: {} }));
+    // Bundle id to version, for one tool's entries in a record file.
+    const versionsIn = async (file: string, tool: string): Promise<Record<string, string>> =>
+      Object.fromEntries(Object.entries((await readRecordFile(file)).bundles ?? {})
+        .flatMap(([id, bundle]) => (bundle.tools[tool] === undefined ? [] : [[id, bundle.tools[tool].version]])));
+    const recordedBundleIds = async (): Promise<string[]> => Object.keys(await versionsIn(userRecordPath(env()), 'copilot-cli'));
+    const editRecord = async (file: string, edit: (record: RecordFile) => void): Promise<void> => {
+      const record = await readRecordFile(file);
+      edit(record);
+      await writeFile(file, JSON.stringify(record, null, 2) + '\n');
     };
+    const addRepoTargets = async (root: string, names: readonly string[], localOnly: readonly string[] = []): Promise<void> => {
+      await mkdir(root, { recursive: true });
+      await initGitRoot(root);
+      for (const name of names) {
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', root, '-o', 'json'])).exitCode).toBe(0);
+      }
+      // `target add` has no commit-mode flag: mark targets local-only in the project config.
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      for (const target of config.targets.filter((t) => localOnly.includes(t.name))) {
+        target.commitMode = 'local-only';
+      }
+      await writeFile(configFile, dump(config));
+    };
+    const repoVersions = (root: string, file: string = RECORD_FILE_NAME): Promise<Record<string, string>> =>
+      versionsIn(recordPathIn(root, file), 'vscode');
 
-    it('installs the profile bundles as ordinary installs without activating the profile', async () => {
+    it('installs the profile bundles as ordinary installs in the user record without activating the profile', async () => {
       const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: { bundleId: string; version: string }[] }>).data;
-      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; records: unknown[] }>).data;
+      expect(data.installed).toEqual([{ bundleId, version: '1.8.1' }]);
+      expect(data.records).toEqual([{ target: 'copilot', level: 'user', path: userRecordPath(env()) }]);
       await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
-      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+      expect(await recordedBundleIds()).toEqual([bundleId]);
+      await expect(readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8')).rejects.toThrow();
       const current = await run(['profile', 'current', '-o', 'json']);
       expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
     });
@@ -629,7 +658,7 @@ profiles:
       expect(result.exitCode, result.stdout).toBe(0);
       const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
       expect(data.installed).toEqual([]);
-      expect(data.alreadyInstalled).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      expect(data.alreadyInstalled).toEqual([{ bundleId, version: '1.8.1' }]);
       const current = await run(['profile', 'current', '-o', 'json']);
       expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
         .toEqual({ hubId: 'sample-hub', profileId: 'organization-sample-developer' });
@@ -642,44 +671,38 @@ profiles:
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
       expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
       await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
-      expect(await lockedBundleIds()).toEqual([]);
+      expect(await recordedBundleIds()).toEqual([]);
     });
 
-    it('installs onto every user target even though they share one lockfile, and removes from all on failure', async () => {
+    it('refuses two targets that record the same tool at one level, writing nothing', async () => {
       const secondDir = path.join(workspace, 'second-target');
       await mkdir(secondDir, { recursive: true });
       expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
 
-      const installed = await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json']);
-      expect(installed.exitCode, installed.stdout).toBe(0);
-      for (const dir of [targetDir, secondDir]) {
-        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
-      }
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json']);
 
-      await rm(resolveUserConfigPaths(env()).userLockfile);
-      await rm(path.join(targetDir, 'prompts'), { recursive: true });
-      await rm(path.join(secondDir, 'prompts'), { recursive: true });
-      const failed = await run(['profile', 'install', 'partial-required', '--target', 'copilot,second', '-o', 'json']);
-      expect(failed.exitCode).toBe(1);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(result.stdout).toContain('profile install:');
       for (const dir of [targetDir, secondDir]) {
         await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
       }
-      expect(await lockedBundleIds()).toEqual([]);
+      expect(await recordedBundleIds()).toEqual([]);
     });
 
     it('reports a version change as installed, not as already installed', async () => {
       expect((await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
-      const lockPath = resolveUserConfigPaths(env()).userLockfile;
-      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { version: string }> };
-      lock.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
-      await writeFile(lockPath, JSON.stringify(lock));
+      await editRecord(userRecordPath(env()), (record) => {
+        record.bundles![bundleId].tools['copilot-cli'].version = '1.0.0';
+      });
 
       const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
       const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
-      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      expect(data.installed).toEqual([{ bundleId, version: '1.8.1' }]);
       expect(data.alreadyInstalled).toEqual([]);
+      expect(await versionsIn(userRecordPath(env()), 'copilot-cli')).toEqual({ [bundleId]: '1.8.1' });
     });
 
     it('keeps a bundle tracked and reports its path when the rollback cannot remove a file', async () => {
@@ -697,18 +720,15 @@ profiles:
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
       expect(result.stdout).toContain('hello.prompt.md');
-      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+      expect(await recordedBundleIds()).toEqual([bundleId]);
     });
 
-    it('reports both errors when the install fails and undoing it fails too', async () => {
-      class FailingLockAndRemoveFs extends NodeFileSystem {
-        public override async writeFile(filePath: string, contents: string): Promise<void> {
-          if (filePath === resolveUserConfigPaths(env()).userLockfile) {
-            throw new Error('EACCES: lockfile not writable');
-          }
-          await super.writeFile(filePath, contents);
-        }
-
+    it('reports both errors when the record cannot be written and undoing the install fails too', async () => {
+      // Leave a valid, empty user record, then make it and its folder read-only.
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['profile', 'deactivate', '-o', 'json'])).exitCode).toBe(0);
+      const recordFile = userRecordPath(env());
+      class FailingRemoveFs extends NodeFileSystem {
         public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
           if (filePath.endsWith('hello.prompt.md')) {
             throw new Error('EBUSY: resource busy');
@@ -716,51 +736,56 @@ profiles:
           await super.remove(filePath, opts);
         }
       }
+      await chmod(recordFile, 0o444);
+      await chmod(path.dirname(recordFile), 0o555);
+      try {
+        const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'], new FailingRemoveFs());
 
-      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'], new FailingLockAndRemoveFs());
-
-      expect(result.exitCode, result.stdout).toBe(1);
-      expect(result.stdout).toContain('EACCES: lockfile not writable');
-      expect(result.stdout).toContain('hello.prompt.md');
+        expect(result.exitCode, result.stdout).toBe(1);
+        expect(result.stdout).toContain('profile install:');
+        expect(result.stdout).toContain('undoing this install also failed');
+        expect(result.stdout).toContain('hello.prompt.md');
+      } finally {
+        await chmod(path.dirname(recordFile), 0o755);
+        await chmod(recordFile, 0o644);
+      }
+      expect(await recordedBundleIds()).toEqual([]);
     });
 
-    it('removes files a target\'s previous version shipped, on every target sharing the lockfile', async () => {
-      const secondDir = path.join(workspace, 'second-target');
-      await mkdir(secondDir, { recursive: true });
-      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
-      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+    it('removes files the previous install recorded that the new one no longer ships', async () => {
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
       // Pretend the installed version also shipped a prompt the current one no longer has.
-      const lockPath = resolveUserConfigPaths(env()).userLockfile;
-      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { files: { path: string; checksum: string }[] }> };
-      lock.bundles['acme-org-sample-skills-sample-skills'].files.push({ path: 'prompts/old.prompt.md', checksum: 'x' });
-      await writeFile(lockPath, JSON.stringify(lock));
-      for (const dir of [targetDir, secondDir]) {
-        await writeFile(path.join(dir, 'prompts', 'old.prompt.md'), 'old');
-      }
+      const oldPrompt = path.join(targetDir, 'prompts', 'old.prompt.md');
+      await writeFile(oldPrompt, 'old');
+      await editRecord(userRecordPath(env()), (record) => {
+        record.bundles![bundleId].tools['copilot-cli'].version = '1.0.0';
+        record.bundles![bundleId].tools['copilot-cli'].files.push({
+          path: 'target/prompts/old.prompt.md',
+          checksum: `sha256:${createHash('sha256').update('old').digest('hex')}`
+        });
+      });
 
-      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
 
-      for (const dir of [targetDir, secondDir]) {
-        await expect(readFile(path.join(dir, 'prompts', 'old.prompt.md'), 'utf8')).rejects.toThrow();
-        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
-      }
+      await expect(readFile(oldPrompt, 'utf8')).rejects.toThrow();
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
-    it('drops the entry it added to the local-only lockfile, and keeps the commit one, when a required bundle is missing', async () => {
+    it('records repository installs in the record file of the target\'s commit mode', async () => {
       const repoDir = path.join(workspace, 'repo');
-      await mkdir(repoDir, { recursive: true });
-      for (const name of ['repo-commit', 'repo-local']) {
-        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
-      }
-      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
-      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
-      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
-      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
-      await writeFile(configFile, dump(config));
-      const bundleIds = async (mode: 'commit' | 'local-only'): Promise<string[]> => {
-        const raw = await readFile(getLockfilePathForMode(repoDir, mode), 'utf8').catch(() => '{"bundles":{}}');
-        return Object.keys((JSON.parse(raw) as { bundles?: object }).bundles ?? {});
-      };
+      await addRepoTargets(repoDir, ['repo-local'], ['repo-local']);
+
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-local', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(await repoVersions(repoDir, LOCAL_RECORD_FILE_NAME)).toEqual({ [bundleId]: '1.8.1' });
+      expect(await repoVersions(repoDir)).toEqual({});
+      await expect(readFile(path.join(repoDir, 'prompt-registry.local.lock.json'), 'utf8')).rejects.toThrow();
+    });
+
+    it('keeps an entry already installed at the version in its record file when a required bundle is missing', async () => {
+      const repoDir = path.join(workspace, 'repo');
+      await addRepoTargets(repoDir, ['repo-commit', 'repo-local'], ['repo-local']);
       const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
       expect(seeded.exitCode, seeded.stdout).toBe(0);
 
@@ -768,77 +793,51 @@ profiles:
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
-      expect(await bundleIds('commit')).toEqual(['acme-org-sample-skills-sample-skills']);
-      expect(await bundleIds('local-only')).toEqual([]);
+      expect(await repoVersions(repoDir)).toEqual({ [bundleId]: '1.8.1' });
+      expect(await repoVersions(repoDir, LOCAL_RECORD_FILE_NAME)).toEqual({});
       await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
-    it('keeps the local-only entry for files it updated when a required bundle is missing', async () => {
+    it('keeps the entry for files it updated when a required bundle is missing', async () => {
       const repoDir = path.join(workspace, 'repo');
-      await mkdir(repoDir, { recursive: true });
-      for (const name of ['repo-commit', 'repo-local']) {
-        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
-      }
-      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
-      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
-      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
-      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
-      await writeFile(configFile, dump(config));
+      await addRepoTargets(repoDir, ['repo-commit', 'repo-local'], ['repo-local']);
       const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
       expect(seeded.exitCode, seeded.stdout).toBe(0);
-      // The commit lockfile records an older version than the one the install writes.
-      const commitLock = getLockfilePathForMode(repoDir, 'commit');
-      const recorded = JSON.parse(await readFile(commitLock, 'utf8')) as { bundles: Record<string, { version: string }> };
-      recorded.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
-      await writeFile(commitLock, JSON.stringify(recorded));
+      // The committed record names an older version than the one the install writes.
+      await editRecord(recordPathIn(repoDir), (record) => {
+        record.bundles![bundleId].tools.vscode.version = '1.0.0';
+      });
 
       const result = await run(['profile', 'install', 'partial-required', '--target', 'repo-local', '-o', 'json']);
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
-      // The updated files stay, so the entry describing them stays too.
-      const versions = async (mode: 'commit' | 'local-only'): Promise<Record<string, string>> => {
-        const lock = JSON.parse(await readFile(getLockfilePathForMode(repoDir, mode), 'utf8')) as { bundles: Record<string, { version: string }> };
-        return Object.fromEntries(Object.entries(lock.bundles).map(([id, entry]) => [id, entry.version]));
-      };
-      expect(await versions('commit')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.0.0' });
-      expect(await versions('local-only')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+      // The updated files stay, and the one entry describing them moved to the local-only record.
+      expect(await repoVersions(repoDir)).toEqual({});
+      expect(await repoVersions(repoDir, LOCAL_RECORD_FILE_NAME)).toEqual({ [bundleId]: '1.8.1' });
       await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     });
 
     it('keeps an updated entry in one repository while removing the bundle it added to another', async () => {
       const repo1 = path.join(workspace, 'repo1');
       const repo2 = path.join(workspace, 'repo2');
-      for (const [name, root] of [['repo1-commit', repo1], ['repo1-local', repo1], ['repo2', repo2]] as const) {
-        await mkdir(root, { recursive: true });
-        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', root, '-o', 'json'])).exitCode).toBe(0);
-      }
-      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
-      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
-      config.targets.find((t) => t.name === 'repo1-local')!.commitMode = 'local-only';
-      await writeFile(configFile, dump(config));
+      await addRepoTargets(repo1, ['repo1-commit', 'repo1-local'], ['repo1-local']);
+      await addRepoTargets(repo2, ['repo2']);
       const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo1-commit', '-o', 'json']);
       expect(seeded.exitCode, seeded.stdout).toBe(0);
-      const repo1Commit = getLockfilePathForMode(repo1, 'commit');
-      const recorded = JSON.parse(await readFile(repo1Commit, 'utf8')) as { bundles: Record<string, { version: string }> };
-      recorded.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
-      await writeFile(repo1Commit, JSON.stringify(recorded));
-      const versions = async (root: string, mode: 'commit' | 'local-only'): Promise<Record<string, string>> => {
-        const raw = await readFile(getLockfilePathForMode(root, mode), 'utf8').catch(() => '{"bundles":{}}');
-        const lock = JSON.parse(raw) as { bundles?: Record<string, { version: string }> };
-        return Object.fromEntries(Object.entries(lock.bundles ?? {}).map(([id, entry]) => [id, entry.version]));
-      };
+      await editRecord(recordPathIn(repo1), (record) => {
+        record.bundles![bundleId].tools.vscode.version = '1.0.0';
+      });
 
       const result = await run(['profile', 'install', 'partial-required', '--target', 'repo1-local,repo2', '-o', 'json']);
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
       // repo1: the update stays, and so does the entry describing it.
-      expect(await versions(repo1, 'commit')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.0.0' });
-      expect(await versions(repo1, 'local-only')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+      expect(await repoVersions(repo1, LOCAL_RECORD_FILE_NAME)).toEqual({ [bundleId]: '1.8.1' });
       await expect(readFile(path.join(repo1, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
       // repo2: the bundle was new there, so it is removed.
-      expect(await versions(repo2, 'commit')).toEqual({});
+      expect(await repoVersions(repo2)).toEqual({});
       await expect(readFile(path.join(repo2, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
     });
 
@@ -850,7 +849,7 @@ profiles:
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
       await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
-      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+      expect(await recordedBundleIds()).toEqual([bundleId]);
     });
   });
 
