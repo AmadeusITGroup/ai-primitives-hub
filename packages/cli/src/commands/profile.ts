@@ -1410,7 +1410,9 @@ async function runProfileInstall(
           tool: target.type,
           source: outcome.source,
           ...(outcome.hub === undefined ? {} : { hub: outcome.hub }),
-          writtenPaths: outcome.written
+          writtenPaths: outcome.written,
+          bundle: outcome.bundle,
+          mcp: outcome.mcp
         });
         if (!records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {
           records.push({ target: target.name, level: record.location.level, path: recorded.lockfile });
