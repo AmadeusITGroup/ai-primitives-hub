@@ -76,7 +76,9 @@ function runCliScenarios(campaign, collectionsDir) {
       check(() => assertSkills(root, installed, `${id} install`));
       for (const c of Object.keys(COLLECTIONS)) {
         cli(sb, ['uninstall', '--bundle', c, '--target', 't']);
+        installed.splice(installed.indexOf(c), 1);
         observed[`after uninstall ${c}`] = skillMarkers(root);
+        check(() => assertSkills(root, installed, `${id} uninstall ${c}`));
       }
       check(() => assert.deepEqual(listTree(root), [], `${id}: uninstall leaves no skill files`));
     } catch (error) {

@@ -163,7 +163,9 @@ suite(`nested skills acceptance (${SCOPE} via ${SOURCE_TYPE} source)`, () => {
     if (SCOPE === 'user') {
       for (const bundleId of Object.keys(COLLECTIONS)) {
         await uninstall(bundleId);
+        installed.splice(installed.indexOf(bundleId), 1);
         observed[`after uninstall ${bundleId}`] = skillMarkers(skillsRoot());
+        check(`uninstall ${bundleId}`, () => assertSkills(skillsRoot(), installed, `vscode ${SCOPE}/${SOURCE_TYPE} uninstall ${bundleId}`));
       }
       check('uninstall', () => assert.deepEqual(listTree(skillsRoot()), [], 'uninstall leaves no skill files'));
     }
