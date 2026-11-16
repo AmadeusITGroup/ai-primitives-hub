@@ -435,6 +435,53 @@ prompts:
     expect(await fs.exists(path.join(skillsDir, 'beta'))).toBe(false);
   });
 
+  it('skips a skill whose destination directory an earlier skill already takes', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = {
+      id: 'test-bundle',
+      skills: [
+        { id: 'a', file: 'skills/team-a/checks/SKILL.md', type: 'skill' },
+        { id: 'b', file: 'skills/team-b/checks/SKILL.md', type: 'skill' }
+      ]
+    };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(JSON.stringify(manifest))],
+      ['skills/team-a/checks/SKILL.md', new TextEncoder().encode('# A')],
+      ['skills/team-b/checks/SKILL.md', new TextEncoder().encode('# B')]
+    ]);
+
+    const plan = await writer.preflight(files);
+    const result = await writer.write(files);
+
+    expect(plan).toEqual({ writable: ['skills/team-a/checks/SKILL.md'], skipped: ['skills/team-b/checks/SKILL.md'] });
+    expect(result.skipped).toEqual(['skills/team-b/checks/SKILL.md']);
+    expect(result.installedPaths).toEqual({ 'skills/team-a/checks/SKILL.md': 'skills/checks/SKILL.md' });
+    expect(await fs.readFile(path.join(WORKSPACE_ROOT, '.github', 'skills', 'checks', 'SKILL.md'))).toBe('# A');
+  });
+
+  it('lets a later skill take a destination when the earlier skill has no files', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = {
+      id: 'test-bundle',
+      skills: [
+        { id: 'a', file: 'skills/team-a/checks/SKILL.md', type: 'skill' },
+        { id: 'b', file: 'skills/team-b/checks/SKILL.md', type: 'skill' }
+      ]
+    };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(JSON.stringify(manifest))],
+      ['skills/team-b/checks/SKILL.md', new TextEncoder().encode('# B')]
+    ]);
+
+    const plan = await writer.preflight(files);
+    const result = await writer.write(files);
+
+    expect(plan).toEqual({ writable: ['skills/team-b/checks/SKILL.md'], skipped: ['skills/team-a/checks/SKILL.md'] });
+    expect(result.installedPaths).toEqual({ 'skills/team-b/checks/SKILL.md': 'skills/checks/SKILL.md' });
+  });
+
   it('removes from .git/info/exclude in local-only mode', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
