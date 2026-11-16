@@ -236,11 +236,9 @@ export class RepositoryScopeWriter {
     writtenBundlePaths: string[],
     installedPaths: Record<string, string>
   ): Promise<void> {
-    const sourceId = this.extractDirectoryId(p.file, subdirectory);
     // Match whole path segments: item `foo` must not pick up `foo-bar/` files.
     const sourcePrefix = `${path.posix.dirname(p.file)}/`;
-    const targetId = p.id ?? sourceId;
-    const directory = path.join(this.workspaceRoot, '.github', `${subdirectory}/${targetId}`);
+    const directory = path.join(this.workspaceRoot, '.github', this.directoryItemTarget(p, subdirectory));
     for (const [bundlePath, bytes] of files) {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
@@ -254,6 +252,17 @@ export class RepositoryScopeWriter {
     directories.push(directory);
   }
 
+  /**
+   * Destination of a directory item relative to `.github/`, using `/`.
+   * @param p Item with file and optional id.
+   * @param p.file Item manifest file path.
+   * @param p.id Optional target directory id override.
+   * @param subdirectory `.github/` subdirectory of the item's kind.
+   */
+  private directoryItemTarget(p: { file: string; id?: string }, subdirectory: string): string {
+    return `${subdirectory}/${p.id ?? this.extractDirectoryId(p.file, subdirectory)}`;
+  }
+
   private async processManifestItems(
     items: { type: string; file: string; id?: string }[],
     files: ExtractedFiles,
@@ -264,6 +273,9 @@ export class RepositoryScopeWriter {
     installedPaths: Record<string, string>,
     allowedKinds: ReadonlySet<PrimitiveKind> | null
   ): Promise<void> {
+    // Directory items resolving to one destination (e.g. skills/a/x and
+    // skills/b/x) would overwrite each other: the first one wins.
+    const taken = new Set<string>();
     for (const p of items) {
       const kind = normalizePrimitiveKind(p.type);
       if (allowedKinds !== null && (kind === null || !allowedKinds.has(kind))) {
@@ -273,9 +285,15 @@ export class RepositoryScopeWriter {
       const declared = p.type.toLowerCase();
       if (isPrimitiveKind(declared) && categoryOf(declared) === 'directory') {
         const subdirectory = this.getSubdirectory(declared);
-        if (subdirectory === null) {
+        const destination = subdirectory === null ? null : this.directoryItemTarget(p, subdirectory);
+        const sourcePrefix = `${path.posix.dirname(p.file)}/`;
+        const hasFiles = [...files.keys()].some((file) => file.startsWith(sourcePrefix));
+        if (subdirectory === null || destination === null || (hasFiles && taken.has(destination))) {
           skipped.push(p.file);
           continue;
+        }
+        if (hasFiles) {
+          taken.add(destination);
         }
         await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths, installedPaths);
       } else {
@@ -397,6 +415,8 @@ export class RepositoryScopeWriter {
     const writable: string[] = [];
     const skipped: string[] = [];
 
+    const taken = new Set<string>();
+
     for (const item of this.getManifestItems(manifest)) {
       const kind = normalizePrimitiveKind(item.type);
       if (kind === null || (allowed !== null && !allowed.has(kind))) {
@@ -404,7 +424,9 @@ export class RepositoryScopeWriter {
         continue;
       }
       if (categoryOf(kind) === 'directory') {
-        if (this.getSubdirectory(kind) === null) {
+        const subdirectory = this.getSubdirectory(kind);
+        const destination = subdirectory === null ? null : this.directoryItemTarget(item, subdirectory);
+        if (destination === null || taken.has(destination)) {
           skipped.push(item.file);
           continue;
         }
@@ -413,6 +435,7 @@ export class RepositoryScopeWriter {
         if (matches.length === 0) {
           skipped.push(item.file);
         } else {
+          taken.add(destination);
           writable.push(...matches);
         }
         continue;
