@@ -959,14 +959,17 @@
         "files": [
           {
             "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
             "path": "skills/foo/SKILL.md"
           },
           {
             "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
             "path": "skills/foo/references/ref.md"
           },
           {
             "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
             "path": "skills/foo/scripts/run.sh"
           }
         ],
@@ -1065,14 +1068,17 @@
         "files": [
           {
             "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
             "path": "skills/foo/SKILL.md"
           },
           {
             "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
             "path": "skills/foo/references/ref.md"
           },
           {
             "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
             "path": "skills/foo/scripts/run.sh"
           }
         ],
@@ -1114,14 +1120,17 @@
         "files": [
           {
             "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
             "path": "skills/foo/SKILL.md"
           },
           {
             "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
             "path": "skills/foo/references/ref.md"
           },
           {
             "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
             "path": "skills/foo/scripts/run.sh"
           }
         ],
@@ -2263,14 +2272,17 @@
         "files": [
           {
             "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
             "path": "skills/foo/SKILL.md"
           },
           {
             "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
             "path": "skills/foo/references/ref.md"
           },
           {
             "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
             "path": "skills/foo/scripts/run.sh"
           }
         ],
@@ -2369,14 +2381,17 @@
         "files": [
           {
             "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
             "path": "skills/foo/SKILL.md"
           },
           {
             "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
             "path": "skills/foo/references/ref.md"
           },
           {
             "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
             "path": "skills/foo/scripts/run.sh"
           }
         ],
@@ -2418,14 +2433,17 @@
         "files": [
           {
             "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "installedPath": "skills/foo/SKILL.md",
             "path": "skills/foo/SKILL.md"
           },
           {
             "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "installedPath": "skills/foo/references/ref.md",
             "path": "skills/foo/references/ref.md"
           },
           {
             "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "installedPath": "skills/foo/scripts/run.sh",
             "path": "skills/foo/scripts/run.sh"
           }
         ],

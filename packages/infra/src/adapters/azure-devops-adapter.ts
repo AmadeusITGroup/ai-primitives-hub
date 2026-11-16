@@ -11,13 +11,14 @@
  * and the token is configured.
  * @module adapters/azure-devops-adapter
  */
-import type {
-  AzureDevOpsApi,
-  Bundle,
-  Clock,
-  RegistrySource,
-  SourceMetadata,
-  ValidationResult,
+import {
+  type AzureDevOpsApi,
+  type Bundle,
+  type Clock,
+  getSkillName,
+  type RegistrySource,
+  type SourceMetadata,
+  type ValidationResult,
 } from '@ai-primitives-hub/core';
 import archiver from 'archiver';
 import * as yaml from 'js-yaml';
@@ -272,8 +273,7 @@ export class AzureDevOpsAdapter extends BaseSourceAdapter {
     const { org } = this.parseAdoUrl(); // only org needed here
     const prompts = collection.items.map((item) => {
       if (item.kind === 'skill') {
-        const skillMatch = /skills\/([^/]+)\/SKILL\.md/.exec(item.path);
-        const skillName = skillMatch ? skillMatch[1] : 'unknown-skill';
+        const skillName = getSkillName(item.path) ?? 'unknown-skill';
         return {
           id: skillName,
           name: titleCase(skillName.replace(/-/g, ' ')),

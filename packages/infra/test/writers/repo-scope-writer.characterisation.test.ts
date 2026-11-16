@@ -332,7 +332,7 @@ items:
 
     expect(await writer.preflight(files)).toEqual({ writable: [], skipped: ['plugins/bar/plugin.json'] });
     const result = await writer.write(files);
-    expect(result).toEqual({ written: [], skipped: ['plugins/bar/plugin.json'], skillDirs: [], writtenBundlePaths: [] });
+    expect(result).toEqual({ written: [], skipped: ['plugins/bar/plugin.json'], skillDirs: [], writtenBundlePaths: [], installedPaths: {} });
     expect(await listFiles(fs, WORKSPACE_ROOT)).toEqual({});
   });
 });

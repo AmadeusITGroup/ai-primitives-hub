@@ -43,7 +43,19 @@
       "skills/foo/SKILL.md",
       "skills/foo/references/ref.md",
       "skills/foo/scripts/run.sh"
-    ]
+    ],
+    "installedPaths": {
+      "prompts/x.prompt.md": "prompts/x.prompt.md",
+      "agents/x.agent.md": "agents/x.agent.md",
+      "chatmodes/x.chatmode.md": "agents/x.chatmode.md",
+      "instructions/x.instructions.md": "instructions/x.instructions.md",
+      "hooks/x.json": "hooks/x.json",
+      "plugins/bar/plugin.json": "plugins/bar/plugin.json",
+      "plugins/bar/skills/s/SKILL.md": "plugins/bar/skills/s/SKILL.md",
+      "skills/foo/SKILL.md": "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md": "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh": "skills/foo/scripts/run.sh"
+    }
   },
   "disk": {
     "/workspace/.github/agents/x.agent.md": "# Agent\n",
