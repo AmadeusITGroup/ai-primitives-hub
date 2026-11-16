@@ -1397,6 +1397,7 @@ async function runProfileInstall(
           version: outcome.entry.version,
           tool: target.type,
           source: outcome.source,
+          ...(outcome.hub === undefined ? {} : { hub: outcome.hub }),
           writtenPaths: outcome.written
         });
         if (!records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {
