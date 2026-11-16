@@ -6,6 +6,16 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Nested Skills Acceptance (Isolated)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/apps/vscode-extension/test/run-nested-skills-acceptance.js",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build: nested skills acceptance",
+      "env": { "APH_NESTED_MODE": "all" }
+    },
+    {
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",

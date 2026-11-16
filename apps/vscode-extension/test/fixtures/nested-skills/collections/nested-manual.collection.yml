@@ -1,0 +1,10 @@
+id: nested-manual
+name: nested-manual
+description: Nested skill layout fixture (nested-manual)
+version: 1.0.0
+items:
+  - path: skills/generate-test/manual-test_test-generation/SKILL.md
+    kind: skill
+  - path: skills/generate-test/manual-test_generation-checks/SKILL.md
+    kind: skill
+
