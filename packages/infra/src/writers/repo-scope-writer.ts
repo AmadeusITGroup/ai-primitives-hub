@@ -28,6 +28,7 @@ import type {
 import {
   applyFileMode,
   categoryOf,
+  getSkillName,
   isPrimitiveKind,
   normalizePrimitiveKind,
   verifyWrittenBytes,
@@ -87,6 +88,8 @@ interface WriteResult {
   skipped: string[];
   skillDirs: string[];
   writtenBundlePaths: string[];
+  /** Bundle path → installed path relative to `.github/`, using `/`. */
+  installedPaths: Record<string, string>;
 }
 
 /**
@@ -222,6 +225,7 @@ export class RepositoryScopeWriter {
    * @param written Accumulates written file paths.
    * @param directories Accumulates installed directory paths.
    * @param writtenBundlePaths Accumulates bundle-relative paths written.
+   * @param installedPaths Accumulates where each bundle path was written.
    */
   private async installDirectoryItem(
     p: { file: string; id?: string },
@@ -229,13 +233,12 @@ export class RepositoryScopeWriter {
     files: ExtractedFiles,
     written: string[],
     directories: string[],
-    writtenBundlePaths: string[]
+    writtenBundlePaths: string[],
+    installedPaths: Record<string, string>
   ): Promise<void> {
-    const sourceId = this.extractDirectoryId(p.file, subdirectory);
     // Match whole path segments: item `foo` must not pick up `foo-bar/` files.
     const sourcePrefix = `${path.posix.dirname(p.file)}/`;
-    const targetId = p.id ?? sourceId;
-    const directory = path.join(this.workspaceRoot, '.github', `${subdirectory}/${targetId}`);
+    const directory = path.join(this.workspaceRoot, '.github', this.directoryItemTarget(p, subdirectory));
     for (const [bundlePath, bytes] of files) {
       if (bundlePath.startsWith(sourcePrefix)) {
         const relativePath = bundlePath.slice(sourcePrefix.length);
@@ -243,9 +246,21 @@ export class RepositoryScopeWriter {
         await this.writeBytesVerified(targetPath, bytes);
         written.push(targetPath);
         writtenBundlePaths.push(bundlePath);
+        installedPaths[bundlePath] = this.toInstalledPath(targetPath);
       }
     }
     directories.push(directory);
+  }
+
+  /**
+   * Destination of a directory item relative to `.github/`, using `/`.
+   * @param p Item with file and optional id.
+   * @param p.file Item manifest file path.
+   * @param p.id Optional target directory id override.
+   * @param subdirectory `.github/` subdirectory of the item's kind.
+   */
+  private directoryItemTarget(p: { file: string; id?: string }, subdirectory: string): string {
+    return `${subdirectory}/${p.id ?? this.extractDirectoryId(p.file, subdirectory)}`;
   }
 
   private async processManifestItems(
@@ -255,8 +270,12 @@ export class RepositoryScopeWriter {
     skipped: string[],
     directories: string[],
     writtenBundlePaths: string[],
+    installedPaths: Record<string, string>,
     allowedKinds: ReadonlySet<PrimitiveKind> | null
   ): Promise<void> {
+    // Directory items resolving to one destination (e.g. skills/a/x and
+    // skills/b/x) would overwrite each other: the first one wins.
+    const taken = new Set<string>();
     for (const p of items) {
       const kind = normalizePrimitiveKind(p.type);
       if (allowedKinds !== null && (kind === null || !allowedKinds.has(kind))) {
@@ -266,11 +285,17 @@ export class RepositoryScopeWriter {
       const declared = p.type.toLowerCase();
       if (isPrimitiveKind(declared) && categoryOf(declared) === 'directory') {
         const subdirectory = this.getSubdirectory(declared);
-        if (subdirectory === null) {
+        const destination = subdirectory === null ? null : this.directoryItemTarget(p, subdirectory);
+        const sourcePrefix = `${path.posix.dirname(p.file)}/`;
+        const hasFiles = [...files.keys()].some((file) => file.startsWith(sourcePrefix));
+        if (subdirectory === null || destination === null || (hasFiles && taken.has(destination))) {
           skipped.push(p.file);
           continue;
         }
-        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths);
+        if (hasFiles) {
+          taken.add(destination);
+        }
+        await this.installDirectoryItem(p, subdirectory, files, written, directories, writtenBundlePaths, installedPaths);
       } else {
         const bytes = files.get(p.file);
         if (bytes) {
@@ -279,6 +304,7 @@ export class RepositoryScopeWriter {
             await this.writeBytesVerified(targetPath, bytes);
             written.push(targetPath);
             writtenBundlePaths.push(p.file);
+            installedPaths[p.file] = this.toInstalledPath(targetPath);
           } else {
             skipped.push(p.file);
           }
@@ -288,12 +314,25 @@ export class RepositoryScopeWriter {
   }
 
   /**
-   * Id of a directory item: the sanitized path segment after the first
-   * `subdirectory` segment of its file, or `unknown`.
+   * Path of an installed file relative to `.github/`, using `/`.
+   * @param targetPath Absolute installed path below `.github/`.
+   */
+  private toInstalledPath(targetPath: string): string {
+    return path.relative(path.join(this.workspaceRoot, '.github'), targetPath).split(path.sep).join('/');
+  }
+
+  /**
+   * Id of a directory item, sanitized: for skills, the name of the directory
+   * holding the skill (see `getSkillName`); otherwise the path segment after
+   * the first `subdirectory` segment of its file. `unknown` when there is none.
    * @param filePath Item manifest file path.
    * @param subdirectory Bundle subdirectory of the item's kind.
    */
   private extractDirectoryId(filePath: string, subdirectory: string): string {
+    if (subdirectory === 'skills') {
+      const skillName = getSkillName(filePath);
+      return skillName === null ? 'unknown' : this.sanitizeId(skillName);
+    }
     const parts = filePath.split('/');
     const index = parts.indexOf(subdirectory);
     if (index !== -1 && index + 1 < parts.length) {
@@ -376,6 +415,8 @@ export class RepositoryScopeWriter {
     const writable: string[] = [];
     const skipped: string[] = [];
 
+    const taken = new Set<string>();
+
     for (const item of this.getManifestItems(manifest)) {
       const kind = normalizePrimitiveKind(item.type);
       if (kind === null || (allowed !== null && !allowed.has(kind))) {
@@ -383,7 +424,9 @@ export class RepositoryScopeWriter {
         continue;
       }
       if (categoryOf(kind) === 'directory') {
-        if (this.getSubdirectory(kind) === null) {
+        const subdirectory = this.getSubdirectory(kind);
+        const destination = subdirectory === null ? null : this.directoryItemTarget(item, subdirectory);
+        if (destination === null || taken.has(destination)) {
           skipped.push(item.file);
           continue;
         }
@@ -392,6 +435,7 @@ export class RepositoryScopeWriter {
         if (matches.length === 0) {
           skipped.push(item.file);
         } else {
+          taken.add(destination);
           writable.push(...matches);
         }
         continue;
@@ -417,11 +461,12 @@ export class RepositoryScopeWriter {
     const skipped: string[] = [];
     const directories: string[] = [];
     const writtenBundlePaths: string[] = [];
+    const installedPaths: Record<string, string> = {};
     const allowed = allowedKinds === undefined ? null : new Set(allowedKinds);
 
     const manifestBytes = files.get('deployment-manifest.yml');
     if (!manifestBytes) {
-      return { written, skipped, skillDirs: directories, writtenBundlePaths };
+      return { written, skipped, skillDirs: directories, writtenBundlePaths, installedPaths };
     }
 
     const manifest = await this.parseManifest(manifestBytes);
@@ -433,6 +478,7 @@ export class RepositoryScopeWriter {
       skipped,
       directories,
       writtenBundlePaths,
+      installedPaths,
       allowed
     );
 
@@ -441,7 +487,7 @@ export class RepositoryScopeWriter {
       await this.exclusion.add(written);
     }
 
-    return { written, skipped, skillDirs: directories, writtenBundlePaths };
+    return { written, skipped, skillDirs: directories, writtenBundlePaths, installedPaths };
   }
 
   /**
@@ -462,6 +508,28 @@ export class RepositoryScopeWriter {
   public async removeFile(filePath: string): Promise<void> {
     const targetPath = path.join(this.workspaceRoot, '.github', filePath);
     await this.removePaths([targetPath]);
+  }
+
+  /**
+   * Remove a file at the path `write()` recorded for it in `installedPaths`.
+   * @param installedPath - Path relative to `.github/`, as recorded.
+   * @throws {Error} When the path resolves outside `.github/`.
+   */
+  public async removeInstalledFile(installedPath: string): Promise<void> {
+    const baseDir = path.join(this.workspaceRoot, '.github');
+    const targetPath = path.join(baseDir, installedPath);
+    const relative = path.relative(path.resolve(baseDir), path.resolve(targetPath));
+    if (path.isAbsolute(installedPath)
+      || relative.length === 0
+      || relative === '..'
+      || relative.startsWith(`..${path.sep}`)
+      || path.isAbsolute(relative)) {
+      throw new Error(`installed path "${installedPath}" is outside the .github directory`);
+    }
+    await this.removePaths([targetPath]);
+    if (this.commitMode === 'local-only') {
+      await this.exclusion.remove([targetPath]);
+    }
   }
 
   /**
@@ -583,7 +651,8 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
     return {
       written: result.written,
       skipped: result.skipped,
-      writtenBundlePaths: result.writtenBundlePaths
+      writtenBundlePaths: result.writtenBundlePaths,
+      installedPaths: result.installedPaths
     };
   }
 
@@ -596,13 +665,20 @@ export class RepositoryScopeWriterAdapter implements TargetWriter {
   }
 
   /**
-   * TargetWriter.remove implementation - translates bundle-relative lockfile
-   * paths back through the repository writer's output routes. Legacy paths
-   * already relative to `.github/` retain the old behavior.
+   * TargetWriter.remove implementation - removes the file at its recorded
+   * `installedPath` when the lockfile has one; otherwise translates the
+   * bundle-relative lockfile path back through the repository writer's
+   * output routes. Legacy paths already relative to `.github/` retain the
+   * old behavior.
    * @param _target
    * @param filePath
+   * @param installedPath Path relative to `.github/` recorded at install time.
    */
-  public async remove(_target: Target, filePath: string): Promise<void> {
+  public async remove(_target: Target, filePath: string, installedPath?: string): Promise<void> {
+    if (installedPath !== undefined) {
+      await this.writer.removeInstalledFile(installedPath);
+      return;
+    }
     const normalized = filePath.replaceAll('\\', '/');
     if (normalized.startsWith('.github/')) {
       await this.writer.removeBundleFile(normalized);

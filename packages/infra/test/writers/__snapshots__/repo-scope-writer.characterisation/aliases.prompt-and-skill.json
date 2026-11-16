@@ -35,7 +35,12 @@
       "skills/foo/SKILL.md",
       "skills/foo/references/ref.md",
       "skills/foo/scripts/run.sh"
-    ]
+    ],
+    "installedPaths": {
+      "skills/foo/SKILL.md": "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md": "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh": "skills/foo/scripts/run.sh"
+    }
   },
   "disk": {
     "/workspace/.github/skills/foo/SKILL.md": "# Skill\n",

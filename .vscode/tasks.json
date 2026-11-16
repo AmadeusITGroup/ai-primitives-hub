@@ -17,6 +17,13 @@
   ],
   "tasks": [
     {
+      "label": "build: nested skills acceptance",
+      "type": "shell",
+      "command": "pnpm",
+      "args": ["run", "build:acceptance:nested-skills"],
+      "problemMatcher": []
+    },
+    {
       "type": "shell",
       "label": "pnpm: watch",
       "command": "pnpm",

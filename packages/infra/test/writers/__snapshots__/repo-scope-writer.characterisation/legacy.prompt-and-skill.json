@@ -36,7 +36,13 @@
       "skills/foo/SKILL.md",
       "skills/foo/references/ref.md",
       "skills/foo/scripts/run.sh"
-    ]
+    ],
+    "installedPaths": {
+      "prompts/x.prompt.md": "prompts/x.prompt.md",
+      "skills/foo/SKILL.md": "skills/foo/SKILL.md",
+      "skills/foo/references/ref.md": "skills/foo/references/ref.md",
+      "skills/foo/scripts/run.sh": "skills/foo/scripts/run.sh"
+    }
   },
   "disk": {
     "/workspace/.github/prompts/x.prompt.md": "# Prompt\n",

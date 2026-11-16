@@ -845,14 +845,17 @@
         "files": [
           {
             "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "installedPath": "plugins/foo/.mcp.json",
             "path": "plugins/foo/.mcp.json"
           },
           {
             "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": "plugins/foo/plugin.json",
             "path": "plugins/foo/plugin.json"
           },
           {
             "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "installedPath": "plugins/foo/skills/s/SKILL.md",
             "path": "plugins/foo/skills/s/SKILL.md"
           }
         ],
@@ -948,14 +951,17 @@
         "files": [
           {
             "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "installedPath": "plugins/foo/.mcp.json",
             "path": "plugins/foo/.mcp.json"
           },
           {
             "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": "plugins/foo/plugin.json",
             "path": "plugins/foo/plugin.json"
           },
           {
             "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "installedPath": "plugins/foo/skills/s/SKILL.md",
             "path": "plugins/foo/skills/s/SKILL.md"
           }
         ],
@@ -997,14 +1003,17 @@
         "files": [
           {
             "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "installedPath": "plugins/foo/.mcp.json",
             "path": "plugins/foo/.mcp.json"
           },
           {
             "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": "plugins/foo/plugin.json",
             "path": "plugins/foo/plugin.json"
           },
           {
             "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "installedPath": "plugins/foo/skills/s/SKILL.md",
             "path": "plugins/foo/skills/s/SKILL.md"
           }
         ],
@@ -2023,14 +2032,17 @@
         "files": [
           {
             "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "installedPath": "plugins/foo/.mcp.json",
             "path": "plugins/foo/.mcp.json"
           },
           {
             "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": "plugins/foo/plugin.json",
             "path": "plugins/foo/plugin.json"
           },
           {
             "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "installedPath": "plugins/foo/skills/s/SKILL.md",
             "path": "plugins/foo/skills/s/SKILL.md"
           }
         ],
@@ -2126,14 +2138,17 @@
         "files": [
           {
             "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "installedPath": "plugins/foo/.mcp.json",
             "path": "plugins/foo/.mcp.json"
           },
           {
             "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": "plugins/foo/plugin.json",
             "path": "plugins/foo/plugin.json"
           },
           {
             "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "installedPath": "plugins/foo/skills/s/SKILL.md",
             "path": "plugins/foo/skills/s/SKILL.md"
           }
         ],
@@ -2175,14 +2190,17 @@
         "files": [
           {
             "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "installedPath": "plugins/foo/.mcp.json",
             "path": "plugins/foo/.mcp.json"
           },
           {
             "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "installedPath": "plugins/foo/plugin.json",
             "path": "plugins/foo/plugin.json"
           },
           {
             "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "installedPath": "plugins/foo/skills/s/SKILL.md",
             "path": "plugins/foo/skills/s/SKILL.md"
           }
         ],

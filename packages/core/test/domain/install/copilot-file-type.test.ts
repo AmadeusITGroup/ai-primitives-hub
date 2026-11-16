@@ -7,6 +7,7 @@ import {
   determineFileType,
   getFileExtension,
   getRepositoryTargetDirectory,
+  getSkillDirectory,
   getSkillName,
   getTargetFileName,
   isSkillDirectory,
@@ -138,5 +139,28 @@ describe('getSkillName', () => {
 
   it('returns null for a path with no skills/ segment', () => {
     expect(getSkillName('prompts/my-prompt.md')).toBeNull();
+  });
+
+  it('names a nested skill after the directory holding its SKILL.md', () => {
+    expect(getSkillName('skills/generate-test/automated-test_test-generation/SKILL.md'))
+      .toBe('automated-test_test-generation');
+    expect(getSkillName('.github\\skills\\group\\leaf\\skill.md')).toBe('leaf');
+  });
+});
+
+describe('getSkillDirectory', () => {
+  it('returns the directory holding a SKILL.md, however deep below skills/', () => {
+    expect(getSkillDirectory('skills/my-skill/SKILL.md')).toBe('skills/my-skill');
+    expect(getSkillDirectory('.github/skills/group/leaf/SKILL.md')).toBe('.github/skills/group/leaf');
+  });
+
+  it('keeps the first segment below skills/ for a directory or any other file', () => {
+    expect(getSkillDirectory('skills/my-skill/')).toBe('skills/my-skill');
+    expect(getSkillDirectory('skills/my-skill/src/index.js')).toBe('skills/my-skill');
+  });
+
+  it('returns null when the path is not inside a skills/<name> directory', () => {
+    expect(getSkillDirectory('prompts/my-prompt.md')).toBeNull();
+    expect(getSkillDirectory('skills/')).toBeNull();
   });
 });
