@@ -15,6 +15,7 @@ import {
   nullPrototypeCopy,
   parseRecord,
   RECORD_FORMAT_VERSION,
+  RECORD_MAX_BYTES,
   RECORD_SCHEMA_URL,
   recordError,
   type RecordFs,
