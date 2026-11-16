@@ -40,7 +40,7 @@ import {
   decodeUtf8Strict,
   determineFileType,
   expandPath,
-  getSkillName,
+  getSkillDirectory,
   getTargetFileName,
   matchKindRoute,
   normalizePrimitiveKind,
@@ -389,9 +389,9 @@ export class FileTreeTargetWriter implements TargetWriter {
    * {@link KIND_TO_ROUTE_KEY} + the layout's `kindRoutes`, and the output
    * file name is `{id}.{type-extension}` (via `core`'s `getTargetFileName`)
    * rather than the source file's own name. Skill items are the exception:
-   * every bundle file under the skill's `skills/<sourceId>/` prefix is
-   * copied, preserving its relative path, into
-   * `{baseDir}/{skillsRoute}/{normalizedId}/`.
+   * every bundle file under the directory holding the skill's `SKILL.md`
+   * (see {@link skillSourcePrefix}) is copied, preserving its relative path,
+   * into `{baseDir}/{skillsRoute}/{normalizedId}/`.
    * @param target - Target chosen via `--target <name>`.
    * @param files - Extracted bundle files.
    * @param items - Manifest-derived placement instructions.
@@ -644,25 +644,18 @@ const staysInside = (placement: ManifestItemPlacement): ManifestItemPlacement | 
 };
 
 /**
- * The bundle-path prefix of a skill item's directory: everything up to
- * and including `skills/<name>/`, whether the item names the directory
- * itself (`skills/foo`, `skills/foo/`) or a file inside it
- * (`.github/skills/foo/SKILL.md`). Mirrors `getSkillName`'s match.
+ * The bundle-path prefix of a skill item's directory, `/`-terminated, as
+ * resolved by `getSkillDirectory`: the directory holding the item's
+ * `SKILL.md` (`.github/skills/foo/SKILL.md`, `skills/group/foo/SKILL.md`),
+ * or `skills/<name>/` when the item names the directory itself
+ * (`skills/foo`, `skills/foo/`).
  * @param file - Skill item `file`.
  * @returns The `/`-terminated prefix, or `null` when the path is not under
- *   a `skills/<name>` directory.
+ *   a skill directory.
  */
 export const skillSourcePrefix = (file: string): string | null => {
-  if (getSkillName(file) === null) {
-    return null;
-  }
-  const normalized = file.replaceAll('\\', '/');
-  const match = /(?:^|\/)skills\/[^/]+(?:\/|$)/i.exec(normalized);
-  if (match === null) {
-    return null;
-  }
-  const root = normalized.slice(0, match.index + match[0].length).replace(/\/$/, '');
-  return `${root}/`;
+  const directory = getSkillDirectory(file);
+  return directory === null ? null : `${directory}/`;
 };
 
 /**
