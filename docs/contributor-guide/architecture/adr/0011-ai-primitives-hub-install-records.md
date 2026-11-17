@@ -34,7 +34,7 @@ that the extension did not share.
 - Older releases do not find the new files, so upgrade or roll back both
   together; rollback has manual steps ([migration guide](../../../migration-guide.md#upgrading-to-030-install-records)).
 - Migrated `unknown` entries must be reinstalled before the extension moves them.
-- CLI `profile activate` and workspace scope still write the 2.0.0 files.
+- The CLI's workspace scope still writes the 2.0.0 user lockfile; `profile activate` refuses two targets of one type at one level.
 - With two or more targets, more CLI commands need `--target`.
 
 ## Alternatives Rejected
