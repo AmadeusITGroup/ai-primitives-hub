@@ -11,6 +11,7 @@ import {
   assertUserFolderInsideHome,
   createInstallRecordServices,
   getLockfilePathForMode,
+  type HubReferenceFields,
   type InstallRecordService,
   isAnyFileMissing,
   isLoneUnknown,
@@ -25,11 +26,13 @@ import {
   orderConfiguredSources,
   readLockfile,
   RECORD_SOURCE_TYPES,
+  type RecordHubInput,
   recordIdentityOf,
   type RecordSourceDescriptor,
   type RecordSourceInput,
   type RecordStore,
   resolveUserHome,
+  toRecordHub,
   toRecordSource,
   writeFileAtomically,
 } from '@ai-primitives-hub/app';
@@ -81,6 +84,8 @@ export interface RecordSourcesPort {
   listSources(): Promise<RegistrySource[]>;
   /** Active hub id, when a hub is active. */
   getActiveHubId?(): Promise<string | null>;
+  /** A configured hub's name and reference, or `null`. */
+  getHub?(hubId: string): Promise<{ name: string; reference: HubReferenceFields } | null>;
 }
 
 /** Dependencies of an {@link ExtensionRecordAdapter}. */
@@ -226,6 +231,27 @@ export class ExtensionRecordAdapter {
     this.userRecordPath = options.userRecordPath;
     this.profileStore = options.profileStore;
     this.memento = options.memento;
+  }
+
+  private async configuredSource(sourceId: string | undefined): Promise<RegistrySource> {
+    const configured = sourceId === undefined ? undefined : (await this.configuredSources()).find((candidate) => candidate.id === sourceId);
+    if (configured === undefined || !(RECORD_SOURCE_TYPES as readonly string[]).includes(configured.type)) {
+      throw new Error(`source ${sourceId ?? '(none)'} is not configured; add it or reinstall from a configured source`);
+    }
+    return configured;
+  }
+
+  private async recordHubOf(hubId: string | undefined): Promise<RecordHubInput | undefined> {
+    if (hubId === undefined || this.sources.getHub === undefined) {
+      return undefined;
+    }
+    try {
+      const hub = await this.sources.getHub(hubId);
+      return hub === null ? undefined : toRecordHub(hubId, hub.name, hub.reference);
+    } catch (error) {
+      this.logger.debug(`Hub ${hubId} not recorded: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
   }
 
   private entriesIn(locations: readonly RecordLocation[], bundleId: string, tool?: string): Promise<LocatedToolEntry[]> {
@@ -598,11 +624,18 @@ export class ExtensionRecordAdapter {
    * @throws {Error} When the id is unknown or its type is not a `SourceType`.
    */
   public async buildSource(sourceId: string | undefined): Promise<RecordSourceInput> {
-    const configured = sourceId === undefined ? undefined : (await this.configuredSources()).find((candidate) => candidate.id === sourceId);
-    if (configured === undefined || !(RECORD_SOURCE_TYPES as readonly string[]).includes(configured.type)) {
-      throw new Error(`source ${sourceId ?? '(none)'} is not configured; add it or reinstall from a configured source`);
-    }
-    return { ...toRecordSource(configured, configured.id) };
+    return { ...toRecordSource(await this.configuredSource(sourceId), sourceId as string) };
+  }
+
+  /**
+   * The source an install records with its shareable hub, from the HubManager.
+   * @param sourceId - Source id of the bundle.
+   * @throws {Error} When the id is unknown or its type is not a `SourceType`.
+   */
+  public async buildRecordSource(sourceId: string | undefined): Promise<{ source: RecordSourceInput; hub?: RecordHubInput }> {
+    const configured = await this.configuredSource(sourceId);
+    const hub = await this.recordHubOf(configured.hubId);
+    return { source: { ...toRecordSource(configured, configured.id, hub) }, ...(hub === undefined ? {} : { hub }) };
   }
 
   /**
@@ -687,13 +720,18 @@ export class ExtensionRecordAdapter {
    */
   public async remapSource(workspaceFolder: string, from: string, to: string, descriptor: LockfileSourceDescriptor): Promise<void> {
     let recordDescriptor: RecordSourceDescriptor = { ...descriptor };
+    let hub: RecordHubInput | undefined;
     try {
-      const { sourceId: _sourceId, ...decided } = await this.buildSource(to);
-      recordDescriptor = decided;
+      const decided = await this.buildRecordSource(to);
+      const { sourceId: _sourceId, ...fields } = decided.source;
+      recordDescriptor = fields;
+      hub = decided.hub;
     } catch {
       // Not a configured source here: record the descriptor app resolved.
     }
-    const result = await this.service.remapSource({ root: await this.resolveRoot(workspaceFolder), from, to, descriptor: recordDescriptor });
+    const result = await this.service.remapSource({
+      root: await this.resolveRoot(workspaceFolder), from, to, descriptor: recordDescriptor, ...(hub === undefined ? {} : { hub })
+    });
     result.warnings.forEach((warning) => this.logger.warn(warning));
   }
 

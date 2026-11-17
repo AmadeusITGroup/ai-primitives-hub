@@ -41,6 +41,7 @@ import {
   type MigrationReport,
   type ProfileLifecycleDeps,
   readLockfile,
+  type RecordHubInput,
   recordIdentityOf,
   type RecordSourceInput,
   removeBundleEntry,
@@ -89,6 +90,7 @@ import {
   prepareRecordForTarget,
   prepareRecordSelection,
   prepareUninstallForTarget,
+  recordHubOf,
   recordRepositoryInstall,
   recordRepositoryUninstall,
   RegistryError,
@@ -409,7 +411,7 @@ export class ProfileCurrentCommand extends BaseProfileCommand {
  * Result of activating a single profile bundle against a single target.
  */
 type ActivateBundleOutcome =
-  | { ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry; source: RecordSourceInput }
+  | { ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry; source: RecordSourceInput; hub?: RecordHubInput }
   | { ok: false; reason: string };
 
 /**
@@ -442,7 +444,8 @@ async function activateBundleForTarget(
     return { ok: false, reason: `source "${bundleRef.source}" not found in hub` };
   }
   // Same record source as `install`, so the source trust gate sees one source.
-  const source = toRecordSource(src, src.id);
+  const hub = await recordHubOf(ctx, src).catch(() => undefined);
+  const source = toRecordSource(src, src.id, hub);
   // The fetch entry keeps every recorded field, Artifactory's index file and auth included.
   const sourceEntry: LockfileSourceEntry = toLockfileSourceEntry(source);
   // `fetchFilesForSource` only reads `.version`/`.sourceId` off this
@@ -487,7 +490,7 @@ async function activateBundleForTarget(
     if (target.scope === 'repository') {
       entry.commitMode = target.commitMode ?? 'commit';
     }
-    return { ok: true, written: result.written, entry, sourceEntry, source };
+    return { ok: true, written: result.written, entry, sourceEntry, source, ...(hub === undefined ? {} : { hub }) };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -983,6 +986,7 @@ async function installProfileBundles(
           version: outcome.entry.version,
           tool: target.type,
           source: outcome.source,
+          ...(outcome.hub === undefined ? {} : { hub: outcome.hub }),
           writtenPaths: outcome.written
         });
         if (!report.records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {
@@ -1393,6 +1397,7 @@ async function runProfileInstall(
           version: outcome.entry.version,
           tool: target.type,
           source: outcome.source,
+          ...(outcome.hub === undefined ? {} : { hub: outcome.hub }),
           writtenPaths: outcome.written
         });
         if (!records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {

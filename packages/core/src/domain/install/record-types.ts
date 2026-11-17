@@ -100,6 +100,21 @@ export interface SourceRecord {
   authMode?: string;
   /** A reference to a credential, never a secret value. */
   credentialRef?: string;
+  /** Key of the shared hub the source came from, in {@link InstallRecord.hubs}. */
+  hubId?: string;
+  [key: string]: unknown;
+}
+
+/** A shared hub's import reference: what `hub add` needs, never a credential. */
+export interface RecordHub {
+  name: string;
+  type: string;
+  /** Hub location with credentials removed; never a local path. */
+  location: string;
+  /** Git ref of a GitHub hub. */
+  ref?: string;
+  /** Relative config path of an Artifactory hub. */
+  configFile?: string;
   [key: string]: unknown;
 }
 
@@ -113,6 +128,7 @@ export interface InstallRecord {
   generatedBy: string;
   bundles: Record<string, BundleRecord>;
   sources: Record<string, SourceRecord>;
+  /** Hubs named by a source's `hubId`; entries carried over by migration may have another shape. */
   hubs?: Record<string, unknown>;
   profiles?: Record<string, unknown>;
   [key: string]: unknown;

@@ -8,10 +8,10 @@ import type {
 } from '@ai-primitives-hub/core';
 
 /** Optional string fields of a recorded source, in addition to `type` and `url`. */
-export const SOURCE_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef'] as const;
+export const SOURCE_FIELDS = ['branch', 'collectionsPath', 'indexFile', 'authMode', 'credentialRef', 'hubId'] as const;
 
 /** The optional fields kept from a record's own copy of a source: never `authMode` or `credentialRef`. */
-export const SOURCE_FIELDS_WITHOUT_CREDENTIALS = ['branch', 'collectionsPath', 'indexFile'] as const;
+export const SOURCE_FIELDS_WITHOUT_CREDENTIALS = ['branch', 'collectionsPath', 'indexFile', 'hubId'] as const;
 
 /** One optional source field name. */
 export type SourceField = typeof SOURCE_FIELDS[number];

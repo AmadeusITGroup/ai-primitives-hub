@@ -1,18 +1,23 @@
 /**
  * RepositoryActivationService
  *
- * On workspace open, lists the sources the repository's install records and
- * old lockfiles name and offers to add the ones not configured. A local
- * folder source outside the repository is skipped, and a `credentialRef` is
- * shown by name only. Manages "Don't ask again" persistence.
+ * On workspace open, lists the sources and hubs the repository's install
+ * records and old lockfiles name that are not configured. A recorded hub comes
+ * from a repository file, so it is only offered for import in a trusted
+ * workspace, only for a GitHub or HTTPS reference, and only after the user
+ * confirms the reference shown. A local folder source outside the repository
+ * is skipped, and a `credentialRef` is shown by name only.
  */
 
 import * as path from 'node:path';
 import {
   isLocalSourceInsideRoot,
   isLocalType,
+  toRecordHub,
 } from '@ai-primitives-hub/app';
 import {
+  type HubReference,
+  isJsonObject,
   isRecordError,
 } from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
@@ -45,7 +50,58 @@ export interface MissingSourcesResult {
   missingSources: string[];
   missingHubs: string[];
   offeredToAdd: boolean;
+  /** Ids of the recorded hubs imported after the user confirmed. */
+  importedHubs: string[];
 }
+
+/** Label of the button that imports one recorded hub. */
+export const IMPORT_HUB_ACTION = 'Import hub';
+
+/**
+ * The reference to import for a recorded hub entry: a GitHub or HTTPS hub
+ * that is not a local path; `undefined` for anything else.
+ * @param hubId - Recorded hub id.
+ * @param entry - The record's `hubs` entry; untrusted.
+ */
+export const importableHubReference = (hubId: string, entry: unknown): { name: string; reference: HubReference } | undefined => {
+  if (!isJsonObject(entry) || typeof entry.type !== 'string' || typeof entry.location !== 'string') {
+    return undefined;
+  }
+  const hub = toRecordHub(hubId, typeof entry.name === 'string' ? entry.name : '', {
+    type: entry.type,
+    location: entry.location,
+    ref: typeof entry.ref === 'string' ? entry.ref : undefined,
+    configFile: typeof entry.configFile === 'string' ? entry.configFile : undefined
+  });
+  // A recorded location that `toRecordHub` had to clean held credentials: never offered.
+  if (hub === undefined || hub.location !== entry.location) {
+    return undefined;
+  }
+  const isHttps = (() => {
+    try {
+      return new URL(hub.location).protocol === 'https:';
+    } catch {
+      return false;
+    }
+  })();
+  if (hub.type === 'github' && (isHttps || !hub.location.includes(':'))) {
+    return { name: hub.name, reference: { type: 'github', location: hub.location, ...(hub.ref === undefined ? {} : { ref: hub.ref }) } };
+  }
+  if ((hub.type === 'url' || hub.type === 'artifactory') && isHttps) {
+    return {
+      name: hub.name,
+      reference: { type: hub.type, location: hub.location, ...(hub.configFile === undefined ? {} : { configFile: hub.configFile }) }
+    };
+  }
+  return undefined;
+};
+
+/**
+ * How a hub reference is shown before it is imported.
+ * @param reference - Hub reference.
+ */
+const describeReference = (reference: HubReference): string =>
+  `${reference.type} ${reference.location}${reference.ref === undefined ? '' : ` @ ${reference.ref}`}${reference.configFile === undefined ? '' : ` (${reference.configFile})`}`;
 
 /** A source an install record or old lockfile names. */
 export interface RepositorySourceEntry {
@@ -53,6 +109,8 @@ export interface RepositorySourceEntry {
   url: string;
   /** External credential reference; shown by name, never resolved. */
   credentialRef?: string;
+  /** Recorded hub the source came from. */
+  hubId?: string;
 }
 
 /** Sources and hubs the repository's records name (an old `Lockfile` fits this shape). */
@@ -199,7 +257,23 @@ export class RepositoryActivationService {
   }
 
   /**
-   * Sources of both record files and both old lockfiles, and hubs of the old lockfiles.
+   * Add the hubs of one file, keeping the first occurrence of an id.
+   * @param into - Hubs collected so far.
+   * @param hubs - Hubs of one file.
+   */
+  private collectHubs(into: Record<string, unknown>, hubs: unknown): void {
+    if (!isJsonObject(hubs)) {
+      return;
+    }
+    for (const [id, hub] of Object.entries(hubs)) {
+      if (!Object.hasOwn(into, id)) {
+        into[id] = hub;
+      }
+    }
+  }
+
+  /**
+   * Sources and hubs of both record files and both old lockfiles; the first occurrence of an id is kept.
    * A `RECORD.*` error in a record file is shown once and that file is skipped.
    * @returns `undefined` when no record or old lockfile exists.
    */
@@ -211,6 +285,7 @@ export class RepositoryActivationService {
         const { record, exists } = await this.records.store.load(location);
         found ||= exists;
         await this.collectSources(result.sources, location.root, record.sources);
+        this.collectHubs(result.hubs, record.hubs);
       } catch (error) {
         if (!isRecordError(error)) {
           throw error;
@@ -224,7 +299,7 @@ export class RepositoryActivationService {
       }
       found = true;
       await this.collectSources(result.sources, this.workspaceRoot, old.lock.sources);
-      Object.assign(result.hubs, old.lock.hubs ?? {});
+      this.collectHubs(result.hubs, old.lock.hubs);
     }
     return found ? result : undefined;
   }
@@ -260,7 +335,7 @@ export class RepositoryActivationService {
   }
 
   /**
-   * Check for missing sources and hubs, offer to add them
+   * List the missing sources and hubs, and offer to import each recorded hub that can be imported
    * @param recorded - Sources and hubs the repository's records name
    * @returns Result with missing sources/hubs and whether offer was made
    */
@@ -268,7 +343,8 @@ export class RepositoryActivationService {
     const result: MissingSourcesResult = {
       missingSources: [],
       missingHubs: [],
-      offeredToAdd: false
+      offeredToAdd: false,
+      importedHubs: []
     };
 
     try {
@@ -296,28 +372,53 @@ export class RepositoryActivationService {
         result.missingHubs = Object.keys(recorded.hubs).filter((id) => !configuredHubIds.has(id));
       }
 
-      if (result.missingSources.length > 0 || result.missingHubs.length > 0) {
-        const totalMissing = result.missingSources.length + result.missingHubs.length;
-        const itemType = result.missingHubs.length > 0 ? 'sources and hubs' : 'sources';
+      const trusted = vscode.workspace.isTrusted;
+      const importable = new Map<string, { name: string; reference: HubReference }>();
+      for (const id of result.missingHubs) {
+        const hub = trusted ? importableHubReference(id, recorded.hubs?.[id]) : undefined;
+        if (hub !== undefined) {
+          importable.set(id, hub);
+        }
+      }
+      // Importing a hub brings its sources, so they are not listed twice.
+      const unlisted = [
+        ...result.missingSources.filter((id) => !importable.has(recorded.sources[id]?.hubId ?? '')),
+        ...result.missingHubs.filter((id) => !importable.has(id))
+      ];
+      if (unlisted.length > 0) {
+        const hubCount = unlisted.length - result.missingSources.filter((id) => unlisted.includes(id)).length;
+        const itemType = hubCount > 0 ? 'sources and hubs' : 'sources';
         const credentialRefs = result.missingSources
+          .filter((id) => unlisted.includes(id))
           .map((id) => recorded.sources[id]?.credentialRef)
           .filter((ref): ref is string => typeof ref === 'string' && ref !== '');
         const credentialNote = credentialRefs.length === 0
           ? ''
           : ` They need these credentials: ${[...new Set(credentialRefs)].join(', ')}.`;
-
+        const trustNote = !trusted && result.missingHubs.length > 0 ? ' Trust this workspace to import its hubs.' : '';
+        result.offeredToAdd = true;
+        void vscode.window.showInformationMessage(
+          `${unlisted.length} ${itemType} from the install records are not configured: ${unlisted.join(', ')}.${credentialNote}${trustNote}`
+        );
+      }
+      for (const [id, hub] of importable) {
+        result.offeredToAdd = true;
         const choice = await vscode.window.showInformationMessage(
-          `${totalMissing} ${itemType} from the install records are not configured.${credentialNote} Would you like to add them?`,
-          'Add Sources',
+          `The install records use hub "${hub.name}" (${id}), which is not configured. Import it from ${describeReference(hub.reference)}?`,
+          IMPORT_HUB_ACTION,
           'Not now'
         );
-
-        result.offeredToAdd = true;
-
-        if (choice === 'Add Sources') {
-          this.logger.info(`User chose to add ${totalMissing} missing ${itemType}`);
-          // Note: Actual addition would be handled by RegistryManager/HubManager
-          // For now, just log the intent
+        if (choice !== IMPORT_HUB_ACTION) {
+          continue;
+        }
+        try {
+          await this.hubManager.importHub(hub.reference, id);
+          result.importedHubs.push(id);
+          this.logger.info(`Imported hub ${id} from ${describeReference(hub.reference)}`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(`Failed to import hub ${id}`, error instanceof Error ? error : undefined);
+          void vscode.window.showErrorMessage(`Could not import hub "${hub.name}": ${message}`);
         }
       }
     } catch (error) {

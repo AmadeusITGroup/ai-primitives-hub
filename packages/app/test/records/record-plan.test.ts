@@ -160,6 +160,31 @@ describe('record plan and services', () => {
         .toEqual({ considered: 2, skipped: [], needsReinstall: [], notes: [] });
     });
 
+    it('plans an entry from the configured source of its recorded hub, with that hub', async () => {
+      writeRecord(committed, [{ bundleId: 'b1', tool: 'vscode' }], { acme: { ...acme, hubId: 'acme-hub' } });
+      const hub = { id: 'acme-hub', name: 'Acme Hub', type: 'github', location: 'acme/hub' };
+      const fromHub: RegistrySource = { ...configuredAcme, url: 'https://github.com/acme/from-hub', hubId: 'acme-hub' };
+
+      const result = await planRecordEntries({
+        service: services.service,
+        store: services.store,
+        fs: services.fs,
+        selection: { level: 'repository', root, locations: [committed, localOnly], inferred: false, reason: 'explicit-scope' },
+        targets: [target('vscode-main', 'vscode')],
+        configured: new Map(),
+        candidates: [fromHub],
+        hubs: new Map([[hub.id, hub]]),
+        cwd: root,
+        holdingFile: 'first-holding'
+      });
+
+      expect(result.items.map((item) => ({ source: item.source, hub: item.hub, fromRecordOnly: item.fromRecordOnly }))).toEqual([{
+        source: { sourceId: 'acme', type: 'github', url: 'https://github.com/acme/from-hub', branch: 'main', hubId: 'acme-hub' },
+        hub,
+        fromRecordOnly: false
+      }]);
+    });
+
     it('with --target, plans only entries of that tool', async () => {
       writeRecord(committed, [{ bundleId: 'b1', tool: 'vscode' }, { bundleId: 'b1', tool: 'kiro' }, { bundleId: 'b2', tool: 'kiro' }], { acme });
       const kiro = target('kiro-main', 'kiro');
