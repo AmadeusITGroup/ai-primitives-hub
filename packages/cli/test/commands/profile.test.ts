@@ -193,6 +193,15 @@ profiles:
       expect(envelope.errors[0].message).toContain('empty.profile.yml');
     });
 
+    it('reports a YAML sequence as unusable before looking up the hub', async () => {
+      const result = await publish('list.profile.yml', '[]\n');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { errors: { code: string; message: string }[] };
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+      expect(envelope.errors[0].message).toContain('list.profile.yml');
+    });
+
     it('reports malformed YAML instead of crashing', async () => {
       const result = await publish('bad.profile.yml', 'id: [unclosed\n');
 
