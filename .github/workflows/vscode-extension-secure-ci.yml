@@ -209,6 +209,11 @@ jobs:
       - name: Verify standalone CLI scanner packaging
         run: pnpm -C packages/cli run test:sea
 
+      # 80% line-coverage floor on the install-record code; see each package's vitest.config.ts.
+      - name: Coverage gate for install-record code
+        if: runner.os == 'Linux'
+        run: pnpm --filter "@ai-primitives-hub/core" --filter "@ai-primitives-hub/infra" --filter "@ai-primitives-hub/app" test:coverage
+
       - name: Install VS Code dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash

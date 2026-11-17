@@ -36,21 +36,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".claude/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".claude/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".claude/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -265,21 +263,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".cursor/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".cursor/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".cursor/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".cursor/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".cursor/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -381,21 +377,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -501,21 +495,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -620,21 +612,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -734,21 +724,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -848,21 +836,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".opencode/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".opencode/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".opencode/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".opencode/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".opencode/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -958,18 +944,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1064,18 +1051,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1113,18 +1101,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1223,21 +1212,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".windsurf/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".windsurf/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".windsurf/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1340,21 +1327,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".claude/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".claude/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".claude/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1569,21 +1554,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".cursor/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".cursor/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".cursor/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".cursor/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".cursor/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".cursor/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1685,21 +1668,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1805,21 +1786,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".devin/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".devin/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".devin/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".devin/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".devin/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1924,21 +1903,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2038,21 +2015,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".kiro/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".kiro/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2152,21 +2127,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": ".opencode/skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".opencode/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": ".opencode/skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".opencode/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": ".opencode/skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".opencode/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2262,18 +2235,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2368,18 +2342,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2417,18 +2392,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".github/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".github/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".github/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2527,21 +2503,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "installedPath": "skills/foo/SKILL.md",
-            "path": "skills/foo/SKILL.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".windsurf/skills/foo/SKILL.md"
           },
           {
-            "checksum": "cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
-            "installedPath": "skills/foo/references/ref.md",
-            "path": "skills/foo/references/ref.md"
+            "checksum": "sha256:cb0730c7d12a2cc1ef8c9942bbc96ef996ecd3afaa6235b49d81c5e800572a81",
+            "path": ".windsurf/skills/foo/references/ref.md"
           },
           {
-            "checksum": "a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
-            "installedPath": "skills/foo/scripts/run.sh",
-            "path": "skills/foo/scripts/run.sh"
+            "checksum": "sha256:a4e0317eafab5cf1bc4a0041c7c8aeb6ece56fe72e7b2b3017a8a6574614cd35",
+            "path": ".windsurf/skills/foo/scripts/run.sh"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

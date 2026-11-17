@@ -11,6 +11,9 @@ import {
   InstallOptions,
 } from '../types/registry';
 import {
+  showCliManagedWarning,
+} from '../utils/cli-managed';
+import {
   ErrorHandler,
 } from '../utils/error-handler';
 import {
@@ -274,6 +277,9 @@ export class BundleInstallationCommands {
         `✓ ${bundleName} uninstalled successfully`
       );
     } catch (error) {
+      if (showCliManagedWarning(error)) {
+        return;
+      }
       await ErrorHandler.handle(error, {
         operation: 'uninstall bundle',
         showUserMessage: true,
