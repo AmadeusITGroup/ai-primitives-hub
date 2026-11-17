@@ -41,7 +41,7 @@ describe('quality markdown', () => {
 
   it('puts the failing bundle first with its findings and states the verdict', () => {
     const text = renderQualityMarkdown(report([bundle('good', 100, 'low'), bundle('bad', 20, 'critical', [entry('HKS-001', 20)])], false));
-    expect(text).toContain('Quality scan: failed');
+    expect(text).toContain('Security scan: failed');
     expect(text).toContain('1 of 2 bundle(s) are below the limit');
     expect(text).toContain('Needs attention (1 below the gate limit)');
     expect(text.indexOf('`bad`')).toBeLessThan(text.indexOf('`good`'));
@@ -56,7 +56,7 @@ describe('quality markdown', () => {
 
   it('says passed with every bundle in a collapsible table', () => {
     const text = renderQualityMarkdown(report([bundle('a', 100, 'low'), bundle('b', 95, 'low')], true));
-    expect(text).toContain('Quality scan: passed');
+    expect(text).toContain('Security scan: passed');
     expect(text).toContain('All 2 bundles');
     expect(text).toContain('All 2 bundle(s) pass');
   });

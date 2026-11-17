@@ -18,6 +18,8 @@ export interface ParsedFindings {
   findings: QualityFinding[];
   /** Entries that were not valid findings. */
   skipped: number;
+  /** The `complete` flag of the report when it has one; other scanners omit it. */
+  complete?: boolean;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -60,5 +62,9 @@ export const parseFindingsDocument = (document: unknown): ParsedFindings => {
       ...(typeof recommendedFix === 'string' && recommendedFix !== '' ? { recommendedFix } : {})
     });
   }
-  return { findings, skipped };
+  return {
+    findings,
+    skipped,
+    ...(isRecord(document) && typeof document.complete === 'boolean' ? { complete: document.complete } : {})
+  };
 };

@@ -93,7 +93,7 @@ describe('security rate command', () => {
     expect(report.repo).toMatchObject({ basis: 'bundles-average', score: 69 });
     expect(report.bundles[0].metadata).toMatchObject({ author: 'Team', labels: ['demo'] });
     expect(report.gate).toEqual({ failOn: 'CRITICAL', passed: false });
-    expect(await readFile(markdown, 'utf8')).toContain('Quality scan: failed');
+    expect(await readFile(markdown, 'utf8')).toContain('Security scan: failed');
 
     const again = await rate(args);
     expect(again.exitCode).toBe(74);
@@ -181,6 +181,15 @@ describe('security rate command', () => {
     const result = await rate(['--findings', findings]);
     expect(result.exitCode).toBe(65);
     expect(result.stderr).toContain('No usable findings');
+  });
+
+  it('rejects findings from an incomplete scan even when some are usable', async () => {
+    await writeFile(findings, JSON.stringify({ complete: false, findings: [finding('skills/good/SKILL.md', 'MD-002', 'LOW')] }));
+    const result = await rate(['--findings', findings, '--fail-on', 'none']);
+    expect(result.exitCode).toBe(65);
+    expect(result.stderr).toContain('incomplete scan');
+    await writeFile(findings, JSON.stringify({ complete: true, findings: [finding('skills/good/SKILL.md', 'MD-002', 'LOW')] }));
+    expect((await rate(['--findings', findings])).exitCode).toBe(0);
   });
 
   it('records the tag only for runs on a tag', async () => {

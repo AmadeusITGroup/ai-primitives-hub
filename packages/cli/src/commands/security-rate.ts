@@ -58,7 +58,7 @@ const renderText = (result: QualityRatingResult, failOn: QualityFailOn, skipped:
     ? 'Gate (none): disabled'
     : `Gate (${failOn}): ${report.gate.passed ? 'passed' : `failed - ${String(failedBundles.length || 1)} below the limit`}`;
   const lines = [
-    'Quality rating',
+    'Security rating',
     `Source score: ${score(report.repo.score)} (${report.repo.risk}), ${report.repo.basis === 'bundles-average'
       ? `average of ${String(report.bundles.length)} bundle(s)`
       : 'whole repository'}`,
@@ -128,7 +128,7 @@ export class SecurityRateCommand extends Command {
         --skills-path <dir>        Skills folder (default: skills)
         --scanner-name <name>      Scanner recorded in the report (default: ai-primitives-hub-security,
                                    or unspecified with --findings)
-        --report-json <file>       Write the quality report as JSON
+        --report-json <file>       Write the security rating as JSON
         --report-markdown <file>   Write the report as Markdown
         --overwrite                Replace existing report files
         -o, --output <format>      Output format (text, json, yaml, ndjson)
@@ -224,6 +224,10 @@ export class SecurityRateCommand extends Command {
           return EXIT_BAD_INPUT;
         }
         skipped = parsed.skipped;
+        if (parsed.complete === false) {
+          ctx.stderr.write(`${this.findings} is from an incomplete scan; fix the scan and run it again\n`);
+          return EXIT_BAD_INPUT;
+        }
         if (parsed.findings.length === 0 && parsed.skipped > 0) {
           ctx.stderr.write(`No usable findings in ${this.findings}: ${String(parsed.skipped)} entries lack a rule id, file or severity\n`);
           return EXIT_BAD_INPUT;

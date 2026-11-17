@@ -66,3 +66,18 @@ describe('recommendedFixFor inherited names', () => {
     expect(recommendedFixFor('constructor')).toContain('Review the finding');
   });
 });
+
+describe('parseFindingsDocument complete flag', () => {
+  const findings = [{ ruleId: 'A-001', severity: 'LOW', file: 'a.md' }];
+
+  it('passes on the complete flag of the report', () => {
+    expect(parseFindingsDocument({ complete: false, findings }).complete).toBe(false);
+    expect(parseFindingsDocument({ complete: true, findings }).complete).toBe(true);
+  });
+
+  it('leaves it out when the report has none or it is not a boolean', () => {
+    expect(parseFindingsDocument({ findings })).not.toHaveProperty('complete');
+    expect(parseFindingsDocument({ complete: 'no', findings })).not.toHaveProperty('complete');
+    expect(parseFindingsDocument(findings)).not.toHaveProperty('complete');
+  });
+});

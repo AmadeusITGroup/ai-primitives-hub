@@ -122,7 +122,7 @@ export const renderQualityMarkdown = (report: QualityReport): string => {
   const failOn = report.gate.failOn === 'NONE' ? 'none' : report.gate.failOn;
   const failed = !report.gate.passed;
   const { repo, bundles } = report;
-  const lines = [`## ${failed ? FAIL : OK} Quality scan: ${failed ? 'failed' : 'passed'}`, ''];
+  const lines = [`## ${failed ? FAIL : OK} Security scan: ${failed ? 'failed' : 'passed'}`, ''];
   if (repo.basis === 'bundles-average') {
     const failing = bundles.filter((bundle) => gateFailed(bundle.score, failOn)).length;
     lines.push(
