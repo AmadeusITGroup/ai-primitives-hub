@@ -177,10 +177,10 @@ profiles:
   });
 
   describe('profile publish with an unusable profile file (#704)', () => {
-    const publish = async (file: string, contents: string) => {
+    const publish = async (file: string, contents: string, hubId = 'test-hub') => {
       const profileFile = path.join(workspace, file);
       await writeFile(profileFile, contents);
-      return run(['profile', 'publish', 'my-profile', '--hub', 'test-hub', '--file', profileFile, '-o', 'json']);
+      return run(['profile', 'publish', 'my-profile', '--hub', hubId, '--file', profileFile, '-o', 'json']);
     };
 
     it('reports an empty profile file instead of crashing', async () => {
@@ -194,7 +194,8 @@ profiles:
     });
 
     it('reports a YAML sequence as unusable before looking up the hub', async () => {
-      const result = await publish('list.profile.yml', '[]\n');
+      // The hub does not exist: the file error must win over `HUB.NOT_FOUND`.
+      const result = await publish('list.profile.yml', '[]\n', 'no-such-hub');
 
       expect(result.exitCode, result.stdout).toBe(1);
       const envelope = JSON.parse(result.stdout) as { errors: { code: string; message: string }[] };
