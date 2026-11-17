@@ -31,6 +31,9 @@ import type {
   Target,
 } from '@ai-primitives-hub/core';
 import {
+  parseBundleId,
+} from '@ai-primitives-hub/core';
+import {
   buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
@@ -166,10 +169,10 @@ describe('install command (local --from mode)', () => {
     const extraEntries: { path: string; bytes: Uint8Array; mode?: number }[] = [];
     let indexFailuresRemaining = 0;
     let archiveFailureBundleId: string | undefined;
-    const archiveFor = (): Uint8Array => {
-      const key = `${version}:${manifestVersion}`;
+    const archiveFor = (bundleId = catalogId): Uint8Array => {
+      const key = `${bundleId}:${version}:${manifestVersion}`;
       if (!archives.has(key)) {
-        const files = createLegacyReleaseArchive({ id: 'bundle', version: manifestVersion });
+        const files = createLegacyReleaseArchive({ id: parseBundleId(bundleId, 'owner/repo').name, version: manifestVersion });
         archives.set(key, buildZip([...[...files].map(([filePath, bytes]) => ({ path: filePath, bytes })), ...extraEntries]));
       }
       return archives.get(key)!;
@@ -198,10 +201,11 @@ describe('install command (local --from mode)', () => {
           body = new TextEncoder().encode(JSON.stringify({
             formatVersion: 1, source: { id: source.id, name: source.name, updatedAt: '2026-01-01T00:00:00Z' },
             bundles: [catalogId, ...additionalCatalogIds].map((id) => {
-              const bytes = archiveFor();
+              const bytes = archiveFor(id);
               return {
                 id, version, name: 'Bundle', description: '', author: 'Test', environments: ['vscode'],
                 tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+                canonicalSource: 'https://github.com/owner/repo',
                 manifest: { path: `${version}/${id}/deployment-manifest.yml`, size: 1, sha256: 'a'.repeat(64) },
                 archive: { path: `${version}/${id}.zip`, size: bytes.length,
                   sha256: createHash('sha256').update(bytes).digest('hex'), mediaType: 'application/zip' }
@@ -212,7 +216,11 @@ describe('install command (local --from mode)', () => {
           if (archiveFailureBundleId !== undefined && request.url.endsWith(`/${archiveFailureBundleId}.zip`)) {
             return Promise.resolve({ statusCode: 403, body: new Uint8Array(), finalUrl: request.url, headers: {} });
           }
-          body = archiveFor();
+          const bundleId = [catalogId, ...additionalCatalogIds].find((id) => request.url.endsWith(`/${id}.zip`));
+          if (bundleId === undefined) {
+            throw new Error(`Unexpected Artifactory archive: ${request.url}`);
+          }
+          body = archiveFor(bundleId);
         } else {
           throw new Error(`Unexpected Artifactory request: ${request.url}`);
         }

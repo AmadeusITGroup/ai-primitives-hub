@@ -29,7 +29,11 @@ import {
   isSourceAwareManifestIdMatch,
 } from '../bundle/id';
 import {
+  categoryOf,
+} from '../install/category';
+import {
   isPrimitiveKind,
+  normalizePrimitiveKind,
 } from '../primitive/types';
 import {
   RELEASE_DEPLOYMENT_MANIFEST_FORMAT_VERSION,
@@ -39,6 +43,7 @@ import {
 } from './types';
 
 export const MANIFEST_FILENAME = 'deployment-manifest.yml';
+export const APM_MANIFEST_FILENAME = 'apm.yml';
 
 /**
  * Options for manifest validation.
@@ -158,6 +163,11 @@ export const validateManifest = (
       'BUNDLE.VERSION_MISMATCH'
     );
   }
+  validateCompanionApmManifest(files, id, version);
+  if (files.has(APM_MANIFEST_FILENAME) && Array.isArray(m.prompts)
+    && m.prompts.some((item: unknown) => isRecord(item) && item.file === APM_MANIFEST_FILENAME)) {
+    throw invalidManifest(`${APM_MANIFEST_FILENAME} is package metadata and cannot be an installable primitive`);
+  }
   if (m.formatVersion === undefined) {
     return m as LegacyValidatedManifest;
   }
@@ -207,8 +217,8 @@ export const isReleaseDeploymentManifest = (
  * inventory inside the ZIP, but those files are evidence rather than target
  * content. The root deployment manifest remains available because
  * manifest-driven repository writers need it to determine primitive routing.
- * Legacy manifests return their complete extracted file map to preserve the
- * pre-contract installation behavior.
+ * Legacy manifests retain their content except for the root APM companion,
+ * which is package metadata rather than an installable primitive.
  * @param files - Full extracted archive contents.
  * @param manifest - Previously validated manifest.
  * @returns A deterministic map containing target-installable files.
@@ -217,23 +227,57 @@ export const getInstallableBundleFiles = (
   files: ExtractedFiles,
   manifest: ValidatedManifest
 ): ExtractedFiles => {
-  if (!isReleaseDeploymentManifest(manifest)) {
-    return files;
-  }
-
-  const allowedPaths = new Set<string>([
-    MANIFEST_FILENAME,
-    ...manifest.files
-      .filter((file) => file.role === 'installable')
-      .map((file) => file.path)
-  ]);
-  const installableFiles = new Map<string, Uint8Array>();
-  for (const [filePath, content] of files) {
-    if (allowedPaths.has(filePath)) {
-      installableFiles.set(filePath, content);
+  const governed = isReleaseDeploymentManifest(manifest);
+  const allowedPaths = governed
+    ? new Set<string>([
+      MANIFEST_FILENAME,
+      ...manifest.files
+        .filter((file) => file.role === 'installable')
+        .map((file) => file.path)
+    ])
+    : undefined;
+  const candidates = new Map([...files].filter(([filePath]) =>
+    filePath !== APM_MANIFEST_FILENAME && (allowedPaths === undefined || allowedPaths.has(filePath))));
+  const declaredPaths = new Set<string>();
+  const declaredDirectories = new Set<string>();
+  const itemLists: unknown[] = governed
+    ? [manifest.items]
+    : [manifest.prompts, manifest.agents, manifest.instructions, manifest.skills, manifest.hooks, manifest.plugins];
+  for (const list of itemLists) {
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    for (const item of list as unknown[]) {
+      if (!isRecord(item)) {
+        continue;
+      }
+      const filePath = item.path ?? item.file;
+      if (typeof filePath !== 'string') {
+        continue;
+      }
+      declaredPaths.add(filePath);
+      const kind = normalizePrimitiveKind(item.kind ?? item.type);
+      const directoryEnd = filePath.lastIndexOf('/') + 1;
+      if (kind !== null && categoryOf(kind) === 'directory' && directoryEnd > 0) {
+        declaredDirectories.add(filePath.slice(0, directoryEnd));
+      }
     }
   }
-  return installableFiles;
+  const selected = (filePath: string): boolean => declaredPaths.has(filePath)
+    || [...declaredDirectories].some((directory) => filePath.startsWith(directory));
+  const duplicate = (filePath: string): boolean => {
+    if (filePath === MANIFEST_FILENAME) {
+      return false;
+    }
+    if (filePath.startsWith('.apm/')) {
+      const relative = filePath.slice('.apm/'.length);
+      return (candidates.has(relative) || candidates.has(`.github/${relative}`)) && !selected(filePath);
+    }
+    const mirrorPath = `.apm/${filePath.replace(/^\.github\//, '')}`;
+    return candidates.has(mirrorPath) && selected(mirrorPath) && !selected(filePath);
+  };
+  const installableFiles = new Map([...candidates].filter(([filePath]) => !duplicate(filePath)));
+  return !governed && installableFiles.size === files.size ? files : installableFiles;
 };
 
 const RELEASE_FILE_ROLES: ReadonlySet<ReleaseManifestFileRole> = new Set([
@@ -243,6 +287,53 @@ const RELEASE_FILE_ROLES: ReadonlySet<ReleaseManifestFileRole> = new Set([
 ]);
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
+const validateCompanionApmManifest = (files: ExtractedFiles, id: string, version: string): void => {
+  const content = files.get(APM_MANIFEST_FILENAME);
+  if (content === undefined) {
+    return;
+  }
+  let manifest: unknown;
+  try {
+    manifest = parseYaml(new TextDecoder().decode(content));
+  } catch (error) {
+    throw new ManifestValidationError(
+      `${APM_MANIFEST_FILENAME} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+      'BUNDLE.MANIFEST_INVALID'
+    );
+  }
+  if (!isRecord(manifest) || manifest.name !== id || manifest.version !== version) {
+    throw new ManifestValidationError(
+      `${APM_MANIFEST_FILENAME} must declare name "${id}" and version "${version}"`,
+      'BUNDLE.MANIFEST_INVALID'
+    );
+  }
+  const includes = manifest.includes;
+  if (includes === undefined || includes === null || includes === 'auto') {
+    return;
+  }
+  if (!Array.isArray(includes) || !includes.every((path: unknown): path is string => typeof path === 'string')) {
+    throw new ManifestValidationError(
+      `${APM_MANIFEST_FILENAME} includes must be "auto" or a list of strings when present`,
+      'BUNDLE.MANIFEST_INVALID'
+    );
+  }
+  for (const [index, selection] of includes.entries()) {
+    const field = `${APM_MANIFEST_FILENAME} includes[${index}]`;
+    const relative = selection.replaceAll('\\', '/');
+    if (relative.startsWith('/') || /^[a-z]:\//i.test(relative)) {
+      throw invalidManifest(`${field} must be a bundle-relative path`);
+    }
+    const selectedPath = relative.split('/').filter((part) => part !== '' && part !== '.').join('/');
+    if (selectedPath !== '') {
+      readCanonicalBundlePath(selectedPath, field);
+    }
+    const directoryPrefix = selectedPath === '' ? '' : `${selectedPath}/`;
+    if (!files.has(selectedPath) && ![...files.keys()].some((filePath) => filePath.startsWith(directoryPrefix))) {
+      throw invalidManifest(`${field} references missing archive file or directory "${selection}"`);
+    }
+  }
+};
 
 /**
  * Apply semantic rules that JSON Schema alone cannot express: full archive
@@ -257,6 +348,9 @@ const validateReleaseManifest = (
   files: ExtractedFiles
 ): void => {
   const inventory = validateFileInventory(manifest.files, files);
+  if (files.has(APM_MANIFEST_FILENAME)) {
+    assertMetadataInventoryPath(APM_MANIFEST_FILENAME, APM_MANIFEST_FILENAME, inventory);
+  }
   validateReleaseItems(manifest.items, inventory);
   validateLegacyProjection(manifest.prompts, inventory);
   validateReleaseProvenance(manifest.provenance, inventory);

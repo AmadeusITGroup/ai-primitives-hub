@@ -108,6 +108,8 @@ npm install -g @ai-primitives-hub/cli
 ai-primitives-hub hub add --location <owner/hub-repo>     # import the hub and make it active
 ai-primitives-hub target add my-claude --type claude-code
 ai-primitives-hub profile activate <profile-id> --target my-claude
+# or install a profile's bundles without activating it
+ai-primitives-hub profile install <profile-id> --target my-claude
 # or install a single bundle from one of the hub's sources
 ai-primitives-hub install <bundle-id> --source <source-id> --target my-claude
 ```

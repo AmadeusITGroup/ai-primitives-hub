@@ -137,6 +137,8 @@ export interface ProfileActivationResult {
   profileId: string;
   resolvedBundles: { bundle: HubProfileBundle; url: string }[];
   error?: string;
+  /** Ids of `required: true` bundles that were not installed; set only when activation failed because of them. */
+  missingRequiredBundles?: string[];
 }
 
 export interface ProfileDeactivationResult {

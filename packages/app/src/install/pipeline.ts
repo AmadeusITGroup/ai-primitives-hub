@@ -61,12 +61,13 @@ export interface InstallPipelineOptions {
   extractor: BundleExtractor;
   /** Factory that returns the appropriate writer for a given target. */
   writerFactory: (target: Target) => TargetWriter;
+  /** Skip legacy identity matching; Artifactory always validates the resolved index identity. */
   skipManifestIdValidation?: boolean;
   /**
    * `owner/repo` of the GitHub source the bundle comes from. When set, the
    * manifest id check is source-aware: a hub bundle id of the form
    * `{owner}-{repo}-{manifestId}[-version]` matches the manifest's bare id.
-   * Absent → the id check is unchanged.
+   * A namespace carried by the resolved bundle takes precedence.
    */
   sourceRepoSlug?: string;
   onEvent?: (event: PipelineEvent) => void;
@@ -170,10 +171,11 @@ export class InstallPipeline {
     emit({ kind: 'validate.start' });
     let manifest;
     try {
+      const isArtifactory = installable.ref.sourceType === 'artifactory';
       manifest = validateManifest(files, {
-        expectedId: this.opts.skipManifestIdValidation ? undefined : spec.bundleId,
-        expectedVersion: spec.bundleVersion,
-        sourceRepoSlug: this.opts.sourceRepoSlug
+        expectedId: isArtifactory ? installable.ref.bundleId : (this.opts.skipManifestIdValidation ? undefined : spec.bundleId),
+        expectedVersion: isArtifactory ? installable.ref.bundleVersion : spec.bundleVersion,
+        sourceRepoSlug: installable.sourceRepoSlug ?? this.opts.sourceRepoSlug
       });
     } catch (validateError) {
       const e = validateError as { code?: string; message: string };

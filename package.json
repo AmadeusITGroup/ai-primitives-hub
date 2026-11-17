@@ -16,6 +16,8 @@
     "compile": "pnpm -C apps/vscode-extension run compile",
     "compile-tests": "pnpm -C apps/vscode-extension run compile-tests",
     "test:unit": "pnpm -C apps/vscode-extension run test:unit",
+    "build:live:replica-consumers": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile",
+    "test:live:replica-consumers": "pnpm -C packages -r build && pnpm -C apps/vscode-extension run compile && node apps/vscode-extension/test/run-live-hub-consumer-tests.js",
     "package:vsix": "pnpm -C apps/vscode-extension run package:vsix"
   },
   "devDependencies": {

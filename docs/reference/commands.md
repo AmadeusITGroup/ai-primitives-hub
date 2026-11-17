@@ -27,6 +27,31 @@ for options, failure policies, and exit codes.
 | `promptregistry.securityShowLastReport` | Show Last Security Report |
 | `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
 
+## Bundle Build (CLI)
+
+```bash
+ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0
+ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0 --layout apm
+```
+
+`--layout aph` is the unchanged default. The experimental `--layout apm` keeps
+source collection files and original Hub paths unchanged, adds installable
+primitive mirrors under `.apm/`, and emits root `deployment-manifest.yml` and `apm.yml`. Both manifests
+are also written beside the ZIP; structured output adds `apmManifestAsset`.
+Hub primitive and provenance references remain unchanged; governed inventories
+include the mirrors. Matching root APM metadata is validated but never installed
+as a target primitive. Installation honors manifest-selected copies and avoids
+installing unselected mirrors twice.
+
+The initial APM layout packages prompts, instructions, agents/chatmodes and skills,
+including skill resources, under ordinary, `.github/` or `.apm/` directories.
+Nested/noncanonical native discovery and dependency/MCP translation limitations
+produce warnings without dropping APH content. Unsupported kinds, empty
+collections and mirror collisions fail explicitly. See
+[APM layout validation](../author-guide/validation.md#experimental-aphapm-bundle-layout)
+for metadata mapping and qualification limits. This CLI option does not change
+the legacy npm collection builder or Artifactory replication.
+
 ## Bundle Install (CLI)
 
 `ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`
@@ -35,6 +60,8 @@ for options, failure policies, and exit codes.
 - `--source <value>` is looked up first as a source id (or name) in the active hub, then as a hub id (the hub's profiles name the source that carries the bundle), and only then used as a GitHub `owner/repo`. When none matches, the command fails with `BUNDLE.NOT_FOUND` and names the three lookups it tried. When none matches and the active hub (or the hub named by `--source`) exists but its configuration cannot be loaded, the command fails with `HUB.LOAD_FAILED`, naming the hub and the load error.
 - GitHub bundle ids may use the hub form `{owner}-{repo}-{manifestId}`, with or without a `-{version}` / `-v{version}` suffix. The repo prefix is compared case-insensitively; in this form the bundle name and any pinned version must match the manifest exactly. For compatibility, the earlier rule still applies too: an id equal to the manifest `id`, or ending in `-{manifestId}-{version}` / `-{manifestId}-v{version}` after any prefix, is accepted, so this check does not by itself confirm which repository a bundle came from. `profile activate` and `install --lockfile` (for GitHub lockfile sources) apply the same rule.
 - An install is all-or-nothing by default: when the target cannot hold part of the bundle, it fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing. `--skip-unsupported` installs the items the target supports and lists each skipped item with its reason, in text output under `Skipped:` and in `-o json` as `data.skipped[]` (`path`, `code`, `reason`). The result has status `warning` and exits 0. When the target supports none of the bundle, the install still fails with `BUNDLE.UNSUPPORTED_CONTENT`. Skipped items are not recorded in the lockfile, so `uninstall` removes only what was installed. The flag works with `<bundle-id>`, `--from` and `--source <hub-id> --interactive`. It is refused with `--lockfile` (`USAGE.INVALID_FLAG`), because replay installs every recorded bundle in full, and has no effect with `--dry-run`. `profile activate` and `update` stay all-or-nothing: to pick up a new version of a partially installed bundle, run `install` again with `--skip-unsupported`.
+- `profile install <profile-id>` installs every bundle of the profile as an ordinary install, recorded in each target's lockfile, without activating the profile. Active profiles stay active, no activation state is saved, and `profile deactivate` does not remove these bundles (use `uninstall`). Every bundle is written to every target; one that was already installed at the same version from the same source is reported under `Already installed:` (`data.alreadyInstalled[]`), and a version change is reported under `Installed:`, with files the new version no longer ships removed, as `install` does. When a bundle marked `required: true` is installed on none of the targets, the command fails with `HUB.REQUIRED_BUNDLE_MISSING` and removes the bundles it added; bundles that were installed before, in any of the target's lockfiles, are left in place. A file it cannot remove is named in the error and stays in the lockfile, so `uninstall` can remove it later. An entry it added to a lockfile for a bundle already recorded at the same version in the target's other lockfile (`commit` or `local-only`) is removed again; after a version change it stays, because it describes the updated files that remain. User targets share one lockfile with one entry per bundle, so when several user targets place a bundle's files differently, the entry records the last target's placement. An unexpected error, such as a lockfile that cannot be written, is undone the same way and reported as `FS.PROFILE_INSTALL_FAILED`, together with anything that could not be undone. The Hub does not record which command installed a bundle, so if an active profile also lists one of these bundles, deactivating that profile removes it. Other failures are listed under `Failures:` and the command exits 1. `--hub`, `--target` and `--dry-run` work as for `profile activate`.
+- `profile activate` fails with `HUB.REQUIRED_BUNDLE_MISSING` when a bundle the profile marks `required: true` is installed on none of the targets. The error names each such bundle with its install error, the activation is rolled back, and no profile is left active (the previously active profile stays deactivated). A failed bundle marked `required: false`, or a required bundle that failed on only some targets, is listed under `Failures:` and the command exits 1 with the profile active.
 
 ### Where files land
 

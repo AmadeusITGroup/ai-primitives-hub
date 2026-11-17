@@ -75,6 +75,102 @@ no license file is committed):
 Fixes you have not committed are not seen. Commit `plugin.json` and rebuild, or run
 `collection validate` to check the working tree first.
 
+## Experimental APH/APM Bundle Layout
+
+The CLI can build a dual-layout, dual-manifest ZIP without editing the collection:
+
+```bash
+ai-primitives-hub bundle build \
+  --collection-file collections/example.collection.yml \
+  --version 1.0.0 --layout apm
+```
+
+The default remains `--layout aph`. Governed builds still use the committed
+revision; the existing missing-license fallback still uses the working tree and
+reports its warning. `bundle manifest` alone retains its existing layout; use the
+manifests emitted by `bundle build --layout apm` with the corresponding ZIP.
+
+The APM layout retains the original Hub paths, adds native primitive mirrors,
+and contains two root manifests:
+
+```text
+deployment-manifest.yml
+apm.yml
+agents/
+instructions/
+prompts/
+skills/
+LICENSE
+README.md
+metadata/source/
+.apm/
+  agents/
+  instructions/
+  prompts/
+  skills/
+```
+
+Only files the original release plan carries are included. License, README and
+source evidence above apply to governed builds; legacy builds do not invent that
+evidence. Original payload bytes, paths, executable modes and skill directory
+resources are preserved. Only installable content is mirrored; metadata and
+ignored evidence remain at their original paths. Existing `.github/` and `.apm/`
+prefixes are normalized for mirrors, not nested; collisions stop the build.
+Hub item/projection paths and README/provenance references remain unchanged,
+while the complete SHA-256 inventory includes the mirrors. A legacy
+README supplied only as an external release asset retains that external reference.
+
+APM `name` uses the collection ID, not its display name. Version, description,
+author, license, repository and tags project into APM fields. The supported
+`x-aph` extension retains the display name and all APH metadata, including item
+details, environments, provenance and inventory. Its inventory excludes
+`apm.yml` itself to avoid a circular content hash; the authoritative deployment
+manifest inventories that file as metadata with its actual size and digest.
+Dependency/MCP declarations remain in APH metadata and are not fabricated as
+APM dependencies; the build warns when native translation is unavailable.
+Mirrored primitive payloads increase archive size. Hub installation honors the
+manifest-selected representation (including skill resources), deduplicates
+unselected mirrors, and keeps APM-only content.
+
+APH requires a companion root `apm.yml` to be valid YAML with the same package
+name/collection ID and version. Its optional `includes` field accepts `auto`,
+a list of strings, or an omitted/null value, matching APM 0.35.0; other values
+are rejected. Explicit selections must reference an archive file or a directory
+containing archive files; directories match whole path segments, not similarly
+named siblings. Like APM, relative `./` prefixes, directory trailing slashes
+and portable backslash separators are supported; absolute paths and parent
+traversal are rejected. Governed archives must inventory it as `metadata`;
+unlisted, tampered or installable-role companions are rejected. It is not
+passed to target writers, while unexpected nested files remain subject to normal
+unsupported-content checks.
+
+Qualified native compatibility starts with flat `prompts/*.prompt.md`,
+`instructions/*.instructions.md`, `agents/*.agent.md` and
+`skills/<name>/SKILL.md`, including skill resources and their `.github/` or
+`.apm/` source forms. APH-supported nested paths are kept, not flattened or
+dropped. Native APM 0.35.0 silently omits nested instructions and prompts;
+the builder warns about those paths, noncanonical locations, deeper skill roots
+and untranslated dependencies/MCP, while preserving APH manifest-driven placement.
+Warnings produce status `warning` and exit 0 so authors can choose their native
+APM strategy without breaking their existing APH distribution. Legacy chatmodes
+are also retained, with a warning when their path or filename does not match
+native APM agent discovery. Other primitive kinds, empty collections and path
+collisions still fail explicitly with
+`BUNDLE.APM_UNSUPPORTED_CONTENT` in this initial opt-in mode.
+Cross-directory links affected by prefix normalization need separate
+qualification; this mode does not rewrite primitive content.
+
+The investigation compares APH installation outputs for VS Code Copilot,
+Copilot CLI, Kiro and Kiro CLI with the default archive, including existing
+rejection behavior. APM 0.35.0 local dependency installation on the Copilot
+target retains all four primitive types and binary skill resources for the
+qualified flat fixtures; nested instruction/prompt omissions are recorded as
+limitations rather than claimed as native compatibility. That is not qualification of native
+Artifactory registry resolution, every target, extension UI workflows or
+update/replay/uninstall. APM's default Copilot compilation can intentionally
+omit `AGENTS.md` when installed instructions already cover it; a forced
+instruction compilation is used separately to verify compiled content.
+
 ## Kind and Path
 
 Most targets install a file by the folder it sits in, not by its declared `kind`:

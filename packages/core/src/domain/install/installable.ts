@@ -76,6 +76,8 @@ export interface Installable {
   inlineBytes?: Uint8Array;
   /** Optional canonical archive integrity (`sha256:<64 lowercase hexadecimal characters>`). */
   integrity?: string;
+  /** Source repository namespace from published metadata, used to validate qualified bundle IDs. */
+  sourceRepoSlug?: string;
   /** Optional pre-fetched manifest. */
   manifest?: Record<string, unknown>;
 }

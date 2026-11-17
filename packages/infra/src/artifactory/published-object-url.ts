@@ -27,6 +27,27 @@ export function normalizeSourceRoot(raw: string): URL {
 }
 
 /**
+ * Resolve metadata only for an explicit Artifactory repository root.
+ * @param raw
+ */
+export function resolveRepositoryMetadataUrl(raw: string): { key: string; url: URL } {
+  const root = normalizeSourceRoot(raw);
+  const segments = root.pathname.split('/');
+  const key = segments.at(-2);
+  if (raw.includes('%') || raw.split('/').some((segment) => segment === '.' || segment === '..')
+    || segments.at(-3) !== 'artifactory' || !key || !/^[A-Za-z0-9._-]+$/.test(key)
+    || segments.slice(1, -1).includes('')) {
+    throw new RegistryError({
+      code: 'ARTIFACTORY.CONFIG_INVALID',
+      message: 'APM transition target must be an explicit Artifactory repository root ending in /artifactory/<repository-key>, without an artifact subpath.'
+    });
+  }
+  const url = new URL(root.href);
+  url.pathname = `${segments.slice(0, -2).join('/')}/api/repositories/${key}`;
+  return { key, url };
+}
+
+/**
  *
  * @param root
  * @param candidate

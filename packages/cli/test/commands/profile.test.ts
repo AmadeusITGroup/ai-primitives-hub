@@ -10,6 +10,9 @@
  * `doctor diagnostics`' steps 1-9 and 20-21.
  */
 import {
+  createHash,
+} from 'node:crypto';
+import {
   chmod,
   mkdir,
   mkdtemp,
@@ -22,9 +25,12 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  getLockfilePathForMode,
+  readLockfile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import type {
+  ArtifactorySourceIndex,
   HttpClient,
   HttpRequest,
   HttpResponse,
@@ -34,6 +40,10 @@ import {
   buildZip,
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
+import {
+  dump,
+  load,
+} from 'js-yaml';
 import {
   afterEach,
   beforeEach,
@@ -53,6 +63,7 @@ import {
   ProfileActivateCommand,
   ProfileCurrentCommand,
   ProfileDeactivateCommand,
+  ProfileInstallCommand,
   ProfileListCommand,
   ProfileShowCommand,
 } from '../../src/commands/profile';
@@ -79,7 +90,8 @@ const COMMAND_CLASSES = [
   ProfileShowCommand,
   ProfileCurrentCommand,
   ProfileActivateCommand,
-  ProfileDeactivateCommand
+  ProfileDeactivateCommand,
+  ProfileInstallCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -356,6 +368,26 @@ profiles:
         version: latest
         source: sample-collections
         required: true
+  - id: install-only
+    name: Install only
+    description: Pinned to the released version
+    bundles:
+      - id: acme-org-sample-skills-sample-skills
+        version: 1.8.1
+        source: sample-collections
+        required: true
+  - id: partial-required
+    name: Partially installable
+    description: One required bundle installs, the other does not
+    bundles:
+      - id: acme-org-sample-skills-sample-skills
+        version: latest
+        source: sample-collections
+        required: true
+      - id: acme-org-sample-skills-other-bundle
+        version: latest
+        source: sample-collections
+        required: true
 `);
     expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
     expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'sample-hub', '-o', 'json'])).exitCode).toBe(0);
@@ -374,7 +406,7 @@ profiles:
       .resolves.toContain('Hello Prompt');
   });
 
-  it('switching profiles deactivates the previous one and records only installed bundles', async () => {
+  it('switching to a profile whose required bundle fails to install reports it and leaves no profile active', async () => {
     const first = await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
     expect(first.exitCode, first.stdout).toBe(0);
     const firstState = (JSON.parse(first.stdout) as JsonEnvelope<{ state: ProfileActivationState }>).data.state;
@@ -383,16 +415,282 @@ profiles:
 
     const second = await run(['profile', 'activate', 'wrong-bundle', '--target', 'copilot', '-o', 'json']);
     expect(second.exitCode).toBe(1);
-    const secondState = (JSON.parse(second.stdout) as JsonEnvelope<{ state: ProfileActivationState }>).data.state;
-    expect(secondState.syncedBundles).toEqual([]);
+    expect(second.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+    expect(second.stdout).toContain('acme-org-sample-skills-other-bundle');
 
-    // The previous profile's files are gone and the new one is current.
+    // The previous profile was deactivated, and the failed one is not left active.
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
     const current = await run(['profile', 'current', '-o', 'json']);
-    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
-      .toEqual({ hubId: 'sample-hub', profileId: 'wrong-bundle' });
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    const failed = await run(['profile', 'show', 'wrong-bundle', '-o', 'json']);
+    expect((JSON.parse(failed.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
     const shown = await run(['profile', 'show', 'organization-sample-developer', '-o', 'json']);
     expect((JSON.parse(shown.stdout) as JsonEnvelope<{ profile: { active?: boolean } }>).data.profile.active).toBe(false);
+  });
+
+  it('removes the bundles a failed activation installed when another required bundle is missing', async () => {
+    const result = await run(['profile', 'activate', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+    expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
+    // The bundle that did install is rolled back: its files and lockfile entry are gone.
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
+    expect(Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {})).not.toContain('acme-org-sample-skills-sample-skills');
+    const current = await run(['profile', 'current', '-o', 'json']);
+    expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+  });
+
+  describe('profile install', () => {
+    const lockedBundleIds = async (): Promise<string[]> => {
+      const lock = await readFile(resolveUserConfigPaths(env()).userLockfile, 'utf8').catch(() => '{"bundles":{}}');
+      return Object.keys((JSON.parse(lock) as { bundles?: object }).bundles ?? {});
+    };
+
+    it('installs the profile bundles as ordinary installs without activating the profile', async () => {
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: { bundleId: string; version: string }[] }>).data;
+      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active).toBeNull();
+    });
+
+    it('keeps the active profile active and reports bundles already installed at the pinned version', async () => {
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
+      expect(data.installed).toEqual([]);
+      expect(data.alreadyInstalled).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      const current = await run(['profile', 'current', '-o', 'json']);
+      expect((JSON.parse(current.stdout) as JsonEnvelope<{ active: unknown }>).data.active)
+        .toEqual({ hubId: 'sample-hub', profileId: 'organization-sample-developer' });
+    });
+
+    it('removes what it installed when a required bundle is missing', async () => {
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(result.stdout).toContain('acme-org-sample-skills-other-bundle');
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+      expect(await lockedBundleIds()).toEqual([]);
+    });
+
+    it('installs onto every user target even though they share one lockfile, and removes from all on failure', async () => {
+      const secondDir = path.join(workspace, 'second-target');
+      await mkdir(secondDir, { recursive: true });
+      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
+
+      const installed = await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json']);
+      expect(installed.exitCode, installed.stdout).toBe(0);
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      }
+
+      await rm(resolveUserConfigPaths(env()).userLockfile);
+      await rm(path.join(targetDir, 'prompts'), { recursive: true });
+      await rm(path.join(secondDir, 'prompts'), { recursive: true });
+      const failed = await run(['profile', 'install', 'partial-required', '--target', 'copilot,second', '-o', 'json']);
+      expect(failed.exitCode).toBe(1);
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+      }
+      expect(await lockedBundleIds()).toEqual([]);
+    });
+
+    it('reports a version change as installed, not as already installed', async () => {
+      expect((await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+      const lockPath = resolveUserConfigPaths(env()).userLockfile;
+      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { version: string }> };
+      lock.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(lockPath, JSON.stringify(lock));
+
+      const result = await run(['profile', 'install', 'organization-sample-developer', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = (JSON.parse(result.stdout) as JsonEnvelope<{ installed: unknown[]; alreadyInstalled: unknown[] }>).data;
+      expect(data.installed).toEqual([{ bundleId: 'acme-org-sample-skills-sample-skills', version: '1.8.1' }]);
+      expect(data.alreadyInstalled).toEqual([]);
+    });
+
+    it('keeps a bundle tracked and reports its path when the rollback cannot remove a file', async () => {
+      class FailingRemoveFs extends NodeFileSystem {
+        public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
+          if (filePath.endsWith('hello.prompt.md')) {
+            throw new Error('EBUSY: resource busy');
+          }
+          await super.remove(filePath, opts);
+        }
+      }
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json'], new FailingRemoveFs());
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(result.stdout).toContain('hello.prompt.md');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
+
+    it('reports both errors when the install fails and undoing it fails too', async () => {
+      class FailingLockAndRemoveFs extends NodeFileSystem {
+        public override async writeFile(filePath: string, contents: string): Promise<void> {
+          if (filePath === resolveUserConfigPaths(env()).userLockfile) {
+            throw new Error('EACCES: lockfile not writable');
+          }
+          await super.writeFile(filePath, contents);
+        }
+
+        public override async remove(filePath: string, opts?: { recursive?: boolean }): Promise<void> {
+          if (filePath.endsWith('hello.prompt.md')) {
+            throw new Error('EBUSY: resource busy');
+          }
+          await super.remove(filePath, opts);
+        }
+      }
+
+      const result = await run(['profile', 'install', 'install-only', '--target', 'copilot', '-o', 'json'], new FailingLockAndRemoveFs());
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.stdout).toContain('EACCES: lockfile not writable');
+      expect(result.stdout).toContain('hello.prompt.md');
+    });
+
+    it('removes files a target\'s previous version shipped, on every target sharing the lockfile', async () => {
+      const secondDir = path.join(workspace, 'second-target');
+      await mkdir(secondDir, { recursive: true });
+      expect((await run(['target', 'add', 'second', '--type', 'copilot-cli', '--path', secondDir, '-o', 'json'])).exitCode).toBe(0);
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+      // Pretend the installed version also shipped a prompt the current one no longer has.
+      const lockPath = resolveUserConfigPaths(env()).userLockfile;
+      const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { bundles: Record<string, { files: { path: string; checksum: string }[] }> };
+      lock.bundles['acme-org-sample-skills-sample-skills'].files.push({ path: 'prompts/old.prompt.md', checksum: 'x' });
+      await writeFile(lockPath, JSON.stringify(lock));
+      for (const dir of [targetDir, secondDir]) {
+        await writeFile(path.join(dir, 'prompts', 'old.prompt.md'), 'old');
+      }
+
+      expect((await run(['profile', 'install', 'install-only', '--target', 'copilot,second', '-o', 'json'])).exitCode).toBe(0);
+
+      for (const dir of [targetDir, secondDir]) {
+        await expect(readFile(path.join(dir, 'prompts', 'old.prompt.md'), 'utf8')).rejects.toThrow();
+        await expect(readFile(path.join(dir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      }
+    });
+
+    it('drops the entry it added to the local-only lockfile, and keeps the commit one, when a required bundle is missing', async () => {
+      const repoDir = path.join(workspace, 'repo');
+      await mkdir(repoDir, { recursive: true });
+      for (const name of ['repo-commit', 'repo-local']) {
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
+      }
+      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const bundleIds = async (mode: 'commit' | 'local-only'): Promise<string[]> => {
+        const raw = await readFile(getLockfilePathForMode(repoDir, mode), 'utf8').catch(() => '{"bundles":{}}');
+        return Object.keys((JSON.parse(raw) as { bundles?: object }).bundles ?? {});
+      };
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo-local', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      expect(await bundleIds('commit')).toEqual(['acme-org-sample-skills-sample-skills']);
+      expect(await bundleIds('local-only')).toEqual([]);
+      await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
+    it('keeps the local-only entry for files it updated when a required bundle is missing', async () => {
+      const repoDir = path.join(workspace, 'repo');
+      await mkdir(repoDir, { recursive: true });
+      for (const name of ['repo-commit', 'repo-local']) {
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', repoDir, '-o', 'json'])).exitCode).toBe(0);
+      }
+      // `target add` has no commit-mode flag: mark the second target local-only in the project config.
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+      // The commit lockfile records an older version than the one the install writes.
+      const commitLock = getLockfilePathForMode(repoDir, 'commit');
+      const recorded = JSON.parse(await readFile(commitLock, 'utf8')) as { bundles: Record<string, { version: string }> };
+      recorded.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(commitLock, JSON.stringify(recorded));
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo-local', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      // The updated files stay, so the entry describing them stays too.
+      const versions = async (mode: 'commit' | 'local-only'): Promise<Record<string, string>> => {
+        const lock = JSON.parse(await readFile(getLockfilePathForMode(repoDir, mode), 'utf8')) as { bundles: Record<string, { version: string }> };
+        return Object.fromEntries(Object.entries(lock.bundles).map(([id, entry]) => [id, entry.version]));
+      };
+      expect(await versions('commit')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.0.0' });
+      expect(await versions('local-only')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+      await expect(readFile(path.join(repoDir, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
+    it('keeps an updated entry in one repository while removing the bundle it added to another', async () => {
+      const repo1 = path.join(workspace, 'repo1');
+      const repo2 = path.join(workspace, 'repo2');
+      for (const [name, root] of [['repo1-commit', repo1], ['repo1-local', repo1], ['repo2', repo2]] as const) {
+        await mkdir(root, { recursive: true });
+        expect((await run(['target', 'add', name, '--type', 'vscode', '--scope', 'repository', '--workspace-root', root, '-o', 'json'])).exitCode).toBe(0);
+      }
+      const configFile = path.join(workspace, 'ai-primitives-hub.yml');
+      const config = load(await readFile(configFile, 'utf8')) as { targets: { name: string; commitMode?: string }[] };
+      config.targets.find((t) => t.name === 'repo1-local')!.commitMode = 'local-only';
+      await writeFile(configFile, dump(config));
+      const seeded = await run(['profile', 'install', 'organization-sample-developer', '--target', 'repo1-commit', '-o', 'json']);
+      expect(seeded.exitCode, seeded.stdout).toBe(0);
+      const repo1Commit = getLockfilePathForMode(repo1, 'commit');
+      const recorded = JSON.parse(await readFile(repo1Commit, 'utf8')) as { bundles: Record<string, { version: string }> };
+      recorded.bundles['acme-org-sample-skills-sample-skills'].version = '1.0.0';
+      await writeFile(repo1Commit, JSON.stringify(recorded));
+      const versions = async (root: string, mode: 'commit' | 'local-only'): Promise<Record<string, string>> => {
+        const raw = await readFile(getLockfilePathForMode(root, mode), 'utf8').catch(() => '{"bundles":{}}');
+        const lock = JSON.parse(raw) as { bundles?: Record<string, { version: string }> };
+        return Object.fromEntries(Object.entries(lock.bundles ?? {}).map(([id, entry]) => [id, entry.version]));
+      };
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'repo1-local,repo2', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      // repo1: the update stays, and so does the entry describing it.
+      expect(await versions(repo1, 'commit')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.0.0' });
+      expect(await versions(repo1, 'local-only')).toEqual({ 'acme-org-sample-skills-sample-skills': '1.8.1' });
+      await expect(readFile(path.join(repo1, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      // repo2: the bundle was new there, so it is removed.
+      expect(await versions(repo2, 'commit')).toEqual({});
+      await expect(readFile(path.join(repo2, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
+    });
+
+    it('leaves bundles installed before the batch in place when a required bundle is missing', async () => {
+      expect((await run(['profile', 'activate', 'organization-sample-developer', '--target', 'copilot', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await run(['profile', 'install', 'partial-required', '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('HUB.REQUIRED_BUNDLE_MISSING');
+      await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      expect(await lockedBundleIds()).toEqual(['acme-org-sample-skills-sample-skills']);
+    });
   });
 
   it('replays the activated profile\'s lockfile into a clean target', async () => {
@@ -477,5 +775,302 @@ profiles:
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('manifest id \\"sample-skills\\" does not match expected');
+  });
+});
+
+describe('profile activate with an authenticated Artifactory hub source', () => {
+  let workspace: string;
+  let targetDir: string;
+
+  const bundleId = 'example-repo-artifactory-bundle';
+  const manifestId = 'artifactory-bundle';
+  const sourceRoot = 'https://artifactory.example/repo';
+  const archivePath = 'bundles/artifactory-bundle/1.0.0/bundle.zip';
+  const bundleFiles = createLegacyReleaseArchive({ id: manifestId, version: '1.0.0' });
+  const duplicatePrompt = bundleFiles.get('prompts/hello.prompt.md');
+  if (duplicatePrompt === undefined) {
+    throw new Error('Legacy release fixture is missing its expected prompt');
+  }
+  bundleFiles.set('apm.yml', new TextEncoder().encode(`name: ${manifestId}\nversion: 1.0.0\n`));
+  bundleFiles.set('.apm/prompts/hello.prompt.md', duplicatePrompt);
+  const bundleZip = buildZip([...bundleFiles]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const index: ArtifactorySourceIndex = {
+    formatVersion: 1,
+    source: { id: 'replicated', name: 'Replicated', updatedAt: '2026-01-01T00:00:00Z' },
+    bundles: [{
+      id: bundleId,
+      version: '1.0.0',
+      name: 'Artifactory Bundle',
+      description: 'Bundle served from an authenticated Artifactory source',
+      author: 'Test',
+      environments: ['vscode'],
+      tags: [],
+      lastUpdated: '2026-01-01T00:00:00Z',
+      dependencies: [],
+      canonicalSource: 'https://github.com/example/repo',
+      license: 'Apache-2.0',
+      manifest: {
+        path: 'bundles/artifactory-bundle/1.0.0/deployment-manifest.yml',
+        size: 1,
+        sha256: 'a'.repeat(64),
+        mediaType: 'application/yaml'
+      },
+      archive: {
+        path: archivePath,
+        size: bundleZip.byteLength,
+        sha256: createHash('sha256').update(bundleZip).digest('hex'),
+        mediaType: 'application/zip'
+      }
+    }]
+  };
+  let servedZip = bundleZip;
+  let servedIndex = index;
+
+  const requests: HttpRequest[] = [];
+  const http: HttpClient = {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
+      requests.push(request);
+      if (request.headers?.Authorization !== 'Bearer test-artifactory-token') {
+        return Promise.resolve({ statusCode: 401, body: new Uint8Array(), finalUrl: request.url, headers: {} });
+      }
+      if (request.url === `${sourceRoot}/index-v1.json`) {
+        return Promise.resolve({
+          statusCode: 200,
+          body: new TextEncoder().encode(JSON.stringify(servedIndex)),
+          finalUrl: request.url,
+          headers: {}
+        });
+      }
+      if (request.url === `${sourceRoot}/${archivePath}`) {
+        return Promise.resolve({ statusCode: 200, body: servedZip, finalUrl: request.url, headers: {} });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${request.url}`));
+    }
+  };
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env: {
+        HOME: workspace,
+        USERPROFILE: workspace,
+        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+        ARTIFACTORY_READER_TOKEN: 'test-artifactory-token'
+      }
+    });
+    const exitCode = await runCli(argv, {
+      ctx,
+      http,
+      tokens: { getToken: () => Promise.resolve(undefined) },
+      commandClasses: [...COMMAND_CLASSES, InstallCommand],
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-artifactory-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    requests.length = 0;
+    servedZip = bundleZip;
+    servedIndex = structuredClone(index);
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Artifactory Hub
+  description: Hub with an authenticated Artifactory source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: replicated
+    name: Replicated
+    type: artifactory
+    url: ${sourceRoot}
+    enabled: true
+    priority: 0
+    config:
+      indexFile: index-v1.json
+      authMode: bearer
+      credentialRef: ARTIFACTORY_READER_TOKEN
+profiles:
+  - id: artifactory-profile
+    name: Artifactory Profile
+    description: Installs a bundle from the authenticated source
+    bundles:
+      - id: ${bundleId}
+        version: 1.0.0
+        source: replicated
+        required: true
+`);
+
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('authenticates and installs repository-qualified Artifactory bundle IDs', async () => {
+    const result = await run(['profile', 'activate', 'artifactory-profile', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.headers?.Authorization === 'Bearer test-artifactory-token')).toBe(true);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
+      .resolves.toContain('Hello Prompt');
+
+    const lockfilePath = resolveUserConfigPaths({
+      HOME: workspace,
+      XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+      XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
+    }).userLockfile;
+    const persisted = await readLockfile(lockfilePath, new NodeFileSystem());
+    expect(persisted?.sources.replicated).toEqual({
+      type: 'artifactory',
+      url: sourceRoot,
+      indexFile: 'index-v1.json',
+      authMode: 'bearer',
+      credentialRef: 'ARTIFACTORY_READER_TOKEN'
+    });
+    const replayDir = path.join(workspace, 'replay-target');
+    await mkdir(replayDir);
+    expect((await run(['target', 'add', 'replay', '--type', 'copilot-cli', '--path', replayDir, '-o', 'json'])).exitCode).toBe(0);
+    requests.length = 0;
+    const replay = await run(['install', '--lockfile', lockfilePath, '--target', 'replay', '-o', 'json']);
+
+    expect(replay.exitCode, replay.stdout).toBe(0);
+    expect(requests.map((request) => request.url)).toEqual([`${sourceRoot}/index-v1.json`, `${sourceRoot}/${archivePath}`]);
+    expect(requests.every((request) => request.headers?.Authorization === 'Bearer test-artifactory-token')).toBe(true);
+    await expect(readFile(path.join(replayDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+  });
+
+  it.each(['profile', 'install'])('rejects a valid-checksum archive for another package through %s', async (entryPoint) => {
+    const wrongFiles = createLegacyReleaseArchive({ id: 'unrelated-bundle', version: '1.0.0' });
+    servedZip = buildZip([...wrongFiles].map(([filePath, bytes]) => ({ path: filePath, bytes })));
+    servedIndex.bundles[0].archive = {
+      ...servedIndex.bundles[0].archive,
+      size: servedZip.byteLength,
+      sha256: createHash('sha256').update(servedZip).digest('hex')
+    };
+
+    const result = await run(entryPoint === 'profile'
+      ? ['profile', 'activate', 'artifactory-profile', '--target', 'copilot', '-o', 'json']
+      : ['install', bundleId, '--source', 'replicated', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).not.toBe(0);
+    expect(result.stdout).toContain('does not match expected');
+    await expect(stat(path.join(targetDir, 'prompts', 'hello.prompt.md'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe('profile install with an Artifactory hub source', () => {
+  let workspace: string;
+  let targetDir: string;
+  const root = 'https://artifactory.example/repo/source';
+  const env = (): Record<string, string> => ({
+    HOME: workspace,
+    USERPROFILE: workspace,
+    XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
+    XDG_CACHE_HOME: path.join(workspace, 'xdg-cache'),
+    ARTIFACTORY_TOKEN: 'reader-token'
+  });
+  const archive = buildZip([...createLegacyReleaseArchive({ id: 'bundle', version: '1.0.0' })]
+    .map(([filePath, bytes]) => ({ path: filePath, bytes })));
+  const requests: HttpRequest[] = [];
+  const http: HttpClient = {
+    fetch: (request: HttpRequest): Promise<HttpResponse> => {
+      requests.push(request);
+      if (request.url === `${root}/custom-index.json`) {
+        const body = JSON.stringify({
+          formatVersion: 1, source: { id: 'artifact-source', name: 'Artifact Source', updatedAt: '2026-01-01T00:00:00Z' },
+          bundles: [{
+            id: 'bundle', version: '1.0.0', name: 'Bundle', description: '', author: 'Test', environments: ['vscode'],
+            tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+            manifest: { path: '1.0.0/bundle/deployment-manifest.yml', size: 1, sha256: 'a'.repeat(64) },
+            archive: { path: '1.0.0/bundle.zip', size: archive.length,
+              sha256: createHash('sha256').update(archive).digest('hex'), mediaType: 'application/zip' }
+          }]
+        });
+        return Promise.resolve({ statusCode: 200, body: new TextEncoder().encode(body), finalUrl: request.url, headers: {} });
+      }
+      if (request.url === `${root}/1.0.0/bundle.zip`) {
+        return Promise.resolve({ statusCode: 200, body: archive, finalUrl: request.url, headers: {} });
+      }
+      return Promise.resolve({ statusCode: 404, body: new Uint8Array(), finalUrl: request.url, headers: {} });
+    }
+  };
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env: env() });
+    const exitCode = await runCli(argv, {
+      ctx,
+      http,
+      tokens: { getToken: () => Promise.resolve(undefined) },
+      commandClasses: COMMAND_CLASSES,
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    requests.length = 0;
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-profile-artifactory-test-'));
+    targetDir = path.join(workspace, 'target');
+    await mkdir(targetDir, { recursive: true });
+    const hubConfigFile = path.join(workspace, 'hub-config.yml');
+    await writeFile(hubConfigFile, `version: 1.0.0
+metadata:
+  name: Artifactory Hub
+  description: Hub with an Artifactory source
+  maintainer: test
+  updatedAt: '2026-01-01T00:00:00Z'
+sources:
+  - id: artifact-source
+    name: Artifact Source
+    type: artifactory
+    url: ${root}
+    enabled: true
+    priority: 0
+    config:
+      indexFile: custom-index.json
+      authMode: bearer
+      credentialRef: ARTIFACTORY_TOKEN
+profiles:
+  - id: artifactory-profile
+    name: Artifactory profile
+    description: One Artifactory bundle
+    bundles:
+      - id: bundle
+        version: 1.0.0
+        source: artifact-source
+        required: true
+`);
+    expect((await run(['target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'add', '--type', 'local', '--location', hubConfigFile, '--id', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+    expect((await run(['hub', 'use', 'artifactory-hub', '-o', 'json'])).exitCode).toBe(0);
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it('uses the source\'s index file and bearer credentials', async () => {
+    const result = await run(['profile', 'install', 'artifactory-profile', '--target', 'copilot', '-o', 'json']);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+    const artifactoryRequests = requests.filter((r) => r.url.startsWith(root));
+    expect(artifactoryRequests.map((r) => r.url)).toContain(`${root}/custom-index.json`);
+    expect(artifactoryRequests.every((r) => r.headers?.Authorization === 'Bearer reader-token')).toBe(true);
   });
 });
