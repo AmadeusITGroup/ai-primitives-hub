@@ -713,6 +713,18 @@ describe('install command (local --from mode)', () => {
       expect(result.stdout).toMatch(/source id.*hub id.*owner\/repo/);
     });
 
+    it('reports why an interactive install from a hub fails instead of crashing (#700)', async () => {
+      const result = await runWithHub([
+        'install', '--source', 'no-such-hub', '--interactive', '--target', 'copilot', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.status).toBe('error');
+      expect(envelope.errors[0].code).toMatch(/^HUB\./);
+      expect(envelope.errors[0].message).toContain('no-such-hub');
+    });
+
     it('reports a malformed active hub configuration instead of BUNDLE.NOT_FOUND', async () => {
       const hubsDir = resolveUserConfigPaths({ XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'), HOME: workspace }).hubs;
       await writeFile(path.join(hubsDir, 'sample-hub.yml'), 'sources:\n  - id: [unclosed\n');
