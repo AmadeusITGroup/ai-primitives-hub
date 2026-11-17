@@ -71,6 +71,7 @@ import {
   ProfileDeactivateCommand,
   ProfileInstallCommand,
   ProfileListCommand,
+  ProfilePublishCommand,
   ProfileShowCommand,
 } from '../../src/commands/profile';
 import {
@@ -106,7 +107,8 @@ const COMMAND_CLASSES = [
   ProfileCurrentCommand,
   ProfileActivateCommand,
   ProfileDeactivateCommand,
-  ProfileInstallCommand
+  ProfileInstallCommand,
+  ProfilePublishCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -172,6 +174,34 @@ profiles:
 
   afterEach(async () => {
     await rm(workspace, { recursive: true, force: true });
+  });
+
+  describe('profile publish with an unusable profile file (#704)', () => {
+    const publish = async (file: string, contents: string) => {
+      const profileFile = path.join(workspace, file);
+      await writeFile(profileFile, contents);
+      return run(['profile', 'publish', 'my-profile', '--hub', 'test-hub', '--file', profileFile, '-o', 'json']);
+    };
+
+    it('reports an empty profile file instead of crashing', async () => {
+      const result = await publish('empty.profile.yml', '');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.status).toBe('error');
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+      expect(envelope.errors[0].message).toContain('empty.profile.yml');
+    });
+
+    it('reports malformed YAML instead of crashing', async () => {
+      const result = await publish('bad.profile.yml', 'id: [unclosed\n');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+      expect(envelope.errors[0].message).toContain('bad.profile.yml');
+      expect(envelope.errors[0].message).toContain('unexpected end of the stream');
+    });
   });
 
   it('lists the seeded profile', async () => {
