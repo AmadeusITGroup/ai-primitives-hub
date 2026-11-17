@@ -380,7 +380,36 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
 
   suite('11.3: Cleanup Command for Stale Lockfile Entries', () => {
     /**
-     * E2E Test: Verify cleanup command removes stale lockfile entries
+     * Write the committed install record with one vscode entry per bundle,
+     * each listing one prompt file.
+     * @param bundles - Bundle id -> workspace-relative file the entry lists.
+     */
+    const writeRecord = (bundles: Record<string, string>): void => {
+      fs.writeFileSync(path.join(workspaceRoot, RECORD_FILE_NAME), JSON.stringify({
+        $schema: 'https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/lockfile.schema.json',
+        version: '3.0.0',
+        level: 'repository',
+        generatedAt: new Date().toISOString(),
+        generatedBy: 'ai-primitives-hub-extension@1.0.0',
+        bundles: Object.fromEntries(Object.entries(bundles).map(([bundleId, file]) => [bundleId, {
+          tools: {
+            [HOST_TOOL]: {
+              version: '1.0.0',
+              sourceId: 'test-source',
+              sourceType: 'github',
+              installedAt: new Date().toISOString(),
+              files: [{ path: file, checksum: `sha256:${'0'.repeat(64)}` }]
+            }
+          }
+        }])),
+        sources: {
+          'test-source': { type: 'github', url: 'https://github.com/test/repo' }
+        }
+      }, null, 2));
+    };
+
+    /**
+     * E2E Test: Verify cleanup command removes stale install record entries
      *
      * Requirements covered:
      * - 3.4: Provide command to clean up stale lockfile entries
@@ -388,133 +417,53 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
     test('Requirement 3.4: Cleanup command removes stale entries with missing files', async function () {
       this.timeout(60_000);
 
-      // Stub workspace folders
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([
         { uri: vscode.Uri.file(workspaceRoot), name: 'test-workspace', index: 0 }
       ]);
 
-      // Create a lockfile with a bundle that has missing files
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
       const staleBundleId = 'stale-bundle-missing-files';
       const validBundleId = 'valid-bundle-with-files';
-
-      const mockLockfile = {
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        generatedBy: 'prompt-registry@1.0.0',
-        bundles: {
-          [staleBundleId]: {
-            version: '1.0.0',
-            sourceId: 'test-source',
-            sourceType: 'github',
-            installedAt: new Date().toISOString(),
-            commitMode: 'commit',
-            files: [{ path: '.github/prompts/missing.prompt.md', checksum: 'abc123' }]
-          },
-          [validBundleId]: {
-            version: '1.0.0',
-            sourceId: 'test-source',
-            sourceType: 'github',
-            installedAt: new Date().toISOString(),
-            commitMode: 'commit',
-            files: [{ path: '.github/prompts/existing.prompt.md', checksum: 'def456' }]
-          }
-        },
-        sources: {
-          'test-source': { type: 'github', url: 'https://github.com/test/repo' }
-        }
-      };
-
-      // Create only the valid bundle's files (not the stale one)
+      // Only the valid bundle's file exists, making staleBundleId stale
       const promptsDir = path.join(workspaceRoot, GITHUB_PROMPTS_DIR);
       fs.mkdirSync(promptsDir, { recursive: true });
       fs.writeFileSync(path.join(promptsDir, 'existing.prompt.md'), '# Existing Prompt');
-      // Note: missing.prompt.md is NOT created, making staleBundleId stale
+      writeRecord({
+        [staleBundleId]: `${GITHUB_PROMPTS_DIR}/missing.prompt.md`,
+        [validBundleId]: `${GITHUB_PROMPTS_DIR}/existing.prompt.md`
+      });
 
-      fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
-
-      // Verify initial state - should have 2 bundles, one with missing files
       const bundlesBefore = await testContext.registryManager.listInstalledBundles('repository');
       assert.strictEqual(bundlesBefore.length, 2, 'Should have 2 bundles initially');
+      assert.ok(bundlesBefore.find((b) => b.bundleId === staleBundleId)?.filesMissing, 'Stale bundle should have filesMissing flag set');
+      assert.ok(!bundlesBefore.find((b) => b.bundleId === validBundleId)?.filesMissing, 'Valid bundle should NOT have filesMissing flag set');
 
-      const staleBundle = bundlesBefore.find((b) => b.bundleId === staleBundleId);
-      assert.ok(staleBundle, 'Should find stale bundle');
-      assert.ok(staleBundle.filesMissing, 'Stale bundle should have filesMissing flag set');
-
-      const validBundle = bundlesBefore.find((b) => b.bundleId === validBundleId);
-      assert.ok(validBundle, 'Should find valid bundle');
-      assert.ok(!validBundle.filesMissing, 'Valid bundle should NOT have filesMissing flag set');
-
-      // Stub the confirmation dialog to auto-confirm
       const showWarningMessageStub = sandbox.stub(vscode.window, 'showWarningMessage');
       showWarningMessageStub.resolves('Remove' as any);
+      sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
 
-      // Stub the info message
-      const showInfoMessageStub = sandbox.stub(vscode.window, 'showInformationMessage');
-      showInfoMessageStub.resolves(undefined);
+      await new BundleCommands(testContext.registryManager).cleanupStaleLockfileEntries();
 
-      // Execute cleanup command
-      const bundleCommands = new BundleCommands(testContext.registryManager);
-      await bundleCommands.cleanupStaleLockfileEntries();
-
-      // Verify confirmation dialog was shown
       assert.ok(showWarningMessageStub.called, 'Should show confirmation dialog');
-
-      // Verify stale entry was removed from the old lockfile
-      const bundlesAfter = Object.keys(readJson(LOCKFILE_NAME).bundles);
-
-      assert.deepStrictEqual(bundlesAfter, [validBundleId], 'Only the valid bundle should remain after cleanup');
+      assert.deepStrictEqual(Object.keys(readJson(RECORD_FILE_NAME).bundles), [validBundleId], 'Only the valid bundle should remain after cleanup');
     });
 
     test('Requirement 3.4: Cleanup command shows info message when no stale entries', async function () {
       this.timeout(30_000);
 
-      // Stub workspace folders
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([
         { uri: vscode.Uri.file(workspaceRoot), name: 'test-workspace', index: 0 }
       ]);
 
-      // Create a lockfile with only valid bundles (files exist)
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
-      const validBundleId = 'valid-bundle';
-
-      const mockLockfile = {
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        generatedBy: 'prompt-registry@1.0.0',
-        bundles: {
-          [validBundleId]: {
-            version: '1.0.0',
-            sourceId: 'test-source',
-            sourceType: 'github',
-            installedAt: new Date().toISOString(),
-            commitMode: 'commit',
-            files: [{ path: '.github/prompts/valid.prompt.md', checksum: 'abc123' }]
-          }
-        },
-        sources: {
-          'test-source': { type: 'github', url: 'https://github.com/test/repo' }
-        }
-      };
-
-      // Create the bundle's files
       const promptsDir = path.join(workspaceRoot, GITHUB_PROMPTS_DIR);
       fs.mkdirSync(promptsDir, { recursive: true });
       fs.writeFileSync(path.join(promptsDir, 'valid.prompt.md'), '# Valid Prompt');
+      writeRecord({ 'valid-bundle': `${GITHUB_PROMPTS_DIR}/valid.prompt.md` });
 
-      fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
-
-      // Stub the info message
       const showInfoMessageStub = sandbox.stub(vscode.window, 'showInformationMessage');
       showInfoMessageStub.resolves(undefined);
 
-      // Execute cleanup command
-      const bundleCommands = new BundleCommands(testContext.registryManager);
-      await bundleCommands.cleanupStaleLockfileEntries();
+      await new BundleCommands(testContext.registryManager).cleanupStaleLockfileEntries();
 
-      // Verify info message was shown (no stale entries)
       assert.ok(showInfoMessageStub.called, 'Should show info message');
       const infoMessage = showInfoMessageStub.firstCall.args[0];
       assert.ok(
@@ -526,48 +475,19 @@ suite('E2E: Lockfile as Single Source of Truth Tests', () => {
     test('Requirement 3.4: Cleanup command respects user cancellation', async function () {
       this.timeout(30_000);
 
-      // Stub workspace folders
       sandbox.stub(vscode.workspace, 'workspaceFolders').value([
         { uri: vscode.Uri.file(workspaceRoot), name: 'test-workspace', index: 0 }
       ]);
 
-      // Create a lockfile with a stale bundle
-      const lockfilePath = path.join(workspaceRoot, LOCKFILE_NAME);
+      // The listed file is not created, making the bundle stale
       const staleBundleId = 'stale-bundle';
+      writeRecord({ [staleBundleId]: `${GITHUB_PROMPTS_DIR}/missing.prompt.md` });
 
-      const mockLockfile = {
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '1.0.0',
-        generatedAt: new Date().toISOString(),
-        generatedBy: 'prompt-registry@1.0.0',
-        bundles: {
-          [staleBundleId]: {
-            version: '1.0.0',
-            sourceId: 'test-source',
-            sourceType: 'github',
-            installedAt: new Date().toISOString(),
-            commitMode: 'commit',
-            files: [{ path: '.github/prompts/missing.prompt.md', checksum: 'abc123' }]
-          }
-        },
-        sources: {
-          'test-source': { type: 'github', url: 'https://github.com/test/repo' }
-        }
-      };
+      sandbox.stub(vscode.window, 'showWarningMessage').resolves('Cancel' as any);
 
-      // Don't create the files (making the bundle stale)
-      fs.writeFileSync(lockfilePath, JSON.stringify(mockLockfile, null, 2));
+      await new BundleCommands(testContext.registryManager).cleanupStaleLockfileEntries();
 
-      // Stub the confirmation dialog to cancel
-      const showWarningMessageStub = sandbox.stub(vscode.window, 'showWarningMessage');
-      showWarningMessageStub.resolves('Cancel' as any);
-
-      // Execute cleanup command
-      const bundleCommands = new BundleCommands(testContext.registryManager);
-      await bundleCommands.cleanupStaleLockfileEntries();
-
-      // Verify stale entry was NOT removed (user cancelled)
-      assert.deepStrictEqual(Object.keys(readJson(LOCKFILE_NAME).bundles), [staleBundleId], 'Stale bundle should remain after cancellation');
+      assert.deepStrictEqual(Object.keys(readJson(RECORD_FILE_NAME).bundles), [staleBundleId], 'Stale bundle should remain after cancellation');
     });
   });
 

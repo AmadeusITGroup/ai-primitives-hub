@@ -8,10 +8,15 @@
  */
 
 import * as assert from 'node:assert';
-import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type {
+  TargetType,
+} from '@ai-primitives-hub/core';
 import * as sinon from 'sinon';
+import {
+  ExtensionRecordAdapter,
+} from '../../src/services/extension-record-adapter';
 import {
   RepositoryScopeService,
 } from '../../src/services/repository-scope-service';
@@ -22,15 +27,9 @@ import {
   InstalledBundle,
   RepositoryCommitMode,
 } from '../../src/types/registry';
-
-/**
- * Calculate checksum for a file (sync version for tests)
- * @param filePath
- */
-function calculateChecksumSync(filePath: string): string {
-  const content = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(content).digest('hex');
-}
+import {
+  recordEntry,
+} from '../helpers/install-record-test-helpers';
 
 suite('RepositoryScopeService', () => {
   let service: RepositoryScopeService;
@@ -119,43 +118,16 @@ suite('RepositoryScopeService', () => {
   };
 
   /**
-   * Create a lockfile with bundle entry for unsyncBundle tests
-   * The unsyncBundle method now reads from LockfileManager instead of RegistryStorage
+   * Record a bundle's host-tool entry in the record of the commit mode, with the workspace as git root.
    * @param bundleId
    * @param commitMode
-   * @param files
+   * @param files - Root-relative paths, already written; their current content is recorded.
+   * @param tool - Tool the entry belongs to (the service's host tool).
    */
-  const createLockfile = (bundleId: string, commitMode: RepositoryCommitMode = 'commit', files: { path: string; checksum: string }[] = []) => {
-    // Write to the correct lockfile based on commitMode
-    // - 'commit' mode: write to prompt-registry.lock.json
-    // - 'local-only' mode: write to prompt-registry.local.lock.json
-    const lockfileName = commitMode === 'local-only'
-      ? 'prompt-registry.local.lock.json'
-      : 'prompt-registry.lock.json';
-    const lockfilePath = path.join(workspaceRoot, lockfileName);
-    const lockfile = {
-      $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-      version: '1.0.0',
-      generatedAt: new Date().toISOString(),
-      generatedBy: 'prompt-registry@test',
-      bundles: {
-        [bundleId]: {
-          version: '1.0.0',
-          sourceId: 'test-source',
-          sourceType: 'github',
-          installedAt: new Date().toISOString(),
-          // Note: commitMode is NOT included in bundle entries (implicit based on file location)
-          files: files
-        }
-      },
-      sources: {
-        'test-source': {
-          type: 'github',
-          url: 'https://github.com/test/test'
-        }
-      }
-    };
-    fs.writeFileSync(lockfilePath, JSON.stringify(lockfile, null, 2));
+  const recordHostEntry = (bundleId: string, commitMode: RepositoryCommitMode = 'commit', files: string[] = [], tool: TargetType = 'vscode'): Promise<void> => {
+    createGitDirectory();
+    const adapter = new ExtensionRecordAdapter({ sources: { listSources: () => Promise.resolve([]) }, hostTool: tool });
+    return recordEntry(adapter, workspaceRoot, { bundleId, tool, files, commitMode, keepExisting: true });
   };
 
   setup(() => {
@@ -499,15 +471,9 @@ suite('RepositoryScopeService', () => {
       const promptFile = path.join(promptsDir, 'test.prompt.md');
       fs.writeFileSync(promptFile, '# Test');
 
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(promptFile);
-
       const bundleId = 'test-bundle';
 
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'commit', [
-        { path: '.github/prompts/test.prompt.md', checksum }
-      ]);
+      await recordHostEntry(bundleId, 'commit', ['.github/prompts/test.prompt.md']);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
 
@@ -533,13 +499,7 @@ suite('RepositoryScopeService', () => {
       const promptFile = path.join(promptsDir, 'test.prompt.md');
       fs.writeFileSync(promptFile, '# Test');
 
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(promptFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'local-only', [
-        { path: '.github/prompts/test.prompt.md', checksum }
-      ]);
+      await recordHostEntry(bundleId, 'local-only', ['.github/prompts/test.prompt.md']);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
 
@@ -575,8 +535,7 @@ suite('RepositoryScopeService', () => {
         { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
       ]);
 
-      // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'commit');
+      await recordHostEntry(bundleId, 'commit', ['.github/prompts/test.prompt.md']);
 
       await service.switchCommitMode(bundleId, 'local-only');
 
@@ -603,8 +562,7 @@ suite('RepositoryScopeService', () => {
         { name: 'test.prompt.md', content: '# Test', type: 'prompt' }
       ]);
 
-      // Create lockfile for switchCommitMode to read (it uses LockfileManager, not RegistryStorage)
-      createLockfile(bundleId, 'local-only');
+      await recordHostEntry(bundleId, 'local-only', ['.github/prompts/test.prompt.md']);
 
       await service.switchCommitMode(bundleId, 'commit');
 
@@ -698,13 +656,7 @@ suite('RepositoryScopeService', () => {
       const promptFile = path.join(promptsDir, 'test.prompt.md');
       fs.writeFileSync(promptFile, '# Test');
 
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(promptFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'local-only', [
-        { path: '.github/prompts/test.prompt.md', checksum }
-      ]);
+      await recordHostEntry(bundleId, 'local-only', ['.github/prompts/test.prompt.md']);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
 
@@ -1097,15 +1049,7 @@ prompts:
       fs.writeFileSync(skillMdFile, '# Removable Skill');
       fs.writeFileSync(indexJsFile, 'module.exports = {};');
 
-      // Calculate checksums of the files we just created
-      const skillMdChecksum = calculateChecksumSync(skillMdFile);
-      const indexJsChecksum = calculateChecksumSync(indexJsFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'commit', [
-        { path: `.github/skills/${skillName}/SKILL.md`, checksum: skillMdChecksum },
-        { path: `.github/skills/${skillName}/index.js`, checksum: indexJsChecksum }
-      ]);
+      await recordHostEntry(bundleId, 'commit', [`.github/skills/${skillName}/SKILL.md`, `.github/skills/${skillName}/index.js`]);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
 
@@ -1133,13 +1077,7 @@ prompts:
       const skillMdFile = path.join(targetSkillDir, 'SKILL.md');
       fs.writeFileSync(skillMdFile, '# My Skill');
 
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(skillMdFile);
-
-      // Create lockfile with file entries including checksums
-      createLockfile(bundleId, 'local-only', [
-        { path: `.github/skills/${skillName}/SKILL.md`, checksum }
-      ]);
+      await recordHostEntry(bundleId, 'local-only', [`.github/skills/${skillName}/SKILL.md`]);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'local-only'));
 
@@ -1169,13 +1107,8 @@ prompts:
       fs.writeFileSync(skillMdFile, '# Partial Skill');
       // Note: sub/file.js is NOT created - simulating partial state
 
-      // Calculate checksum of the file we just created
-      const checksum = calculateChecksumSync(skillMdFile);
-
-      // Create lockfile with file entries including checksums (only for existing file)
-      createLockfile(bundleId, 'commit', [
-        { path: `.github/skills/${skillName}/SKILL.md`, checksum }
-      ]);
+      // Only the existing file is recorded
+      await recordHostEntry(bundleId, 'commit', [`.github/skills/${skillName}/SKILL.md`]);
 
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
 
@@ -1376,17 +1309,17 @@ prompts:
       }
     });
 
-    test('switchCommitMode scans host-aware dirs (.kiro) on a Kiro host', async () => {
+    test('switchCommitMode excludes the recorded .kiro paths on a Kiro host', async () => {
       createGitDirectory();
       const kiroService = new RepositoryScopeService(workspaceRoot, mockStorage, 'kiro');
       const bundleId = 'kiro-switch-bundle';
 
-      // Simulate a Kiro install: a prompt already synced under .kiro/steering/.
+      // Simulate a Kiro install: a prompt already synced under .kiro/steering/ and its kiro entry.
       const steeringDir = path.join(workspaceRoot, '.kiro', 'steering');
       fs.mkdirSync(steeringDir, { recursive: true });
       fs.writeFileSync(path.join(steeringDir, 'test.prompt.md'), '# Prompt');
 
-      createLockfile(bundleId, 'commit');
+      await recordHostEntry(bundleId, 'commit', ['.kiro/steering/test.prompt.md'], 'kiro');
 
       await kiroService.switchCommitMode(bundleId, 'local-only');
 
@@ -1473,9 +1406,8 @@ prompts:
       fs.mkdirSync(steeringDir, { recursive: true });
       const promptFile = path.join(steeringDir, 'test.prompt.md');
       fs.writeFileSync(promptFile, '# Prompt');
-      const checksum = calculateChecksumSync(promptFile);
 
-      createLockfile(bundleId, 'commit', [{ path: '.kiro/steering/test.prompt.md', checksum }]);
+      await recordHostEntry(bundleId, 'commit', ['.kiro/steering/test.prompt.md'], 'kiro');
       mockStorage.getInstalledBundle.resolves(createMockInstalledBundle(bundleId, 'commit'));
 
       await kiroService.unsyncBundle(bundleId);

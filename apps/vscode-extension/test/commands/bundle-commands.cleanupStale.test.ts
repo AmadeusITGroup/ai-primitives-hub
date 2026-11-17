@@ -1,7 +1,7 @@
 /**
- * BundleCommands.cleanupStaleLockfileEntries: stale record and old lockfile
- * entries in a real temp git root; `RegistryStorage`, the workspace lookup
- * and notifications are stubbed.
+ * BundleCommands.cleanupStaleLockfileEntries: old lockfiles are migrated
+ * first, then stale record entries are removed, never a file, in a real temp
+ * git root; `RegistryStorage`, the workspace lookup and notifications are stubbed.
  */
 
 import * as assert from 'node:assert';
@@ -74,23 +74,28 @@ suite('BundleCommands.cleanupStaleLockfileEntries', () => {
     cleanupTestWorkspace(root);
   });
 
-  test('removes entries with all files missing for any tool and the old lockfile; keeps a partly missing entry and every file', async () => {
+  test('migrates the old lockfile first, then removes entries with all files missing for any tool; never offers an unknown or file-less entry', async () => {
     await recordBundle('stale-vscode', 'vscode', ['.github/prompts/stale-vscode.prompt.md']);
     await recordBundle('stale-kiro', 'kiro', ['.kiro/steering/stale-kiro.md']);
     await recordBundle('partial', 'vscode', ['.github/prompts/partial-a.prompt.md', '.github/prompts/partial-b.prompt.md'], ['.github/prompts/partial-a.prompt.md']);
+    await recordBundle('no-files', 'vscode', []);
     await writeOldEntry(root, 'old-stale', { missing: ['.github/prompts/old-stale.prompt.md'] });
 
     await commands.cleanupStaleLockfileEntries();
 
     const offered = String(showWarning.firstCall.args[0]);
-    for (const label of ['stale-vscode (vscode)', 'stale-kiro (kiro)', 'old-stale (old lockfile)']) {
+    for (const label of ['stale-vscode (vscode)', 'stale-kiro (kiro)']) {
       assert.ok(offered.includes(label), offered);
     }
-    assert.ok(!offered.includes('partial'), offered);
-    assert.deepStrictEqual(Object.keys(readJson(RECORD_FILE).bundles), ['partial']);
-    assert.ok(!exists(OLD_LOCKFILE), 'the emptied old lockfile is removed');
+    for (const bundleId of ['partial', 'no-files', 'old-stale']) {
+      assert.ok(!offered.includes(bundleId), offered);
+    }
+    const bundles = readJson(RECORD_FILE).bundles;
+    assert.deepStrictEqual(Object.keys(bundles).toSorted(), ['no-files', 'old-stale', 'partial']);
+    assert.deepStrictEqual(Object.keys(bundles['old-stale'].tools), ['unknown'], 'the old entry was migrated, not removed');
+    assert.ok(!exists(OLD_LOCKFILE), 'the old lockfile was migrated');
     assert.ok(exists('.github/prompts/partial-b.prompt.md'), 'no file is deleted');
-    assert.ok(String(showInfo.lastCall.args[0]).includes('Successfully removed 3'));
+    assert.ok(String(showInfo.lastCall.args[0]).includes('Successfully removed 2'));
   });
 
   test('lists an entry in both record files (an interrupted move) once and removes both copies', async () => {

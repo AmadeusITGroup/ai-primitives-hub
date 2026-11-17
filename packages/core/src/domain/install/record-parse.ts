@@ -30,7 +30,13 @@ export interface UnvalidatedRecord {
   readonly [key: string]: unknown;
 }
 
-const parseJson = (text: string, file: string | undefined): unknown => {
+/**
+ * `JSON.parse` that refuses prototype keys and builds `null`-prototype objects; no shape check.
+ * @param text - File contents.
+ * @param file - File to name in errors, if any.
+ * @throws {RegistryError} `RECORD.MALFORMED` for invalid JSON or a forbidden key.
+ */
+export const parseJsonWithoutPrototypes = (text: string, file?: string): unknown => {
   try {
     return JSON.parse(text, (key: string, value: unknown) => {
       if (FORBIDDEN_KEYS.has(key)) {
@@ -74,7 +80,7 @@ const checkVersion = (version: unknown, file: string | undefined): void => {
  * @throws {RegistryError} `RECORD.MALFORMED`, `RECORD.NEWER_FORMAT` or `RECORD.LEGACY_UNMIGRATED`.
  */
 export const parseRecord = (text: string, file?: string): UnvalidatedRecord => {
-  const parsed = parseJson(text, file);
+  const parsed = parseJsonWithoutPrototypes(text, file);
   if (!isJsonObject(parsed)) {
     throw recordError('RECORD.MALFORMED', { file, detail: 'top level is not an object' });
   }

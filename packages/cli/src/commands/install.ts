@@ -25,6 +25,7 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  type MigrationReport,
   planRecordEntries,
   readLockfile,
   type RecordInstallResult,
@@ -114,6 +115,7 @@ import {
   recordPlannedInstall,
   recordRepositoryInstall,
   RegistryError,
+  renderMigration,
   renderRecordLine,
   type RepositoryInstallToRecord,
   requireActiveHubOrFail,
@@ -567,9 +569,25 @@ async function autoDetectHubSource(opts: InstallOptions, ctx: Context, userPaths
 }
 
 /**
+ * Refuse `--dry-run` for a record replay, which migrates and writes.
+ * @param opts Install options.
+ * @throws {RegistryError} `USAGE.INVALID_FLAG` when `--dry-run` is set.
+ */
+function refuseDryRunReplay(opts: InstallOptions): void {
+  if (opts.dryRun === true) {
+    throw new RegistryError({
+      code: 'USAGE.INVALID_FLAG',
+      message: 'install: --dry-run cannot be used to replay an install record; a replay migrates older records and writes every recorded bundle',
+      hint: 'Run `status` to see what is recorded, or install one bundle with install <bundle-id> --dry-run.'
+    });
+  }
+}
+
+/**
  * Detect install context from the project environment.
  * Fills in `opts.lockfile`, `opts.source`, `opts.interactive`, and `opts.target`
- * when they can be inferred without user input.
+ * when they can be inferred without user input. A bare `install` that finds a
+ * record or an old `prompt-registry` file at the git root replays it, migrating the old file first.
  * @param opts Install options (mutated in-place).
  * @param ctx CLI context.
  * @returns The selected record to replay, or `undefined` for the other modes.
@@ -585,14 +603,20 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
   if (!noLockfile && noBundle && !opts.from) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile });
     if (prepared.selection.locations.length > 0) {
-      return prepared;
+      // The replay changes the record: migrate its level first.
+      refuseDryRunReplay(opts);
+      return prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile, write: true });
     }
   }
 
   if (noMode && !opts.interactive) {
     const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
-    if ((await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
-      return prepared;
+    const { selection } = prepared;
+    // An old file at the git root is migrated first, then the record is replayed.
+    const migratesOldFile = selection.level === 'repository' && selection.oldLockfile !== undefined;
+    if (migratesOldFile || (await prepared.service.listEntries(selection.locations)).length > 0) {
+      refuseDryRunReplay(opts);
+      return prepareRecordSelection(ctx, { command: 'install', scope: opts.scope, write: true });
     }
     const found = await findProjectLockfile(ctx);
     if (found !== null) {
@@ -1122,13 +1146,15 @@ async function performLocalInstall(
         bundle: { id: manifest.id, version: manifest.version },
         written: result.written,
         skipped,
-        lockfile: lockPath
+        lockfile: lockPath,
+        ...(prepared?.migration === undefined ? {} : { migration: prepared.migration })
       },
       warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} into target "${d.target}" `
         + `(${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
         + renderSkipped(d.skipped)
+        + renderMigration(d.migration)
     });
     return 0;
   } catch (cause) {
@@ -1263,6 +1289,8 @@ interface RecordReplayData {
   failures: ReplaySkip[];
   /** Bundles only in the old `prompt-registry.*` file, replayed with the old code. */
   oldFile?: OldFileReplay;
+  /** What the migration run before the replay did. */
+  migration?: MigrationReport;
 }
 
 /** What {@link replayOldFileOnly} reports for the old `prompt-registry.*` file. */
@@ -1289,38 +1317,7 @@ function renderRecordReplay(d: RecordReplayData): string {
       + (old.target === undefined ? '.' : ` into target "${old.target}".`),
     ...old.failures.map((f) => `Failed ${f.bundleId}: ${f.reason}`));
   }
-  return lines.join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records });
-}
-
-/**
- * Report what a record replay would install, without fetching or writing anything.
- * @param ctx CLI context.
- * @param fmt Output format.
- * @param data The planned replay.
- * @param planned The entries that would be installed.
- * @returns Exit code.
- */
-function reportRecordReplayDryRun(
-  ctx: Context,
-  fmt: OutputFormat,
-  data: RecordReplayData,
-  planned: RecordReplayData['replayed']
-): number {
-  const { replayed: _replayed, failures: _failures, ...rest } = data;
-  formatOutput({
-    ctx,
-    command: 'install',
-    output: fmt,
-    status: data.skipped.length === 0 && data.needsReinstall.length === 0 ? 'ok' : 'warning',
-    data: { dryRun: true, ...rest, planned },
-    textRenderer: (d) => [
-      `Dry run: would replay ${String(d.planned.length)}/${String(d.replayPlanned)} entr${d.replayPlanned === 1 ? 'y' : 'ies'}.`,
-      ...d.planned.map((r) => `  ${r.bundleId}@${r.version} (${r.tool}) into target "${r.target}"`),
-      ...d.needsReinstall.map((n) => `Needs reinstall: ${n.bundleId}@${n.version} (tool unknown)`),
-      ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`)
-    ].join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records })
-  });
-  return 0;
+  return lines.join('\n') + '\n' + renderMigration(d.migration) + renderRecordLine({ level: d.level, records: d.records });
 }
 
 /**
@@ -1362,16 +1359,12 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
     replayed: [],
     skipped: plan.skipped,
     needsReinstall: plan.needsReinstall.map((row) => ({ bundleId: row.bundleId, version: row.version })),
-    failures: []
+    failures: [],
+    ...(prepared.migration === undefined ? {} : { migration: prepared.migration })
   };
   // Every mapped target is checked against --allow-target before anything is fetched or written.
   for (const item of plan.items) {
     checkAllowTarget(resolveEffectiveTarget(ctx, item.target).name, opts);
-  }
-  if (opts.dryRun === true) {
-    return reportRecordReplayDryRun(ctx, fmt, data, plan.items.map((item) => ({
-      bundleId: item.bundleId, tool: item.tool, version: item.entry.version, target: resolveEffectiveTarget(ctx, item.target).name
-    })));
   }
   const changes: RecordInstallResult[] = [];
 
@@ -1648,13 +1641,15 @@ async function performRemoteInstall(
         sha256: dl.sha256,
         written: result.written,
         skipped,
-        lockfile: lockPath
+        lockfile: lockPath,
+        ...(prepared?.migration === undefined ? {} : { migration: prepared.migration })
       },
       warnings: installWarnings(skipped, warnings),
       textRenderer: (d) => `Installed ${d.bundle.id}@${d.bundle.version} from ${d.source.repo} `
         + `into target "${d.target}" (${d.written.length} written, ${d.skipped.length} skipped). `
         + `Updated ${d.lockfile}.\n`
         + renderSkipped(d.skipped)
+        + renderMigration(d.migration)
     });
     return 0;
   } catch (cause) {

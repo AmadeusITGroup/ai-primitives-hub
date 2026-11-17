@@ -91,18 +91,32 @@ export const isInUserRecord = (listed: UserRecordItems, bundle: Pick<InstalledBu
 
 /**
  * The shared user record's host-tool item of a bundle: under its key, or the
- * one listed for the same identity; `undefined` in WSL or when the record cannot be read.
+ * one listed for the same identity; with `withLoneUnknown` also the item of a
+ * bundle whose only user record entry is `unknown`. `undefined` in WSL or when
+ * the record cannot be read.
  * @param reader - Adapter, storage and listing to read with.
  * @param bundleId - Bundle id.
- * @param version - Version `bundleId` carries; without it, a key of the user record or a bare identity.
+ * @param options - Lookup options.
+ * @param options.version - Version `bundleId` carries; without it, a key of the user record or a bare identity.
+ * @param options.withLoneUnknown - Also give a bundle whose only user record entry is `unknown`.
+ * @throws {RegistryError} Any `RECORD.*` error from the `unknown` entry lookup.
  */
-export const findUserRecordBundle = async (reader: UserRecordReader, bundleId: string, version?: string): Promise<InstalledBundle | undefined> => {
+export const findUserRecordBundle = async (
+  reader: UserRecordReader,
+  bundleId: string,
+  options: { version?: string; withLoneUnknown?: boolean } = {}
+): Promise<InstalledBundle | undefined> => {
   const { items, hostBundleIds, hostKeys } = await listUserRecordBundles(reader);
   if (hostBundleIds.has(bundleId)) {
     return items.find((bundle) => bundle.bundleId === bundleId);
   }
-  const identity = hostKeys.get(bundleId) ?? (version === undefined ? bundleId : recordIdentityOf(bundleId, version));
-  return items.find((bundle) => hostBundleIds.has(bundle.bundleId) && hostKeys.get(bundle.bundleId) === identity);
+  const identity = hostKeys.get(bundleId) ?? (options.version === undefined ? bundleId : recordIdentityOf(bundleId, options.version));
+  const host = items.find((bundle) => hostBundleIds.has(bundle.bundleId) && hostKeys.get(bundle.bundleId) === identity);
+  if (host !== undefined || options.withLoneUnknown !== true) {
+    return host;
+  }
+  const item = items.find((bundle) => bundle.bundleId === bundleId);
+  return item !== undefined && (await reader.adapter.findLoneUnknownEntry(bundleId)) !== undefined ? item : undefined;
 };
 
 /**
@@ -146,7 +160,7 @@ export async function getInstalledBundleForScope(
     }
   }
 
-  // At user scope, fall back to the shared user record's host-tool item.
+  // At user scope, fall back to the shared user record's host-tool item, or a lone `unknown` one.
   const stored = await storage.getInstalledBundle(bundleId, scope);
   if (stored !== undefined || scope !== 'user') {
     return stored;
@@ -154,7 +168,7 @@ export async function getInstalledBundleForScope(
   try {
     const adapter = userRecord?.adapter
       ?? new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() }, userRecordPath: storage.getPaths().userRecord });
-    return await findUserRecordBundle({ adapter, storage, listing: userRecord?.listing }, bundleId);
+    return await findUserRecordBundle({ adapter, storage, listing: userRecord?.listing }, bundleId, { withLoneUnknown: true });
   } catch (error) {
     logger.warn(`[bundleScopeUtils] Failed to read the user record for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
     return undefined;

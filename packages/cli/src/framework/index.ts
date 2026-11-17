@@ -120,6 +120,8 @@ export {
   recordPlannedInstall,
   recordRepositoryInstall,
   recordRepositoryUninstall,
+  recordUnknownUninstall,
+  renderMigration,
   renderRecordLine,
   toCommandRecordError,
   toInstallRecordError,

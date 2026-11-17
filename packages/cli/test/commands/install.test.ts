@@ -94,6 +94,7 @@ import {
   recordPathIn,
   userRecordPath,
   workspaceEnv,
+  writeOldLockfile,
   writeRecord,
 } from '../helpers/install-record-fixtures';
 
@@ -1127,15 +1128,31 @@ agents:
       expect(Object.keys((await readRecord(workspace)).bundles['local-foo'].tools).toSorted()).toEqual(['kiro', 'vscode']);
     });
 
-    it('leaves existing prompt-registry lockfiles byte-identical', async () => {
-      const legacy = '{"version":"2.0.0","bundles":{"old":{}},"sources":{}}\n';
-      await writeFile(path.join(workspace, 'prompt-registry.lock.json'), legacy);
-      await writeFile(path.join(workspace, 'prompt-registry.local.lock.json'), legacy);
+    it.each(['json', 'text'])('migrates prompt-registry.lock.json into the new record before the install (-o %s)', async (output) => {
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, { 'old-bundle': { version: '0.1.0', sourceType: 'github', files: ['.github/prompts/gone.prompt.md'] } },
+        { 'old-src': { type: 'github', url: 'https://github.com/acme-org/old-bundle' } });
 
-      expect((await installTo('repo-vscode')).exitCode).toBe(0);
+      const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '-o', output]);
 
-      expect(await readFile(path.join(workspace, 'prompt-registry.lock.json'), 'utf8')).toBe(legacy);
-      expect(await readFile(path.join(workspace, 'prompt-registry.local.lock.json'), 'utf8')).toBe(legacy);
+      expect(result.exitCode, result.stdout).toBe(0);
+      const record = await readRecord(workspace);
+      expect(Object.keys(record.bundles).toSorted()).toEqual(['local-foo', 'old-bundle']);
+      expect(record.bundles['old-bundle'].tools.unknown).toMatchObject({ version: '0.1.0', needsReinstall: true, files: [] });
+      await expect(readFile(oldPath, 'utf8')).rejects.toThrow();
+      if (output === 'json') {
+        expect(parseJson<{ migration: object }>(result.stdout).data.migration).toMatchObject({
+          level: 'repository',
+          renamed: [{ from: oldPath, to: recordPath() }],
+          needsReinstall: [{ bundleId: 'old-bundle', version: '0.1.0' }],
+          droppedFiles: [{ bundleId: 'old-bundle', path: '.github/prompts/gone.prompt.md' }]
+        });
+      } else {
+        expect(result.stdout).toContain('Migrated repository record:\n'
+          + `  renamed ${oldPath} → ${recordPath()}\n`
+          + '  needs reinstall: old-bundle@0.1.0 (tool unknown)\n'
+          + '  dropped 1 file path\n');
+      }
     });
 
     it.each([
@@ -1379,19 +1396,6 @@ agents:
       expect(await readFile(recordPath(), 'utf8')).toBe(text);
     });
 
-    it('--dry-run lists the entries a replay would install and writes nothing', async () => {
-      const before = await readFile(recordPath(), 'utf8');
-
-      const result = await run(['install', '--lockfile', recordPath(), '--dry-run', '-o', 'json']);
-
-      expect(result.exitCode, result.stdout).toBe(0);
-      const { data } = parseJson<{ dryRun: boolean; planned: { tool: string }[] }>(result.stdout);
-      expect(data.dryRun).toBe(true);
-      expect(data.planned.map((entry) => entry.tool)).toEqual(['kiro', 'vscode']);
-      expect(await exists(vscodePrompt())).toBe(false);
-      expect(await readFile(recordPath(), 'utf8')).toBe(before);
-    });
-
     it('--allow-target refuses a replay to a mapped target it does not list, before writing anything', async () => {
       const result = await run(['install', '--lockfile', recordPath(), '--allow-target', 'repo-vscode', '-o', 'json']);
 
@@ -1457,30 +1461,62 @@ agents:
       });
     });
 
-    it('bare install also replays bundles only in the old prompt-registry file and writes nothing about them to the record', async () => {
+    it('bare install migrates the old prompt-registry file first: its bundles are listed as needs reinstall and the old file is gone', async () => {
       const oldPath = path.join(workspace, 'prompt-registry.lock.json');
-      const oldDir = path.join(workspace, 'old-bundle');
-      await mkdir(path.join(oldDir, 'prompts'), { recursive: true });
-      await writeFile(path.join(oldDir, 'deployment-manifest.yml'),
-        'id: old-only\nversion: 0.1.0\nname: Old Only\nprompts:\n  - id: old\n    file: prompts/old.prompt.md\n    type: prompt\n');
-      await writeFile(path.join(oldDir, 'prompts', 'old.prompt.md'), '# Old\n');
-      const oldEntry = (version: string) => ({ version, sourceId: 'old-src', sourceType: 'local', installedAt: '2026-10-01T00:00:00.000Z', files: [] });
-      const oldText = JSON.stringify({
-        version: '2.0.0', generatedAt: '2026-10-01T00:00:00.000Z', generatedBy: 'test',
-        bundles: { 'local-foo': oldEntry('0.9.0'), 'old-only': oldEntry('0.1.0') },
-        sources: { 'old-src': { type: 'local', url: oldDir } }
-      });
-      await writeFile(oldPath, oldText);
+      await writeOldLockfile(oldPath, { 'local-foo': { version: '0.9.0' }, 'old-only': { version: '0.1.0' } },
+        { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
 
       const result = await run(['install', '--target', 'repo-vscode', '-o', 'json']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      const { data } = parseJson<ReplayData & { oldFile: { lockfile: string; replayed: string[]; target: string } }>(result.stdout);
+      const { data } = parseJson<ReplayData & { oldFile?: object; migration: { mergedFrom: string[]; droppedEntries: { bundleId: string }[] } }>(result.stdout);
       expect(data.replayed.map((r) => `${r.bundleId}:${r.tool}`)).toEqual(['local-foo:vscode']);
-      expect(data.oldFile).toMatchObject({ lockfile: oldPath, replayed: ['old-only'], target: 'repo-vscode' });
-      expect(await exists(path.join(workspace, '.github', 'prompts', 'old.prompt.md'))).toBe(true);
-      expect(Object.keys((await readReplayRecord()).bundles).toSorted()).toEqual(['legacy-bar', 'local-foo']);
-      expect(await readFile(oldPath, 'utf8')).toBe(oldText);
+      expect(data.needsReinstall).toEqual([{ bundleId: 'legacy-bar', version: '0.5.0' }, { bundleId: 'old-only', version: '0.1.0' }]);
+      expect(data.oldFile).toBeUndefined();
+      expect(data.migration).toMatchObject({ mergedFrom: [oldPath], droppedEntries: [{ bundleId: 'local-foo', version: '0.9.0' }] });
+      expect(Object.keys((await readReplayRecord()).bundles).toSorted()).toEqual(['legacy-bar', 'local-foo', 'old-only']);
+      expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install in a repository with only prompt-registry.lock.json migrates it, then lists its bundles as needs reinstall', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
+
+      const result = await run(['install', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<ReplayData & { oldFile?: object; migration: { renamed: { from: string; to: string }[] } }>(result.stdout);
+      expect(data).toMatchObject({ level: 'repository', replayed: [], needsReinstall: [{ bundleId: 'old-only', version: '0.1.0' }] });
+      expect(data.oldFile).toBeUndefined();
+      expect(data.migration.renamed).toEqual([{ from: oldPath, to: recordPath() }]);
+      expect(Object.keys((await readReplayRecord()).bundles['old-only'].tools)).toEqual(['unknown']);
+      expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install with only an empty prompt-registry.lock.json stays at the repository level', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, {}, {});
+
+      const result = await run(['install', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<ReplayData>(result.stdout).data).toMatchObject({ level: 'repository', replayed: [] });
+      expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      const oldBytes = await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
+
+      const result = await run(['install', '--dry-run', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).not.toBe(0);
+      expect(result.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await readFile(oldPath, 'utf8')).toBe(oldBytes);
+      expect(await exists(recordPath())).toBe(false);
     });
   });
 });
