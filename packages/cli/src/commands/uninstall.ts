@@ -9,6 +9,10 @@
  * Repository-scope `<bundle-id>` and `--all` uninstalls first use the 3.0.0
  * install record; bundles not recorded there fall back to the old store.
  *
+ * `uninstall --lockfile <ai-primitives-hub.*.lock.json>` removes only the
+ * target tool's entries, and `uninstall <id>` without `--target` is refused
+ * when the record lists the bundle for several tools.
+ *
  * Repository-scope targets otherwise delegate to `UninstallPipeline`
  * (`@ai-primitives-hub/app`), which already encapsulates the
  * commit/local-only two-file split (see its module doc). User/workspace
@@ -22,6 +26,7 @@ import {
   cleanupOrphanedSource,
   FileTreeTargetWriter,
   type LockfileBundleEntry,
+  mapToolToTarget,
   readLockfile,
   removeBundleEntry,
   type TargetWriter,
@@ -53,11 +58,16 @@ import {
   lockfilePathForTarget,
   Option,
   type OutputFormat,
+  type PreparedRecordSelection,
   type PreparedRepositoryUninstall,
+  prepareRecordSelection,
   prepareRepositoryUninstall,
   readTargetsSafely,
+  recordOutputFields,
+  type RecordOutputFields,
   recordRepositoryUninstall,
   RegistryError,
+  renderRecordLine,
   resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
@@ -112,6 +122,32 @@ async function detectUninstallContext(opts: UninstallOptions, ctx: Context): Pro
     if (targets.length === 1) {
       opts.target = targets[0].name;
     }
+  }
+}
+
+/**
+ * Refuse `uninstall <id>` without `--target` when the record lists the bundle for several tools.
+ * @param ctx CLI context.
+ * @param bundleId Bundle to uninstall.
+ * @param scope `--scope`, when given.
+ * @throws {RegistryError} `USAGE.MISSING_FLAG` listing the tools; nothing was removed.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+async function refuseMultiToolUninstall(ctx: Context, bundleId: string, scope?: UninstallOptions['scope']): Promise<void> {
+  const { selection, service } = await prepareRecordSelection(ctx, { command: 'uninstall', scope });
+  if (selection.level !== 'repository') {
+    return;
+  }
+  const tools = [...new Set((await service.listEntries(selection.locations))
+    .filter((row) => row.bundleId === bundleId)
+    .map((row) => row.tool))];
+  if (tools.length > 1) {
+    throw new RegistryError({
+      code: 'USAGE.MISSING_FLAG',
+      message: `uninstall: bundle "${bundleId}" is installed for several tools (${tools.join(', ')}); pass --target to choose one`,
+      hint: `Example: ai-primitives-hub uninstall --bundle ${bundleId} --target <name of a ${tools[0]} target>`,
+      context: { bundle: bundleId, tools }
+    });
   }
 }
 
@@ -182,6 +218,20 @@ export class UninstallCommand extends BaseUninstallCommand {
       scope: this.scope as 'user' | 'repository' | undefined,
       commitMode: this.commitMode as RepositoryCommitMode | undefined
     };
+
+    const typedTarget = opts.target !== undefined && opts.target.length > 0;
+    try {
+      // Checked before the target is inferred, so one configured target never picks one of several recorded tools.
+      if (!typedTarget && opts.bundle !== undefined && opts.bundle.length > 0 && opts.all !== true
+        && (opts.lockfile === undefined || opts.lockfile.length === 0)) {
+        await refuseMultiToolUninstall(ctx, opts.bundle, opts.scope);
+      }
+    } catch (err) {
+      if (err instanceof RegistryError) {
+        return failWith(ctx, fmt, 'uninstall', err);
+      }
+      throw err;
+    }
 
     await detectUninstallContext(opts, ctx);
 
@@ -437,6 +487,8 @@ interface BundleUninstalled {
   lockfile: string;
   /** Non-fatal problems to report; none for the old lockfile path. */
   warnings?: readonly string[];
+  /** The record's `level` / `records` fields; none for the old lockfile path. */
+  record?: RecordOutputFields;
 }
 
 /**
@@ -454,6 +506,7 @@ function renderBundleUninstalled(ctx: Context, fmt: OutputFormat, target: Target
     output: fmt,
     status: 'ok',
     data: {
+      ...(outcome.record === undefined ? {} : { level: outcome.record.level, records: [...outcome.record.records] }),
       target: target.name,
       bundle: outcome.bundleId,
       removed: [...outcome.removed],
@@ -463,6 +516,7 @@ function renderBundleUninstalled(ctx: Context, fmt: OutputFormat, target: Target
     textRenderer: (d) => `Uninstalled ${d.bundle} from target "${d.target}" `
       + `(${d.removed.length} file${d.removed.length === 1 ? '' : 's'} removed). `
       + `Updated ${d.lockfile}.\n`
+      + (outcome.record === undefined ? '' : renderRecordLine(outcome.record))
   });
   return 0;
 }
@@ -571,8 +625,73 @@ async function performRecordBundleUninstall(
     bundleId,
     removed: recorded.removed,
     lockfile: recorded.lockfile,
-    warnings: recorded.warnings
+    warnings: recorded.warnings,
+    record: { level: 'repository', records: [recorded.lockfile] }
   });
+}
+
+/**
+ * `uninstall --lockfile <record file>`: remove only the target tool's entries, keeping files another entry lists.
+ * @param run Options, target, context and output format.
+ * @param prepared The selected record file, loaded and checked.
+ * @returns Exit code.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; `USAGE.INVALID_FLAG` when the target does not write to the record.
+ */
+async function performRecordLockfileUninstall(run: UninstallRun, prepared: PreparedRecordSelection): Promise<number> {
+  const { target, ctx, fmt, opts } = run;
+  const { selection, fs } = prepared;
+  const mapping = await mapToolToTarget({ fs, tool: target.type, level: selection.level, gitRoot: selection.root, targets: [], explicit: target, cwd: ctx.cwd() });
+  if ('skip' in mapping) {
+    throw new RegistryError({
+      code: 'USAGE.INVALID_FLAG',
+      message: `uninstall: ${mapping.skip}`,
+      hint: 'Pass a --target whose scope and repository match the record.'
+    });
+  }
+  // Use the selected file's git root info/exclude, as the install did.
+  const uninstall = await prepareRepositoryUninstall(ctx, target, { locations: selection.locations });
+  const { location, entries } = uninstall;
+  const fields = await recordOutputFields(selection, fs);
+  const bundleIds = [...entries.keys()];
+
+  if (opts.dryRun === true) {
+    formatOutput({
+      ctx,
+      command: 'uninstall',
+      output: fmt,
+      status: 'ok',
+      data: { dryRun: true, ...fields, lockfile: location.path, target: target.name, bundles: bundleIds, files: [...entries.values()].flat() },
+      textRenderer: (d) => `[dry-run] Would uninstall ${d.bundles.length} bundle${d.bundles.length === 1 ? '' : 's'} from target "${d.target}" (from ${d.lockfile}):\n`
+        + `  Bundles: ${d.bundles.join(', ')}\n`
+        + `  Files: ${d.files.length} total\n`
+        + 'Run without --dry-run to apply.\n'
+        + renderRecordLine({ level: d.level, records: d.records })
+    });
+    return 0;
+  }
+
+  const results: { id: string; removed: number }[] = [];
+  const warnings: string[] = [];
+  for (const bundleId of bundleIds) {
+    const recorded = await recordRepositoryUninstall(uninstall, bundleId);
+    results.push({ id: bundleId, removed: recorded.removed.length });
+    warnings.push(...recorded.warnings);
+    await updateTargetState(ctx, target.name, bundleId);
+  }
+
+  formatOutput({
+    ctx,
+    command: 'uninstall',
+    output: fmt,
+    status: 'ok',
+    data: { ...fields, lockfile: location.path, target: target.name, uninstalled: results.length, bundles: results },
+    warnings: warnings.length > 0 ? warnings : undefined,
+    textRenderer: (d) => (d.uninstalled === 0
+      ? `No bundles found to uninstall from target "${d.target}".\n`
+      : `Uninstalled ${d.uninstalled} bundle${d.uninstalled === 1 ? '' : 's'} from target "${d.target}" (from ${d.lockfile}).\n`)
+    + renderRecordLine({ level: d.level, records: d.records })
+  });
+  return 0;
 }
 
 /**
@@ -590,6 +709,11 @@ async function performLockfileUninstall(
   fmt: OutputFormat
 ): Promise<number> {
   const lockfile = opts.lockfile as string;
+  // A record file is loaded and checked first; any other file keeps the old path.
+  const selected = await prepareRecordSelection(ctx, { command: 'uninstall', lockfile }, target);
+  if (selected.selection.locations.length > 0) {
+    return performRecordLockfileUninstall({ opts, target, ctx, fmt }, selected);
+  }
   const lockPath = path.isAbsolute(lockfile)
     ? lockfile
     : path.join(ctx.cwd(), lockfile);

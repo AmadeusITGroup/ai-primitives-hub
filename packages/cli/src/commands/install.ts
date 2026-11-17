@@ -25,12 +25,17 @@ import {
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  planRecordEntries,
   readLockfile,
+  type RecordInstallResult,
   removeSupersededFiles,
   resolveInstallSource,
   resolveUserConfigPaths,
   type SkippedBundleContent,
   type TargetWriter,
+  toLockfileBundleEntry,
+  toLockfileSourceEntry,
+  toRecordSource,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
@@ -45,6 +50,7 @@ import type {
   GitHubSourceAuthCategory,
   HttpClient,
   HubSourceSpec,
+  RecordLevel,
   RegistrySource,
   RepositoryExclusion,
   Target,
@@ -85,30 +91,38 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   Command,
+  type CommandDefinition,
+  configuredSources,
+  type Context,
   createHubManager,
+  defineCommand,
   failWith,
   findProjectLockfile,
+  finishRecordRun,
+  formatOutput,
   loadInquirer,
   loadTargets,
   lockfilePathForTarget,
   Option,
-  prepareRepositoryRecord,
-  recordRepositoryInstall,
-  requireActiveHubOrFail,
-} from '../framework';
-import {
-  type CommandDefinition,
-  type Context,
-  defineCommand,
-  formatOutput,
   type OutputFormat,
+  type PreparedRecordSelection,
   type PreparedRepositoryRecord,
+  prepareOldFileOnly,
+  prepareRecordSelection,
+  prepareRepositoryRecord,
   readTargetsSafely,
+  recordOutputFields,
+  recordPlannedInstall,
+  recordRepositoryInstall,
   RegistryError,
+  renderRecordLine,
   type RepositoryInstallToRecord,
+  requireActiveHubOrFail,
   resolveEffectiveTarget,
   resolveTarget,
   resolveTargetName,
+  toCommandRecordError,
+  tokensForRecordSource,
   validateInputs,
 } from '../framework';
 
@@ -463,7 +477,25 @@ export class InstallCommand extends BaseInstallCommand {
       skipUnsupported: this.skipUnsupported
     };
 
-    await detectInstallContext(opts, ctx);
+    const typedTarget = opts.target !== undefined && opts.target.length > 0;
+    let recordReplay: PreparedRecordSelection | undefined;
+    try {
+      recordReplay = await detectInstallContext(opts, ctx);
+      if (recordReplay !== undefined) {
+        // Each recorded tool maps to its own target; only a typed --target narrows the replay.
+        let explicit: Target | undefined;
+        if (typedTarget) {
+          checkAllowTarget(opts.target as string, opts);
+          explicit = resolveEffectiveTarget(ctx, await resolveTarget(opts.target as string, 'install', ctx, () => loadTargets(ctx)), opts);
+        }
+        return await performRecordReplay({ ctx, fmt, opts, prepared: recordReplay, explicit });
+      }
+    } catch (err) {
+      if (err instanceof RegistryError) {
+        return failWith(ctx, fmt, 'install', err);
+      }
+      throw err;
+    }
 
     const { bundle: noBundle, lockfile: noLockfile } = validateInputs(opts, { flags: ['bundle', 'lockfile'] });
     if (noBundle && noLockfile && !opts.from && !opts.source) {
@@ -540,15 +572,29 @@ async function autoDetectHubSource(opts: InstallOptions, ctx: Context, userPaths
  * when they can be inferred without user input.
  * @param opts Install options (mutated in-place).
  * @param ctx CLI context.
+ * @returns The selected record to replay, or `undefined` for the other modes.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was written.
  */
-async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise<void> {
+async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise<PreparedRecordSelection | undefined> {
   const { bundle: noBundle, lockfile: noLockfile } = validateInputs(opts, { flags: ['bundle', 'lockfile'] });
   const noExplicitSource = !opts.source || opts.source.length === 0;
   const noMode = noBundle && noLockfile && !opts.from && noExplicitSource;
 
   const userPaths = resolveUserConfigPaths(ctx.env);
 
+  if (!noLockfile && noBundle && !opts.from) {
+    const prepared = await prepareRecordSelection(ctx, { command: 'install', lockfile: opts.lockfile });
+    if (prepared.selection.locations.length > 0) {
+      return prepared;
+    }
+  }
+
   if (noMode && !opts.interactive) {
+    const prepared = await prepareRecordSelection(ctx, { command: 'install', scope: opts.scope });
+    if (prepared.selection.level === 'repository'
+      && (await prepared.service.listEntries(prepared.selection.locations)).length > 0) {
+      return prepared;
+    }
     const found = await findProjectLockfile(ctx);
     if (found !== null) {
       opts.lockfile = found;
@@ -571,6 +617,7 @@ async function detectInstallContext(opts: InstallOptions, ctx: Context): Promise
       opts.target = targets[0].name;
     }
   }
+  return undefined;
 }
 
 /**
@@ -1195,6 +1242,248 @@ async function performLockfileInstall(
   return failures.length === 0 ? 0 : 1;
 }
 
+/** Inputs of {@link performRecordReplay}. */
+interface RecordReplayRun {
+  ctx: Context;
+  fmt: OutputFormat;
+  opts: InstallOptions;
+  prepared: PreparedRecordSelection;
+  /** The target named by `--target`; only it narrows the replay to one tool. */
+  explicit?: Target;
+}
+
+/** A (bundle, tool) entry the replay did not restore, and why. */
+interface ReplaySkip {
+  bundleId: string;
+  tool: string;
+  reason: string;
+}
+
+/** What {@link performRecordReplay} reports. */
+interface RecordReplayData {
+  level: RecordLevel;
+  records: string[];
+  replayPlanned: number;
+  replayed: { bundleId: string; tool: string; version: string; target: string }[];
+  skipped: ReplaySkip[];
+  needsReinstall: { bundleId: string; version: string }[];
+  failures: ReplaySkip[];
+  /** Bundles only in the old `prompt-registry.*` file, replayed with the old code. */
+  oldFile?: OldFileReplay;
+}
+
+/** What {@link replayOldFileOnly} reports for the old `prompt-registry.*` file. */
+interface OldFileReplay {
+  lockfile: string;
+  /** Target the old-file bundles were replayed into; absent when none could be resolved. */
+  target?: string;
+  replayPlanned: number;
+  replayed: string[];
+  failures: { bundleId: string; reason: string }[];
+}
+
+function renderRecordReplay(d: RecordReplayData): string {
+  const lines = [
+    `Replay: ${d.replayed.length}/${d.replayPlanned} entr${d.replayPlanned === 1 ? 'y' : 'ies'} installed.`,
+    ...d.replayed.map((r) => `  ${r.bundleId}@${r.version} (${r.tool}) into target "${r.target}"`),
+    ...d.needsReinstall.map((n) => `Needs reinstall: ${n.bundleId}@${n.version} (tool unknown)`),
+    ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`),
+    ...d.failures.map((f) => `Failed ${f.bundleId} (${f.tool}): ${f.reason}`)
+  ];
+  if (d.oldFile !== undefined) {
+    const old = d.oldFile;
+    lines.push(`Old file ${old.lockfile}: ${String(old.replayed.length)}/${String(old.replayPlanned)} bundle${old.replayPlanned === 1 ? '' : 's'} installed`
+      + (old.target === undefined ? '.' : ` into target "${old.target}".`),
+    ...old.failures.map((f) => `Failed ${f.bundleId}: ${f.reason}`));
+  }
+  return lines.join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records });
+}
+
+/**
+ * Report what a record replay would install, without fetching or writing anything.
+ * @param ctx CLI context.
+ * @param fmt Output format.
+ * @param data The planned replay.
+ * @param planned The entries that would be installed.
+ * @returns Exit code.
+ */
+function reportRecordReplayDryRun(
+  ctx: Context,
+  fmt: OutputFormat,
+  data: RecordReplayData,
+  planned: RecordReplayData['replayed']
+): number {
+  const { replayed: _replayed, failures: _failures, ...rest } = data;
+  formatOutput({
+    ctx,
+    command: 'install',
+    output: fmt,
+    status: data.skipped.length === 0 && data.needsReinstall.length === 0 ? 'ok' : 'warning',
+    data: { dryRun: true, ...rest, planned },
+    textRenderer: (d) => [
+      `Dry run: would replay ${String(d.planned.length)}/${String(d.replayPlanned)} entr${d.replayPlanned === 1 ? 'y' : 'ies'}.`,
+      ...d.planned.map((r) => `  ${r.bundleId}@${r.version} (${r.tool}) into target "${r.target}"`),
+      ...d.needsReinstall.map((n) => `Needs reinstall: ${n.bundleId}@${n.version} (tool unknown)`),
+      ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`)
+    ].join('\n') + '\n' + renderRecordLine({ level: d.level, records: d.records })
+  });
+  return 0;
+}
+
+/**
+ * Reinstall every recorded entry at its recorded version with its mapped target, and record it again.
+ * @param run Replay inputs.
+ * @returns Exit code.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+async function performRecordReplay(run: RecordReplayRun): Promise<number> {
+  const { ctx, fmt, opts, prepared, explicit } = run;
+  if (opts.skipUnsupported === true) {
+    throw new RegistryError({
+      code: 'USAGE.INVALID_FLAG',
+      message: 'install: --skip-unsupported cannot be used with a record replay; the replay installs every recorded entry in full',
+      hint: 'Install the bundle on its own: install <bundle-id> --skip-unsupported (or --from <dir>).'
+    });
+  }
+  const { selection, store, service, fs } = prepared;
+  const http = opts.http ?? new NodeHttpClient();
+  const tokens = opts.tokens ?? defaultTokenProvider(ctx.env);
+  const cache = isGitHubAppAuthEnabled(ctx.env) ? createSourceAwareInstallDependencyCache(http, ctx) : undefined;
+  // Local-only files go to the record's info/exclude, also in a git worktree.
+  const writerFactory = createWriterFactory(ctx, opts, prepared.exclusion);
+  // Every entry is mapped and its source gated before any fetch.
+  const plan = await planRecordEntries({
+    service,
+    store,
+    fs,
+    selection,
+    targets: await readTargetsSafely(loadTargets(ctx)),
+    configured: await configuredSources(ctx),
+    explicit,
+    cwd: ctx.cwd(),
+    holdingFile: 'first-holding'
+  });
+  const data: RecordReplayData = {
+    ...await recordOutputFields(selection, fs),
+    replayPlanned: plan.considered,
+    replayed: [],
+    skipped: plan.skipped,
+    needsReinstall: plan.needsReinstall.map((row) => ({ bundleId: row.bundleId, version: row.version })),
+    failures: []
+  };
+  // Every mapped target is checked against --allow-target before anything is fetched or written.
+  for (const item of plan.items) {
+    checkAllowTarget(resolveEffectiveTarget(ctx, item.target).name, opts);
+  }
+  if (opts.dryRun === true) {
+    return reportRecordReplayDryRun(ctx, fmt, data, plan.items.map((item) => ({
+      bundleId: item.bundleId, tool: item.tool, version: item.entry.version, target: resolveEffectiveTarget(ctx, item.target).name
+    })));
+  }
+  const changes: RecordInstallResult[] = [];
+
+  for (const item of plan.items) {
+    const { bundleId, tool, entry } = item;
+    const source = toLockfileSourceEntry(item.source);
+    const target = resolveEffectiveTarget(ctx, item.target);
+    let written: string[] = [];
+    try {
+      // No archive checksum in a record entry; recordInstall re-checksums the written files.
+      const files = await fetchFilesForSource(
+        source, bundleId, toLockfileBundleEntry(entry), http,
+        tokensForRecordSource(tokens, item.fromRecordOnly), ctx, opts.verbose ?? false, item.fromRecordOnly ? undefined : cache
+      );
+      if (files === null) {
+        data.failures.push({ bundleId, tool, reason: `failed to fetch files from ${source.type} source` });
+        continue;
+      }
+      const manifest = validateManifest(files, {
+        expectedId: source.type === 'artifactory' ? undefined : bundleId,
+        expectedVersion: entry.version,
+        sourceRepoSlug: githubRepoSlugForSource(source)
+      });
+      const { result } = await writeBundleSafely(writerFactory(target), target, files, manifest);
+      written = [...result.written];
+      changes.push(await recordPlannedInstall(
+        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type }, target, ctx, manifest.version, written, false
+      ));
+      await updateTargetState(ctx, target.name, bundleId, manifest.version);
+      data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
+    } catch (cause) {
+      if (isRecordError(cause)) {
+        throw toCommandRecordError('install', cause, written);
+      }
+      data.failures.push({ bundleId, tool, reason: cause instanceof Error ? cause.message : String(cause) });
+    }
+  }
+
+  const warnings = [...plan.notes, ...await finishRecordRun(service, changes)];
+
+  // Bundles only in the old file replay with the old code; the record wins for the others.
+  data.oldFile = await replayOldFileOnly(run, { http, tokens, cache });
+  warnings.push(
+    ...data.skipped.map((s) => `${s.bundleId} (${s.tool}): ${s.reason}`),
+    ...data.needsReinstall.map((n) => `${n.bundleId}: needs reinstall`),
+    ...data.failures.map((f) => `${f.bundleId} (${f.tool}): ${f.reason}`),
+    ...(data.oldFile?.failures ?? []).map((f) => `${f.bundleId}: ${f.reason}`)
+  );
+
+  formatOutput({
+    ctx,
+    command: 'install',
+    output: fmt,
+    status: warnings.length === 0 ? 'ok' : 'warning',
+    data,
+    warnings: warnings.length === 0 ? undefined : warnings,
+    textRenderer: renderRecordReplay
+  });
+  // Exit 1 when every planned entry was skipped.
+  const nothingProcessed = data.replayPlanned > 0 && data.replayed.length === 0 && data.failures.length === 0
+    && (data.oldFile === undefined || data.oldFile.replayed.length === 0);
+  const failed = data.failures.length > 0 || (data.oldFile?.failures.length ?? 0) > 0;
+  return failed || nothingProcessed ? 1 : 0;
+}
+
+/**
+ * Replay the bundles only the old `prompt-registry.*` file has, with the old code and on that file.
+ * @param run Replay inputs.
+ * @param fetch HTTP client, token provider and source-aware dependency cache.
+ * @param fetch.http HTTP client.
+ * @param fetch.tokens Token provider.
+ * @param fetch.cache Source-aware dependency cache, when GitHub App auth is on.
+ * @returns What was replayed, or `undefined` when there is no old-file-only bundle.
+ */
+async function replayOldFileOnly(
+  run: RecordReplayRun,
+  fetch: { http: HttpClient; tokens: TokenProvider; cache?: SourceAwareInstallDependencyCache }
+): Promise<OldFileReplay | undefined> {
+  const { ctx, opts, prepared, explicit } = run;
+  const old = await prepareOldFileOnly(ctx, prepared, { command: 'install', target: explicit, overrides: opts });
+  if (old === undefined) {
+    return undefined;
+  }
+  const { lockPath, lock, bundleIds } = old;
+  if ('reason' in old) {
+    return { lockfile: lockPath, replayPlanned: bundleIds.length, replayed: [], failures: bundleIds.map((bundleId) => ({ bundleId, reason: old.reason })) };
+  }
+  const { target } = old;
+  const { replayed, failures } = await replayLockfileEntries({
+    bundleIds,
+    lock,
+    http: fetch.http,
+    tokens: fetch.tokens,
+    writer: createWriterFactory(ctx, opts)(target),
+    target,
+    ctx,
+    verbose: opts.verbose ?? false,
+    sourceAwareDependencyCache: fetch.cache
+  });
+  if (replayed.length > 0) {
+    await updateTargetStateFromLockfile(ctx, target.name, lock, replayed);
+  }
+  return { lockfile: lockPath, target: target.name, replayPlanned: bundleIds.length, replayed, failures };
+}
+
 /**
  * Perform remote install from GitHub.
  * @param opts Install options.
@@ -1325,31 +1614,17 @@ async function performRemoteInstall(
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
-    const sourceConfig = opts.sourceConfig;
-    const collectionsPath = sourceConfig?.config?.collectionsPath;
-    const sourceDetails: LockfileSourceEntry = {
-      type: sourceConfig?.type ?? 'github',
-      url: sourceConfig?.url ?? `https://github.com/${repoSlug}`,
-      ...(collectionsPath ? { collectionsPath } : {}),
-      ...(sourceConfig?.type === 'artifactory'
-        ? {
-          indexFile: typeof sourceConfig.config?.indexFile === 'string' ? sourceConfig.config.indexFile : undefined,
-          authMode: sourceConfig.config?.authMode === 'bearer' ? 'bearer' : 'anonymous',
-          credentialRef: typeof sourceConfig.config?.credentialRef === 'string' ? sourceConfig.config.credentialRef : undefined
-        }
-        : {})
-    };
+    // No configured source: the GitHub repository the bundle was resolved from.
+    const recordSource = opts.sourceConfig === undefined
+      ? { type: 'github', url: `https://github.com/${repoSlug}` }
+      : toRecordSource(opts.sourceConfig);
+    // The old lockfile never kept a branch.
+    const { branch: _branch, ...sourceDetails } = toLockfileSourceEntry(recordSource);
     const { lockPath, warnings } = await persistInstall(prepared, {
       bundleId: lockKey,
       version: manifest.version,
       tool: effectiveTarget.type,
-      source: {
-        sourceId: installable.ref.sourceId,
-        ...sourceDetails,
-        ...(sourceConfig?.type !== 'artifactory' && typeof sourceConfig?.config?.branch === 'string'
-          ? { branch: sourceConfig.config.branch }
-          : {})
-      },
+      source: { sourceId: installable.ref.sourceId, ...recordSource },
       writtenPaths: result.written
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
