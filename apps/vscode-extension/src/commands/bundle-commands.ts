@@ -3,13 +3,17 @@
  * Orchestrates bundle operations through specialized command handlers
  */
 
+import {
+  areAllFilesMissing,
+} from '@ai-primitives-hub/app';
+import {
+  isRecordError,
+  type RecordLocation,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   BundleUpdateNotifications,
 } from '../notifications/bundle-update-notifications';
-import {
-  LockfileManager,
-} from '../services/lockfile-manager';
 import {
   RegistryManager,
 } from '../services/registry-manager';
@@ -29,6 +33,13 @@ import {
   BundleUpdateCommands,
 } from './bundle-update-commands';
 
+/** A stale repository entry: a record tool entry, or an old lockfile entry without `tool` and `location`. */
+interface StaleRow {
+  bundleId: string;
+  tool?: string;
+  location?: RecordLocation;
+}
+
 /**
  * Bundle Commands Handler
  * Uses composition to delegate to specialized command handlers
@@ -39,7 +50,7 @@ export class BundleCommands {
   private readonly browsingCommands: BundleBrowsingCommands;
   private readonly logger: Logger;
 
-  constructor(registryManager: RegistryManager) {
+  constructor(private readonly registryManager: RegistryManager) {
     this.installationCommands = new BundleInstallationCommands(registryManager);
 
     const bundleNameResolver = async (bundleId: string) => await registryManager.getBundleName(bundleId);
@@ -48,6 +59,40 @@ export class BundleCommands {
 
     this.browsingCommands = new BundleBrowsingCommands(registryManager);
     this.logger = Logger.getInstance();
+  }
+
+  private static rowLabel(row: StaleRow): string {
+    return row.tool === undefined ? `${row.bundleId} (old lockfile)` : `${row.bundleId} (${row.tool})`;
+  }
+
+  /**
+   * Stale rows of a workspace folder: record and old lockfile entries whose files are all missing.
+   * @param workspaceRoot - Absolute workspace folder path.
+   * @throws {RegistryError} Any `RECORD.*` error from loading the record files.
+   */
+  private async findStaleRows(workspaceRoot: string): Promise<StaleRow[]> {
+    const adapter = this.registryManager.getRecordAdapter();
+    const rows: StaleRow[] = [];
+    // Each file on its own: a bundle and tool in both files is stale only when the files of both copies are missing.
+    const copies = (await Promise.all((await adapter.locations(workspaceRoot))
+      .map((location) => adapter.service.listToolEntries([location])))).flat();
+    const pathsOf = (bundleId: string, tool: string): string[] => copies
+      .filter((copy) => copy.bundleId === bundleId && copy.tool === tool)
+      .flatMap((copy) => copy.entry.files.map((file) => file.path));
+    for (const located of await adapter.listAllEntries(workspaceRoot)) {
+      if (await areAllFilesMissing(adapter.fs, located.location.root, pathsOf(located.bundleId, located.tool))) {
+        rows.push({ bundleId: located.bundleId, tool: located.tool, location: located.location });
+      }
+    }
+    for (const old of await adapter.readOldLockfiles(workspaceRoot)) {
+      for (const [bundleId, entry] of Object.entries(old.lock?.bundles ?? {})) {
+        const paths = entry.files.map((file) => file.path.replaceAll('\\', '/'));
+        if (await areAllFilesMissing(adapter.fs, workspaceRoot, paths)) {
+          rows.push({ bundleId });
+        }
+      }
+    }
+    return rows;
   }
 
   // ===== Installation Commands =====
@@ -160,12 +205,8 @@ export class BundleCommands {
   // ===== Cleanup Commands =====
 
   /**
-   * Clean up stale lockfile entries where files no longer exist.
-   * Gets bundles with filesMissing flag, shows confirmation dialog,
-   * removes stale entries from lockfile, and shows success/info message.
-   *
-   * Requirements covered:
-   * - 3.4: Provide command to clean up stale lockfile entries
+   * Clean up stale repository entries whose files are all missing, for any
+   * tool. Only the entries are removed; the batch stops at the first `RECORD.*` error.
    */
   public async cleanupStaleLockfileEntries(): Promise<void> {
     const workspaceRoot = getWorkspaceRoot();
@@ -175,20 +216,18 @@ export class BundleCommands {
       return;
     }
 
+    const adapter = this.registryManager.getRecordAdapter();
     try {
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      const bundles = await lockfileManager.getInstalledBundles();
-      const staleBundles = bundles.filter((b) => b.filesMissing);
+      const staleRows = await this.findStaleRows(workspaceRoot);
 
-      if (staleBundles.length === 0) {
+      if (staleRows.length === 0) {
         vscode.window.showInformationMessage('No stale repository bundle entries found.');
         return;
       }
 
-      // Show confirmation dialog with count
-      const bundleList = staleBundles.map((b) => `• ${b.bundleId}`).join('\n');
+      const bundleList = staleRows.map((row) => `• ${BundleCommands.rowLabel(row)}`).join('\n');
       const confirm = await vscode.window.showWarningMessage(
-        `Found ${staleBundles.length} stale bundle(s) with missing files:\n\n${bundleList}\n\nRemove these entries from the lockfile?`,
+        `Found ${staleRows.length} stale bundle entr${staleRows.length === 1 ? 'y' : 'ies'} with all files missing:\n\n${bundleList}\n\nRemove these entries from the install records?`,
         { modal: true },
         'Remove', 'Cancel'
       );
@@ -197,26 +236,34 @@ export class BundleCommands {
         return;
       }
 
-      // Remove stale entries from lockfile
-      let removedCount = 0;
-      for (const bundle of staleBundles) {
+      const done: string[] = [];
+      for (const [index, row] of staleRows.entries()) {
         try {
-          await lockfileManager.remove(bundle.bundleId);
-          removedCount++;
-          this.logger.info(`Removed stale lockfile entry: ${bundle.bundleId}`);
+          await (row.location === undefined || row.tool === undefined
+            ? adapter.removeOldEntry(workspaceRoot, row.bundleId)
+            : adapter.service.recordUninstall({ location: row.location, bundleId: row.bundleId, tool: row.tool }));
+          done.push(BundleCommands.rowLabel(row));
+          this.logger.info(`Removed stale entry: ${BundleCommands.rowLabel(row)}`);
         } catch (error) {
-          this.logger.error(`Failed to remove stale entry ${bundle.bundleId}:`, error instanceof Error ? error : undefined);
+          if (!isRecordError(error)) {
+            throw error;
+          }
+          const notAttempted = staleRows.slice(index).map((stale) => BundleCommands.rowLabel(stale));
+          this.logger.error(`Stale cleanup stopped at ${BundleCommands.rowLabel(row)}:`, error);
+          adapter.showRecordError(error);
+          vscode.window.showWarningMessage(
+            `Stale cleanup stopped: ${error.code}. Removed: ${done.length === 0 ? 'none' : done.join(', ')}. Not attempted: ${notAttempted.join(', ')}.`
+          );
+          return;
         }
       }
 
-      // Show success message
-      if (removedCount === staleBundles.length) {
-        vscode.window.showInformationMessage(`Successfully removed ${removedCount} stale bundle entries from the lockfile.`);
-      } else {
-        vscode.window.showWarningMessage(`Removed ${removedCount} of ${staleBundles.length} stale entries. Some entries could not be removed.`);
-      }
+      vscode.window.showInformationMessage(`Successfully removed ${done.length} stale bundle entries.`);
     } catch (error) {
-      this.logger.error('Failed to clean up stale lockfile entries:', error instanceof Error ? error : undefined);
+      this.logger.error('Failed to clean up stale entries:', error instanceof Error ? error : undefined);
+      if (adapter.showRecordError(error)) {
+        return;
+      }
       vscode.window.showErrorMessage(`Failed to clean up stale entries: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

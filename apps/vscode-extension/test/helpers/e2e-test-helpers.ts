@@ -14,9 +14,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -61,7 +58,6 @@ export interface E2ETestContext {
  */
 export async function createE2ETestContext(): Promise<E2ETestContext> {
   RegistryManager.resetInstance();
-  LockfileManager.resetInstance();
 
   // Create unique temporary storage directory
   const tempStoragePath = fs.mkdtempSync(
@@ -149,10 +145,12 @@ export async function createE2ETestContext(): Promise<E2ETestContext> {
   // Clear the sources cache
   (registryManager as any).sourcesCache = [];
 
-  // Re-initialize the installer with the new context
+  // Re-initialize the installer with the new context, over the manager's record
+  // adapter so installs see sources added through this test's storage
   // eslint-disable-next-line @typescript-eslint/naming-convention -- matches module export name
   const BundleInstaller = require('../../src/services/bundle-installer').BundleInstaller;
-  (registryManager as any).installer = new BundleInstaller(mockContext);
+  const records = registryManager.getRecordAdapter();
+  (registryManager as any).installer = new BundleInstaller(mockContext, records.hostTool, records);
 
   // Create cleanup function
   const cleanup = (): Promise<void> => {

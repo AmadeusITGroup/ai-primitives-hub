@@ -1,9 +1,13 @@
 /**
- * CLI-managed guard: repository items from an install record are refused with
- * nothing changed on disk; the same id at user scope is not.
+ * Other-tool guard: repository items whose record entries all belong to
+ * another tool are refused with nothing changed on disk; the host's own entry
+ * and the same id at user scope are not.
  */
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
+import {
+  recordError,
+} from '@ai-primitives-hub/core';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
@@ -12,9 +16,6 @@ import {
 import {
   BundleUpdateCommands,
 } from '../../src/commands/bundle-update-commands';
-import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
 import {
   RegistryManager,
 } from '../../src/services/registry-manager';
@@ -45,7 +46,7 @@ import {
 
 const CLI_BUNDLE = 'cli-bundle';
 
-suite('CLI-managed guard (install-record items)', () => {
+suite('Other-tool guard (install-record items)', () => {
   let sandbox: sinon.SinonSandbox;
   let manager: RegistryManager;
   let storage: sinon.SinonStubbedInstance<RegistryStorage>;
@@ -65,7 +66,7 @@ suite('CLI-managed guard (install-record items)', () => {
     root = fs.realpathSync(createTestWorkspace());
     initGitRoot(root);
     writeInstallRecord(root, RECORD_FILE, {
-      [CLI_BUNDLE]: { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/cli.prompt.md' } }
+      [CLI_BUNDLE]: { kiro: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.kiro/steering/cli.md' } }
     });
     (RegistryManager as any).instance = undefined;
     manager = RegistryManager.getInstance(createMockContext(sandbox));
@@ -82,39 +83,44 @@ suite('CLI-managed guard (install-record items)', () => {
     showWarning = sandbox.stub(vscode.window, 'showWarningMessage').resolves(undefined);
     showInfo = sandbox.stub(vscode.window, 'showInformationMessage').resolves(undefined);
     sandbox.stub(vscode.window, 'showErrorMessage').resolves(undefined);
-    LockfileManager.resetInstance();
   });
 
   teardown(() => {
     sandbox.restore();
-    LockfileManager.resetInstance();
     (RegistryManager as any).instance = undefined;
     cleanupTestWorkspace(root);
   });
 
-  /** Each command shows exactly the CLI-managed refusal (no confirmation dialog first). */
-  const assertRefusalShown = (): void => {
+  /**
+   * Each command shows exactly the other-tool refusal, naming the CLI command (no confirmation dialog first).
+   * @param command - The CLI command and its bundle argument.
+   */
+  const assertRefusalShown = (command: string): void => {
     assert.strictEqual(showWarning.callCount, 1);
-    assert.ok(String(showWarning.firstCall.args[0]).includes('was installed with the ai-primitives-hub CLI'));
+    assert.strictEqual(String(showWarning.firstCall.args[0]),
+      `${CLI_BUNDLE} is installed for kiro; change it with the CLI: ai-primitives-hub ${command} --target <a kiro target>`);
   };
 
   const refusedActions: [string, () => Promise<unknown>][] = [
     ['uninstall', () => manager.uninstallBundle(CLI_BUNDLE, 'repository').then(
       () => assert.fail('uninstall should be refused'),
-      (error: { code?: string }) => assert.strictEqual(error.code, 'RECORD.CLI_MANAGED')
+      (error: { code?: string; message?: string }) => {
+        assert.strictEqual(error.code, 'RECORD.CLI_MANAGED');
+        assert.ok(error.message?.includes(`ai-primitives-hub uninstall --bundle ${CLI_BUNDLE} --target <a kiro target>`), error.message);
+      }
     )],
+    // Not listed for the host tool, so there is nothing here to update.
     ['update', async () => {
       sandbox.stub(manager, 'getBundleDetails').rejects(new Error('not in a source'));
       assert.strictEqual(await new BundleUpdateCommands(manager).updateBundle(CLI_BUNDLE), false);
-      assertRefusalShown();
     }],
     ['move to user scope', async () => {
       await scopeCommands().moveToUser(CLI_BUNDLE);
-      assertRefusalShown();
+      assertRefusalShown(`uninstall --bundle ${CLI_BUNDLE}`);
     }],
     ['commit-mode switch', async () => {
       await scopeCommands().switchCommitMode(CLI_BUNDLE, 'local-only');
-      assertRefusalShown();
+      assertRefusalShown(`install ${CLI_BUNDLE}`);
     }]
   ];
 
@@ -128,6 +134,18 @@ suite('CLI-managed guard (install-record items)', () => {
       assert.ok(showInfo.notCalled, 'no success message');
       assert.deepStrictEqual(snapshotTree(root), before);
     });
+  });
+
+  test('a repository bundle with a vscode record entry is uninstalled', async () => {
+    writeInstallRecord(root, RECORD_FILE, {
+      [CLI_BUNDLE]: { vscode: { version: '1.0.0', installedAt: '2026-10-28T10:00:00.000Z', file: '.github/prompts/cli.prompt.md' } }
+    });
+
+    await manager.uninstallBundle(CLI_BUNDLE, 'repository');
+
+    assert.strictEqual(installer.uninstall.callCount, 1);
+    assert.strictEqual(installer.uninstall.firstCall.args[0].scope, 'repository');
+    assert.ok(showWarning.notCalled, 'no refusal');
   });
 
   test('the same id at user scope is uninstalled', async () => {
@@ -149,5 +167,24 @@ suite('CLI-managed guard (install-record items)', () => {
     assert.deepStrictEqual(installer.uninstall.getCalls().map((call) => call.args[0].bundleId), ['old-bundle']);
     const message = String(showWarning.firstCall.args[0]);
     assert.ok(message.startsWith('Skipped 1 bundle(s)') && message.includes(CLI_BUNDLE), message);
+  });
+
+  test('batch uninstall stops at the first RECORD.* error and names done, skipped and not-attempted ids and the file', async () => {
+    writeOldLockfile(root, 'prompt-registry.lock.json', { 'done-bundle': '1.0.0', 'bad-bundle': '1.0.0', 'later-bundle': '1.0.0' });
+    installer.uninstall.callsFake(async (bundle: InstalledBundle) => {
+      if (bundle.bundleId === 'bad-bundle') {
+        throw recordError('RECORD.WRITE_FAILED', { file: RECORD_FILE });
+      }
+    });
+
+    await manager.uninstallBundles(['done-bundle', CLI_BUNDLE, 'bad-bundle', 'later-bundle'], 'repository');
+
+    assert.deepStrictEqual(installer.uninstall.getCalls().map((call) => call.args[0].bundleId), ['done-bundle', 'bad-bundle']);
+    assert.strictEqual(showWarning.callCount, 1);
+    assert.strictEqual(
+      String(showWarning.firstCall.args[0]),
+      `Uninstall stopped at bad-bundle: RECORD.WRITE_FAILED in ${RECORD_FILE}. Uninstalled: done-bundle. `
+      + `Skipped (installed for another tool): ${CLI_BUNDLE}. Not attempted: later-bundle.`
+    );
   });
 });

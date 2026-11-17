@@ -4,7 +4,6 @@
  * This module provides utilities for creating test lockfiles with consistent
  * structure across all test files. Follows patterns from bundleTestHelpers.ts.
  */
-import * as fc from 'fast-check';
 import {
   Lockfile,
   LockfileBundleEntry,
@@ -12,7 +11,8 @@ import {
   LockfileHubEntry,
   LockfileProfileEntry,
   LockfileSourceEntry,
-} from '../../src/types/lockfile';
+} from '@ai-primitives-hub/app';
+import * as fc from 'fast-check';
 import {
   RepositoryCommitMode,
 } from '../../src/types/registry';

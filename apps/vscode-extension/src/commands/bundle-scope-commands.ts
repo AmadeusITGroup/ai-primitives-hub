@@ -11,9 +11,6 @@
 
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../services/lockfile-manager';
-import {
   RegistryManager,
 } from '../services/registry-manager';
 import {
@@ -40,7 +37,6 @@ import {
   Logger,
 } from '../utils/logger';
 import {
-  getWorkspaceRoot,
   hasOpenWorkspace,
 } from '../utils/scope-selection-ui';
 
@@ -63,12 +59,12 @@ export class BundleScopeCommands {
 
   /**
    * Get installed bundle from the appropriate source based on scope.
-   * Delegates to shared utility that handles lockfile vs storage lookup.
-   * @param bundleId
-   * @param scope
+   * @param bundleId - Bundle id.
+   * @param scope - Scope to look in.
    */
   private async getBundleForScope(bundleId: string, scope: InstallationScope): Promise<InstalledBundle | undefined> {
-    return getInstalledBundleForScope(this.registryManager.getStorage(), bundleId, scope);
+    return getInstalledBundleForScope(this.registryManager.getStorage(), bundleId, scope,
+      (workspaceRoot) => this.registryManager.listRepositoryBundles(workspaceRoot));
   }
 
   /**
@@ -166,7 +162,7 @@ export class BundleScopeCommands {
       this.logger.debug(`[BundleScopeCommands] Moving bundle ${bundleId} to user scope`);
 
       // Refuse CLI-installed items before any lookup or dialog
-      await this.registryManager.assertNotCliManaged(bundleId, 'repository', 'move-to-user');
+      await this.registryManager.assertHostTool(bundleId, 'repository', 'move-to-user');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');
@@ -195,6 +191,9 @@ export class BundleScopeCommands {
         return;
       }
 
+      // Move the version the host tool installed, not another tool's newer entry of the bundle.
+      const version = (await this.registryManager.getHostVersion(bundleId)) ?? repoBundle.version;
+
       // Perform migration
       const result = await this.scopeConflictResolver.migrateBundle(
         bundleId,
@@ -206,7 +205,7 @@ export class BundleScopeCommands {
         async (_installedBundle: InstalledBundle, targetScope: InstallationScope) => {
           await this.registryManager.installBundle(bundleId, {
             scope: targetScope,
-            version: repoBundle.version
+            version
           });
         }
       );
@@ -244,7 +243,7 @@ export class BundleScopeCommands {
       this.logger.debug(`[BundleScopeCommands] Switching commit mode for ${bundleId} to ${newMode}`);
 
       // Refuse CLI-installed items before any lookup, dialog or exclude change
-      await this.registryManager.assertNotCliManaged(bundleId, 'repository', 'switch-commit-mode');
+      await this.registryManager.assertHostTool(bundleId, 'repository', 'switch-commit-mode');
 
       // Get bundle from repository scope (uses lockfile)
       const repoBundle = await this.getBundleForScope(bundleId, 'repository');
@@ -254,8 +253,8 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Check if already in target mode
-      const currentMode = repoBundle.commitMode ?? 'commit';
+      // The host entry's own mode wins over the merged listing, which shows the newest entry across tools
+      const currentMode = (await this.registryManager.getHostCommitMode(bundleId)) ?? repoBundle.commitMode ?? 'commit';
       if (currentMode === newMode) {
         vscode.window.showInformationMessage(`Bundle is already in ${newMode} mode.`);
         return;
@@ -284,15 +283,8 @@ export class BundleScopeCommands {
         return;
       }
 
-      // Perform switch (updates git exclude entries)
+      // Perform switch (moves the record entry and updates git exclude entries)
       await this.repositoryScopeService.switchCommitMode(bundleId, newMode);
-
-      // Update lockfile with new commit mode using atomic write
-      const workspaceRoot = getWorkspaceRoot();
-      if (workspaceRoot) {
-        const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-        await lockfileManager.updateCommitMode(bundleId, newMode);
-      }
 
       this.registryManager.handleWorkspaceFoldersChanged();
 

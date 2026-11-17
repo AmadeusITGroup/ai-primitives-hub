@@ -19,8 +19,13 @@ import {
   promisify,
 } from 'node:util';
 import {
+  findModifiedFiles,
   InstallPipeline,
   InstallPipelineError,
+  type RecordInstallResult,
+  type RecordSourceInput,
+  type SiblingSync,
+  writerGroupFor,
 } from '@ai-primitives-hub/app';
 import type {
   BundleDownloader,
@@ -29,6 +34,7 @@ import type {
   BundleSpec,
   ExtractedFiles,
   Installable,
+  RecordLocation,
   Target,
   TargetType,
   TargetWriter,
@@ -42,10 +48,6 @@ import * as vscode from 'vscode';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
-import {
-  LockfileFileEntry,
-  LockfileSourceEntry,
-} from '../types/lockfile';
 import type {
   McpServerNaming,
 } from '../types/mcp';
@@ -58,14 +60,9 @@ import {
   RepositoryCommitMode,
 } from '../types/registry';
 import {
-  CopilotFileType,
-  determineFileType,
   getSkillName,
-  getTargetFileName,
-  normalizePromptId,
 } from '../utils/copilot-file-type-utils';
 import {
-  calculateFileChecksum,
   ensureDirectory,
 } from '../utils/file-integrity-service';
 import {
@@ -84,8 +81,8 @@ import {
   checkPathExists,
 } from '../utils/symlink-utils';
 import {
-  LockfileManager,
-} from './lockfile-manager';
+  ExtensionRecordAdapter,
+} from './extension-record-adapter';
 import {
   McpServerManager,
 } from './mcp-server-manager';
@@ -105,11 +102,31 @@ import {
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
-const stat = promisify(fs.stat);
 const lstat = promisify(fs.lstat);
 const unlink = promisify(fs.unlink);
 const rmdir = promisify(fs.rmdir);
 const symlink = promisify(fs.symlink);
+
+/** A repository install prepared before any file is written. */
+interface PreparedRepositoryInstall {
+  workspaceRoot: string;
+  /** Record file the entry is recorded in. */
+  location: RecordLocation;
+  /** Configured source the entry records. */
+  source: RecordSourceInput;
+  /** Root-relative files of the replaced host entries modified or missing before the write. */
+  modified: ReadonlySet<string>;
+}
+
+/** An in-place repository update: the old entry, read before the write. */
+export interface RepositoryUpdateInPlace {
+  /** Bundle id of the installed version; the new version may carry another id. */
+  previousBundleId: string;
+  /** File holding the host entry, when the record has one. */
+  location?: RecordLocation;
+  /** Root-relative paths of the old entry modified or missing before the write. */
+  modified: ReadonlySet<string>;
+}
 
 /**
  * Bundle Installer
@@ -120,20 +137,21 @@ export class BundleInstaller {
   private readonly mcpManager: McpServerManager;
   private readonly storage: RegistryStorage;
   private readonly targetType: TargetType;
+  private readonly records: ExtensionRecordAdapter;
 
   /**
    * Create a new BundleInstaller.
    * @param context - VS Code extension context.
-   * @param targetType - Host editor target type; detected from the running
-   *   editor by default, injectable for tests. Used to resolve host-aware
-   *   repository-scope destinations when collecting lockfile entries.
+   * @param targetType - Host editor target type, also the recorded tool; detected by default.
+   * @param records - Shared install record adapter; built over the stored sources by default.
    */
-  constructor(private readonly context: vscode.ExtensionContext, targetType?: TargetType) {
+  constructor(private readonly context: vscode.ExtensionContext, targetType?: TargetType, records?: ExtensionRecordAdapter) {
     this.logger = Logger.getInstance();
     this.copilotSync = new UserScopeService(context);
     this.mcpManager = new McpServerManager();
     this.storage = new RegistryStorage(context);
     this.targetType = targetType ?? detectHostApp();
+    this.records = records ?? new ExtensionRecordAdapter({ sources: { listSources: () => this.storage.getSources() }, hostTool: this.targetType });
   }
 
   /**
@@ -142,202 +160,158 @@ export class BundleInstaller {
    */
   private getScopeService(scope: InstallationScope): IScopeService {
     if (scope === 'repository') {
-      const workspaceRoot = getWorkspaceRoot();
-      if (!workspaceRoot) {
-        throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
-      }
-      return ScopeServiceFactory.create(scope, this.context, workspaceRoot, this.storage, this.targetType);
+      return this.getRepositoryScopeService();
     }
     return ScopeServiceFactory.create(scope, this.context);
   }
 
-  /**
-   * Collect file entries with checksums for lockfile
-   * @param installDir
-   * @param workspaceRoot
-   */
-  private async collectFileEntries(installDir: string, workspaceRoot: string): Promise<LockfileFileEntry[]> {
-    const entries: LockfileFileEntry[] = [];
-
-    const collectFromDir = async (dir: string): Promise<void> => {
-      if (!fs.existsSync(dir)) {
-        return;
-      }
-
-      const files = await readdir(dir);
-      for (const file of files) {
-        const filePath = path.join(dir, file);
-        const stats = await stat(filePath);
-
-        if (stats.isDirectory()) {
-          await collectFromDir(filePath);
-        } else {
-          const relativePath = path.relative(workspaceRoot, filePath);
-          const checksum = await calculateFileChecksum(filePath);
-          entries.push({ path: relativePath, checksum });
-        }
-      }
-    };
-
-    await collectFromDir(installDir);
-    return entries;
+  /** The repository scope service for the open workspace, wired to the shared record. */
+  private getRepositoryScopeService(): RepositoryScopeService {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
+    }
+    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType, this.records);
   }
 
   /**
-   * Update lockfile when installing a bundle at repository scope
-   * @param bundle
-   * @param installed
-   * @param options
-   * @param sourceType
+   * Show a `RECORD.*` error once and rethrow it; other errors pass through.
+   * @param error - Anything thrown.
+   * @param written - Files the writer wrote before the error.
+   * @param root - Record root, for "Open file".
    */
-  private async updateLockfileOnInstall(
+  private rethrowRecordError(error: unknown, written: readonly string[] = [], root?: string): never {
+    this.records.showRecordError(error, written, root);
+    throw error;
+  }
+
+  /**
+   * Check the configured source and load both record files before anything is written.
+   * @param bundle - Bundle to install.
+   * @param commitMode - Commit mode of the install.
+   * @param inPlace - The old entry, for an update.
+   */
+  private async prepareRepositoryInstall(
     bundle: Bundle,
-    installed: InstalledBundle,
-    options: InstallOptions,
-    sourceType?: string
-  ): Promise<void> {
+    commitMode: RepositoryCommitMode,
+    inPlace?: RepositoryUpdateInPlace
+  ): Promise<PreparedRepositoryInstall> {
     const workspaceRoot = getWorkspaceRoot();
     if (!workspaceRoot) {
-      this.logger.warn('Cannot update lockfile: no workspace root');
-      return;
+      throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
     }
-
+    const source = await this.records.buildSource(bundle.sourceId);
     try {
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
+      const location = inPlace?.location ?? await this.records.prepareInstall(workspaceRoot, commitMode);
+      return { workspaceRoot, location, source, modified: inPlace?.modified ?? await this.modifiedOfSameIdentity(workspaceRoot, bundle) };
+    } catch (error) {
+      this.rethrowRecordError(error);
+    }
+  }
 
-      // For repository scope, collect files from .github/ directories (where they are synced)
-      // not from the bundle cache directory
-      const files = await this.collectRepositoryFileEntries(workspaceRoot, installed.installPath);
+  /**
+   * Files of the host entries the install replaces, any version of the bundle, modified or missing now.
+   * @param workspaceRoot - Workspace folder.
+   * @param bundle - Bundle to install.
+   */
+  private async modifiedOfSameIdentity(workspaceRoot: string, bundle: Bundle): Promise<Set<string>> {
+    const modified = new Set<string>();
+    for (const located of await this.records.findHostEntries(workspaceRoot, bundle.id, bundle.version)) {
+      for (const file of await findModifiedFiles(this.records.fs, located.location.root, located.entry.files)) {
+        modified.add(file);
+      }
+    }
+    return modified;
+  }
 
-      // Create source entry
-      const source: LockfileSourceEntry = {
-        type: sourceType || installed.sourceType || 'unknown',
-        url: bundle.downloadUrl || bundle.manifestUrl || ''
-      };
-
-      await lockfileManager.createOrUpdate({
+  /**
+   * Record the host tool's entry with the written files, retire the old
+   * `prompt-registry` entries, then delete superseded files except modified ones.
+   * @param bundle - Installed bundle.
+   * @param prepared - Result of {@link prepareRepositoryInstall}.
+   * @param written - Absolute paths the writer wrote.
+   * @param routeKeys - Kinds the bundle wrote, as `kindRoutes` keys.
+   * @param inPlace - The old entry, for an update.
+   */
+  private async recordRepositoryInstall(
+    bundle: Bundle,
+    prepared: PreparedRepositoryInstall,
+    written: readonly string[],
+    routeKeys: readonly string[],
+    inPlace?: RepositoryUpdateInPlace
+  ): Promise<void> {
+    const group = writerGroupFor(this.records.hostTool, routeKeys);
+    const root = prepared.location.root;
+    let change: RecordInstallResult;
+    const warnings: string[] = [];
+    try {
+      change = await this.records.service.recordInstall({
+        location: prepared.location,
         bundleId: bundle.id,
         version: bundle.version,
-        sourceId: bundle.sourceId,
-        sourceType: sourceType || installed.sourceType || 'unknown',
-        commitMode: options.commitMode ?? 'commit',
-        files,
-        source
+        tool: this.records.hostTool,
+        source: prepared.source,
+        sourceType: prepared.source.type,
+        writtenPaths: written,
+        workspaceRoot: prepared.workspaceRoot,
+        syncSiblings: (tool) => group.includes(tool)
       });
-
-      this.logger.debug(`Updated lockfile for bundle ${bundle.id}`);
+      warnings.push(...change.warnings);
+      if (inPlace !== undefined && inPlace.previousBundleId !== bundle.id && inPlace.location !== undefined
+        && (await this.records.service.findEntries([inPlace.location], inPlace.previousBundleId, this.records.hostTool)).length > 0) {
+        // Another bundle, not another version of it: recordInstall left the old id's host entry.
+        const removed = await this.records.service.uninstallEntry({
+          location: inPlace.location, bundleId: inPlace.previousBundleId, tool: this.records.hostTool, keep: inPlace.modified
+        });
+        warnings.push(...removed.warnings);
+      }
     } catch (error) {
-      this.logger.error('Failed to update lockfile on install', error as Error);
-      // Don't fail the installation if lockfile update fails
+      this.rethrowRecordError(error, written, root);
     }
+    this.reportOutOfDateSiblings(bundle.id, change.siblings);
+    await this.retireOldEntries(prepared.workspaceRoot, bundle, root);
+    const removal = await this.records.service.deleteSupersededAfterAll([{
+      location: change.location,
+      deletedFiles: change.deletedFiles.filter((file) => !prepared.modified.has(file))
+    }]).catch((error: unknown) => this.rethrowRecordError(error, [], root));
+    for (const warning of [...warnings, ...removal.warnings]) {
+      this.logger.warn(`[BundleInstaller] ${warning}`);
+    }
+    this.logger.debug(`Recorded ${bundle.id} for ${this.records.hostTool} in ${prepared.location.path}`);
   }
 
   /**
-   * Collect file entries from .github/ directories for repository scope lockfile
-   * This collects the actual synced files, not the bundle cache files
-   * @param workspaceRoot
-   * @param bundlePath
+   * Retire the old `prompt-registry` entries of any version of a bundle after the record was saved.
+   * @param workspaceRoot - Workspace folder.
+   * @param bundle - Installed bundle.
+   * @param root - Record root, for "Open file".
    */
-  private async collectRepositoryFileEntries(workspaceRoot: string, bundlePath: string): Promise<LockfileFileEntry[]> {
-    const entries: LockfileFileEntry[] = [];
-
-    // Read the deployment manifest to know which files were installed
-    const manifestPath = path.join(bundlePath, 'deployment-manifest.yml');
-    if (!fs.existsSync(manifestPath)) {
-      this.logger.warn('No deployment manifest found, falling back to bundle cache files');
-      return this.collectFileEntries(bundlePath, workspaceRoot);
-    }
-
+  private async retireOldEntries(workspaceRoot: string, bundle: Bundle, root: string): Promise<void> {
     try {
-      const manifestContent = await readFile(manifestPath, 'utf8');
-      const manifest = yaml.load(manifestContent) as DeploymentManifest;
-
-      if (!manifest.prompts || manifest.prompts.length === 0) {
-        return entries;
+      for (const bundleId of await this.records.findOldBundleIds(workspaceRoot, bundle.id, bundle.version)) {
+        const retired = await this.records.retireOldEntry(workspaceRoot, bundleId);
+        retired?.warnings.forEach((warning) => this.logger.warn(`[BundleInstaller] ${warning}`));
       }
-
-      // Resolve host-aware destinations via the repository scope service —
-      // the same service (and layout resolution) that wrote the files — so the
-      // lockfile is collected from the actual install location.
-      const repoService = new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
-
-      // Collect files from the host-appropriate directories based on manifest
-      for (const promptDef of manifest.prompts) {
-        const promptId = normalizePromptId(promptDef.id);
-        const fileType = (promptDef.type as CopilotFileType) || determineFileType(promptDef.file, promptDef.tags);
-        const targetDir = repoService.getTargetDirectory(fileType);
-
-        if (fileType === 'skill') {
-          // For skills, collect all files in the skill directory
-          const skillDir = path.join(workspaceRoot, targetDir, promptId);
-          if (fs.existsSync(skillDir)) {
-            await this.collectFromDirectory(skillDir, workspaceRoot, entries);
-          }
-        } else {
-          // For other file types, collect the single file
-          const targetFileName = getTargetFileName(promptId, fileType);
-          const targetPath = path.join(workspaceRoot, targetDir, targetFileName);
-
-          if (fs.existsSync(targetPath)) {
-            const relativePath = path.relative(workspaceRoot, targetPath);
-            const checksum = await calculateFileChecksum(targetPath);
-            entries.push({ path: relativePath, checksum });
-          }
-        }
-      }
-
-      return entries;
     } catch (error) {
-      this.logger.warn('Failed to parse manifest, falling back to bundle cache files', error);
-      return this.collectFileEntries(bundlePath, workspaceRoot);
+      this.rethrowRecordError(error, [], root);
     }
   }
 
   /**
-   * Recursively collect files from a directory
-   * @param dir
-   * @param workspaceRoot
-   * @param entries
+   * Tell the user about tools sharing the bundle's files that are now out of date.
+   * @param bundleId - Bundle id.
+   * @param siblings - Siblings from `recordInstall`.
    */
-  private async collectFromDirectory(dir: string, workspaceRoot: string, entries: LockfileFileEntry[]): Promise<void> {
-    if (!fs.existsSync(dir)) {
+  private reportOutOfDateSiblings(bundleId: string, siblings: readonly SiblingSync[]): void {
+    const stale = siblings.filter((sibling) => !sibling.synced);
+    if (stale.length === 0) {
       return;
     }
-
-    const files = await readdir(dir);
-    for (const file of files) {
-      const filePath = path.join(dir, file);
-      const stats = await stat(filePath);
-
-      if (stats.isDirectory()) {
-        await this.collectFromDirectory(filePath, workspaceRoot, entries);
-      } else {
-        const relativePath = path.relative(workspaceRoot, filePath);
-        const checksum = await calculateFileChecksum(filePath);
-        entries.push({ path: relativePath, checksum });
-      }
-    }
-  }
-
-  /**
-   * Update lockfile when uninstalling a bundle at repository scope
-   * @param bundleId
-   */
-  private async updateLockfileOnUninstall(bundleId: string): Promise<void> {
-    const workspaceRoot = getWorkspaceRoot();
-    if (!workspaceRoot) {
-      this.logger.warn('Cannot update lockfile: no workspace root');
-      return;
-    }
-
-    try {
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      await lockfileManager.remove(bundleId);
-      this.logger.debug(`Removed bundle ${bundleId} from lockfile`);
-    } catch (error) {
-      this.logger.error('Failed to update lockfile on uninstall', error as Error);
-      // Don't fail the uninstallation if lockfile update fails
-    }
+    const tools = stale.map((sibling) => `${sibling.tool} (${sibling.version})`).join(', ');
+    const message = `"${bundleId}" is also installed for ${tools}, which shares its files and is now out of date. `
+      + `Update it with the CLI: ai-primitives-hub update ${bundleId} --target <a ${stale[0].tool} target>`;
+    this.logger.info(`[BundleInstaller] ${message}`);
+    void vscode.window.showInformationMessage(message);
   }
 
   // ===== Helper Methods =====
@@ -653,6 +627,49 @@ export class BundleInstaller {
   }
 
   /**
+   * Repository update in place, over the host entry.
+   * @param installed - Installed version.
+   * @param bundle - New version.
+   * @param bundleBuffer - Downloaded bundle bytes.
+   * @param sourceType - Source type of the new version.
+   */
+  private async updateRepositoryInPlace(
+    installed: InstalledBundle,
+    bundle: Bundle,
+    bundleBuffer: Buffer,
+    sourceType: string | undefined
+  ): Promise<InstalledBundle> {
+    const workspaceRoot = getWorkspaceRoot();
+    if (!workspaceRoot) {
+      throw new Error('Repository scope requires an open workspace. Please open a workspace and try again.');
+    }
+    // Check the source before anything is written, MCP config included.
+    await this.records.buildSource(bundle.sourceId);
+    let inPlace: RepositoryUpdateInPlace;
+    try {
+      const located = await this.records.findHostEntry(workspaceRoot, installed.bundleId, installed.version);
+      inPlace = {
+        previousBundleId: located?.bundleId ?? installed.bundleId,
+        location: located?.location,
+        modified: new Set(located === undefined ? [] : await findModifiedFiles(this.records.fs, located.location.root, located.entry.files))
+      };
+    } catch (error) {
+      this.rethrowRecordError(error);
+    }
+    // MCP config entries are merged, not recorded: refresh them as before.
+    await this.uninstallMcpServers(installed.bundleId, 'repository');
+    const updated = await this.installFromBuffer(
+      bundle,
+      bundleBuffer,
+      { scope: 'repository', version: bundle.version, commitMode: inPlace.location?.commitMode ?? installed.commitMode },
+      sourceType,
+      inPlace
+    );
+    this.logger.info('Bundle updated successfully');
+    return updated;
+  }
+
+  /**
    * Create a RepositoryScopeService for the current workspace
    * Used by BundleScopeCommands for scope migration
    * @returns RepositoryScopeService or undefined if no workspace is open
@@ -662,7 +679,7 @@ export class BundleInstaller {
     if (!workspaceRoot) {
       return undefined;
     }
-    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType);
+    return new RepositoryScopeService(workspaceRoot, this.storage, this.targetType, this.records);
   }
 
   /**
@@ -671,12 +688,14 @@ export class BundleInstaller {
    * @param bundleBuffer
    * @param options
    * @param sourceType
+   * @param inPlace - For a repository update: the old entry, read before the write.
    */
   public async installFromBuffer(
     bundle: Bundle,
     bundleBuffer: Buffer,
     options: InstallOptions,
-    sourceType?: string
+    sourceType?: string,
+    inPlace?: RepositoryUpdateInPlace
   ): Promise<InstalledBundle> {
     this.logger.info(`Installing bundle from buffer: ${bundle.name} v${bundle.version}`);
 
@@ -685,6 +704,11 @@ export class BundleInstaller {
     // For repository scope we must still run through the standard sync/lockfile flow; only
     // user/workspace scopes should install directly into the Copilot skills directory.
     const installSkillsToCopilotDir = isSkillsBundle && options.scope !== 'repository';
+
+    // Repository installs check the source and the record before any write.
+    const repository = options.scope === 'repository'
+      ? await this.prepareRepositoryInstall(bundle, options.commitMode ?? 'commit', inPlace)
+      : undefined;
 
     // Bridge the extension's already-resolved Bundle + already-downloaded Buffer (the
     // adapter did both before calling this method, per the "unified architecture" note
@@ -832,6 +856,10 @@ export class BundleInstaller {
             this.logger.info(`[BundleInstaller] Installing repository scope bundle to global storage: bundles/${bundle.id}`);
           }
           installDir = this.getInstallDirectory(bundle.id, options.scope, bundle.name);
+          // An update extracts into a clean folder, so a file the new version dropped is not copied back.
+          if (inPlace !== undefined) {
+            await this.removeDirectory(installDir);
+          }
           await ensureDirectory(installDir);
           this.logger.debug(`Installation directory: ${installDir}`);
 
@@ -902,17 +930,18 @@ export class BundleInstaller {
         }
 
         // Step 10: Sync to appropriate scope directory (skills for repository scope must run through this)
-        const scopeService = this.getScopeService(options.scope);
         // Pass commitMode explicitly to syncBundle to avoid timing issues:
         // The installation record hasn't been saved to RegistryStorage yet at this point,
         // so RepositoryScopeService can't look up commitMode from storage.
-        await scopeService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
-        this.logger.debug(`Synced to ${options.scope} scope`);
-
-        // Step 11: Update lockfile for repository scope
-        if (options.scope === 'repository') {
-          await this.updateLockfileOnInstall(bundle, installed, options, sourceType);
+        if (repository) {
+          // Step 11: record the written files in the shared install record.
+          const repoService = this.getRepositoryScopeService();
+          const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
+          await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
+        } else {
+          await this.getScopeService(options.scope).syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
         }
+        this.logger.debug(`Synced to ${options.scope} scope`);
       }
 
       this.logger.info(`Bundle installed successfully from buffer: ${bundle.name}`);
@@ -927,8 +956,9 @@ export class BundleInstaller {
   }
 
   /**
-   * Uninstall a bundle
+   * Uninstall a bundle. At repository scope shared and modified files are kept.
    * @param installed
+   * @throws {RegistryError} A `RECORD.*` error, after it was shown once.
    */
   public async uninstall(installed: InstalledBundle): Promise<void> {
     this.logger.info(`Uninstalling bundle: ${installed.bundleId}`);
@@ -938,15 +968,10 @@ export class BundleInstaller {
       await this.uninstallMcpServers(installed.bundleId, installed.scope);
       this.logger.debug('MCP servers uninstalled');
 
-      // Unsync from appropriate scope directory
+      // Unsync from appropriate scope directory (repository: the record entry and its files)
       const scopeService = this.getScopeService(installed.scope);
       await scopeService.unsyncBundle(installed.bundleId);
       this.logger.debug(`Removed from ${installed.scope} scope`);
-
-      // Remove from lockfile for repository scope
-      if (installed.scope === 'repository') {
-        await this.updateLockfileOnUninstall(installed.bundleId);
-      }
 
       // Remove installation directory (bundle cache)
       // For repository scope, the installPath may point to .github which is NOT the bundle cache.
@@ -973,13 +998,13 @@ export class BundleInstaller {
       this.logger.info('Bundle uninstalled successfully');
     } catch (error) {
       this.logger.error('Bundle uninstallation failed', error as Error);
+      this.records.showRecordError(error);
       throw error;
     }
   }
 
   /**
-   * Update a bundle
-   * Note: This method expects a Buffer for remote bundles via the unified architecture
+   * Update a bundle. At repository scope it runs in place and keeps modified files.
    * @param installed
    * @param bundle
    * @param bundleBuffer
@@ -995,10 +1020,13 @@ export class BundleInstaller {
     this.logger.info(`Updating bundle: ${installed.bundleId} to v${bundle.version}`);
 
     try {
+      const resolvedSourceType = sourceType ?? installed.sourceType;
+      if (installed.scope === 'repository') {
+        return await this.updateRepositoryInPlace(installed, bundle, bundleBuffer, resolvedSourceType);
+      }
+
       // Uninstall old version
       await this.uninstall(installed);
-
-      const resolvedSourceType = sourceType ?? installed.sourceType;
 
       // Install new version using the unified architecture
       const newInstalled = await this.installFromBuffer(
