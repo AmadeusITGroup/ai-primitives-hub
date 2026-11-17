@@ -144,21 +144,27 @@ Follow-up work is named by the step labels of the
    `LockfileBundleEntry` that both scopes already write (repository
    `prompt-registry.lock.json` / `prompt-registry.local.lock.json`, and the
    user-scope lockfile from `lockfilePathForTarget`,
-   `packages/cli/src/framework/target.ts`). M4 adds an optional
+   `packages/cli/src/framework/target.ts`). M4 adds optional
    `configEntries: [{ path, key, name }]` to `bundleEntry` in
    `packages/core/src/public/schemas/lockfile.schema.json`. It is written
    only when an entry owns config entries, so lockfiles of bundles without
-   MCP stay byte-identical, and the lockfile name and shape stay as ADR-0004
-   requires. `configEntries` records no value, so `config` verify checks
+   MCP stay byte-identical, and the lockfile name stays as ADR-0004
+   requires. M7 adds optional `ownerId` and `target` fields for
+   repository-scope plugin MCP entries (decision 5); other entries and older
+   records omit them. `configEntries`
+   records no value, so `config` verify checks
    only that each recorded entry is present. An entry whose value was
    edited after install still verifies; this is an accepted limitation.
    `bundleEntry` is `additionalProperties: false`; the extension's
    `LockfileManager.validate()` checks against that schema but has no
    production caller at `4d3b0ed`, so released extensions are not affected.
    Until the VS Code MCP step, an extension rewrite of the same entry may drop the
-   field. Uninstall then falls back to matching the bundle segment of the
-   owned names in either name form (decision 5), which is stable
-   per bundle. The VS Code MCP step (after M4) switches `McpServerManager`
+   field. When the bundle can be established to contain no plugin items,
+   uninstall then falls back to matching the bundle segment of the owned
+   names in either name form (decision 5). Otherwise it does not use this
+   fallback at repository scope: plugin entries cannot safely be identified
+   as owned without metadata. It leaves them in place and reports the
+   conflict. The VS Code MCP step (after M4) switches `McpServerManager`
    tracking to `configEntries`.
 
 2. **Kind → category is data in `core`, with per-target overrides in layout
@@ -211,7 +217,10 @@ Follow-up work is named by the step labels of the
      two more inputs apply (decision 5, O10): the install's commit mode, and
      whether the target MCP config file is already tracked by git. Both are
      known before preflight, so `preflight` and the doctor evaluate the same
-     inputs and give the same answer for the same repository.
+     inputs and give the same answer for the same repository. Repository
+     plugin MCP installs also require the ownership preflight in decision 5;
+     doctor does not claim that a particular install is conflict-free without
+     checking its ownership records and destination names.
    - A bundle file's kind is the kind of the route it matches, which is what
      `preflight` and `allowedKinds` filtering already use. A file that
      matches no route is unsupported.
@@ -310,7 +319,9 @@ Follow-up work is named by the step labels of the
      - `config` preflight treats two equal owned names in one install as a
        conflicting destination and rejects the bundle.
      - Uninstall removes the names recorded in `configEntries`
-       (decision 1). The fallback splits each name on its form's separator
+       (decision 1), subject to the repository-scope plugin ownership check
+       below. When decision 1 permits the fallback, it splits each name on
+       its form's separator
        (`:` after `prompt-registry:`, `__` after `prompt-registry__`) and
        removes it only when its bundle segment equals this bundle's
        `bundleId` in that form: raw in the default form, encoded in the
@@ -401,9 +412,30 @@ Follow-up work is named by the step labels of the
      Mixing commit modes in one file is not detected: `commit`-mode entries
      in a file that a `local-only` install excluded are never seen by git.
      This is recorded, not changed, by this ADR (O15).
+   - **Repository-scope plugin MCP ownership.** CLI and VS Code use separate
+     `AppStorage` roots but the same server names in a shared config file.
+     Each delivery persists a randomly generated, non-secret `ownerId` in
+     its own `AppStorage`; a repository-scope plugin MCP entry records that
+     id and the delivery's target identity in `configEntries`. Before
+     installing or updating, preflight checks the config and both repository
+     lockfiles. An existing name can be updated only if exactly one record
+     identifies this owner, target, bundle and plugin; a foreign, missing or
+     ambiguous record is a conflict, not an invitation to overwrite or adopt
+     the entry. Preflight also rejects an operation that would replace a
+     lockfile entry containing another owner's plugin MCP records.
+     Uninstall removes an entry only when the same ownership check succeeds;
+     otherwise it aborts before removing the plugin's files, data or entries
+     and reports the conflict.
+     Lost ownership metadata requires manual recovery. Install, update and
+     uninstall serialize the ownership check and config and lockfile writes
+     across both updated deliveries for the shared config file, so concurrent
+     operations cannot both claim a name. M7 implements this rule before
+     VS Code projection can use it. Older clients do not take that lock and
+     must not write the file concurrently. Since verification is
+     presence-only, a manual edit to an owned value is not detected.
    - **Uninstall** removes the projected skill directories, the projected MCP
      entries, the plugin root and that target's `PLUGIN_DATA`, each through
-     its category.
+     its category, subject to the ownership check above.
    - **Limitations (accepted).**
      - MCP entries an older extension wrote for a `bundleId` containing `:`
        keep their ambiguous default-form name. The uninstall fallback can
@@ -761,20 +793,21 @@ baseline everywhere.
 - **O15 (open) — shared MCP config file and harness MCP state.** Two topics
   that no migration step owns yet. First, one repository MCP config file
   shared by several installs (decision 5, known gap): mixed commit modes,
-  and the CLI and the extension writing the same owned names with
-  different `PLUGIN_DATA` (Consequences); whether to detect them, and how.
+  and whether to detect them, and how. Conflicting ownership of plugin MCP
+  entries is rejected under decision 5.
   Second, MCP enable and disable, for every MCP entry APH writes, including
   collection `mcpServers`: per target, where the harness keeps that state
   outside the MCP config file (UNVERIFIED for every target), and whether a
   target adaptation (decision 8) should set it on install and clear it on
   uninstall.
 
-The maintainers confirmed all decisions on 2026-10-28, including those
+The maintainers confirmed the original decisions on 2026-10-28, including those
 that change what installs where (decisions 6, 7 and 9, and the O10
 repository-scope rule in decision 5) and what is written (decision 5's
 sanitised owned names for segments with `:`, and per-target `PLUGIN_DATA`,
 with the limitations listed there), and the target adaptations of
-decision 8. O3a, O14 and O15, and the cells marked UNVERIFIED, stay open
+decision 8. The repository-scope plugin MCP ownership rule was added after
+that confirmation. O3a, O14 and O15, and the cells marked UNVERIFIED, stay open
 research questions; the step that depends on each re-checks it.
 
 ## Consequences
@@ -815,10 +848,9 @@ research questions; the step that depends on each re-checks it.
   installed by the CLI and by the extension gets different data directories,
   and so does a plugin installed for two targets.
   Its MCP entries have the same names but different `PLUGIN_DATA` values.
-  After the VS Code projection step, the CLI and the extension can both
-  install the same repository-scope plugin into one MCP config file. Which
-  delivery owns those entries is not decided here; it is a known gap of
-  the shared MCP config file (O15).
+  At repository scope, a second delivery cannot claim an existing plugin MCP
+  name: preflight rejects the conflict rather than overwriting the first
+  delivery's entry (decision 5).
 - **Negative:** in `commit` mode, a repository-scope plugin with a stdio MCP
   server is unsupported (O10); it installs only in `local-only` mode, and
   only when git does not already track the target MCP config file.
@@ -853,7 +885,7 @@ start. O\* ids refer to the open questions above.
 | 4 | **M4** `feat(app,infra,cli)`: `config` category for MCP | MCP dialect in layout types and data: opencode dialect added, every `config` cell re-checked, including the server-name form, and still-unverified ones set to unsupported; JSON/JSONC adapter; `configEntries` in the lockfile entry; owned-name helper moved to `core` with the default form, the sanitised form with per-segment encoding, and the sanitised fallback for a segment with `:`; `installMcpServers` for collection `mcpServers`, ported from `McpServerManager` | M1 | collection MCP servers reach the target |
 | 5 | **M5** `feat`: `mcp-server` items | items routed to the `config` strategy; support derived from the layout's MCP config | M4 | `mcp-server` installs wherever an MCP config exists |
 | 6 | **M6** `feat(core)`: plugin metadata in the manifest | `version`, `author`, `license`, `keywords` on the plugin item; independent of categories, can run in parallel | — | plugin version visible to update checks |
-| 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` over the `FileSystem` port's `realpath` (added by #614; whether it becomes required is decided here); Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule (decision 5) and a tracked-path query on the exclusion port | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
+| 7 | **M7** `feat(app)`: plugin projection | plugin extension (root, skills, MCP, placeholders, `PLUGIN_DATA`, uninstall); plugin mode `project` for all targets; plugin routes moved per decision 7 and opencode user `baseDir` re-checked; `AppStoragePaths.pluginData`; `scopeKey` helper in `core` over the `FileSystem` port's `realpath` (added by #614; whether it becomes required is decided here); Copilot-like repository-scope placement moved from `RepositoryScopeWriter` to the `app` strategies; the O10 repository-scope rule, fail-closed plugin MCP ownership and serialization (decision 5), and a tracked-path query on the exclusion port | M4, M3, M1, M2 (kiro only) | plugins are usable, not inert copies |
 | 8 | **M8** (optional) `feat`: config-based hooks | `TargetAdaptation` port and its `infra` adapters; `hook` adaptations for claude-code, cursor and devin-cli, and for devin and windsurf each gated on a recorded check, all re-checked against the harness docs; re-check whether Devin also reads the claude-code adaptation's `settings.json` entries, and document the double-install behaviour | M4 | hooks fire on those targets |
 | 9 | **M9** (optional, per target) `feat`: `native` or `register` mode | only with documentation or a recorded manual check for that target (for example O3a for Kiro) | M7 | the harness's own plugin UX where proven |
 | late | **VS Code parity with today's CLI** (#551) | extension scope services delegate to the `app` install and uninstall use cases and writer selection (ADR-0001), after #614 moved them out of the CLI | no M4/M7 dependency | the same files and lockfile entries from both deliveries |
