@@ -16,14 +16,8 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  emptyLockfile,
   resolveUserConfigPaths,
-  upsertBundleEntry,
-  writeLockfile,
 } from '@ai-primitives-hub/app';
-import {
-  NodeFileSystem,
-} from '@ai-primitives-hub/infra';
 import {
   afterEach,
   beforeEach,
@@ -55,6 +49,8 @@ import {
   readRecord,
   recordPathIn,
   userRecordPath,
+  writeLocalFooBundle,
+  writeOldLockfile,
 } from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
@@ -84,13 +80,8 @@ describe('uninstall command', () => {
     bundleDir = path.join(workspace, 'bundle');
     targetDir = path.join(workspace, 'target');
 
-    await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+    await writeLocalFooBundle(bundleDir);
     await mkdir(targetDir, { recursive: true });
-    await writeFile(
-      path.join(bundleDir, 'deployment-manifest.yml'),
-      'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-    );
-    await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
 
     expect((await run([
       'target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'
@@ -189,25 +180,15 @@ describe('uninstall command', () => {
   describe('repository install record (ai-primitives-hub.lock.json)', () => {
     const oldLockPath = (): string => path.join(workspace, 'prompt-registry.lock.json');
     /**
-     * Write an old 2.0.0 `prompt-registry.lock.json`, as an install made before the record would have left it.
+     * Write an old 2.0.0 `prompt-registry.lock.json` for the local bundle.
      * @param bundles - Bundle id → its single prompt file, relative to the bundle.
      */
     const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
-      await writeFile(oldLockPath(), `${JSON.stringify({
-        $schema: 'https://github.com/AmadeusITGroup/prompt-registry/schemas/lockfile.schema.json',
-        version: '2.0.0',
-        generatedAt: '2026-10-01T00:00:00.000Z',
-        generatedBy: 'ai-primitives-hub-cli@0.2.1',
-        bundles: Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, {
-          version: '1.0.0',
-          sourceId: 'local-bundle',
-          sourceType: 'local',
-          installedAt: '2026-10-01T00:00:00.000Z',
-          commitMode: 'commit',
-          files: [{ path: file, checksum: '0'.repeat(64) }]
-        }])),
-        sources: { 'local-bundle': { type: 'local', url: bundleDir } }
-      }, null, 2)}\n`);
+      await writeOldLockfile(
+        oldLockPath(),
+        Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, { version: '1.0.0', files: [file], sourceId: 'local-bundle' }])),
+        { 'local-bundle': { type: 'local', url: bundleDir } }
+      );
     };
     const recordPath = (): string => recordPathIn(workspace);
     const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
@@ -251,10 +232,14 @@ describe('uninstall command', () => {
       await writeFile(oldFile, '# Old\n');
       await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
 
+      // A bundle only the old file lists does not decide with several targets: a typed --target migrates the level first.
+      const migrate = await run(['uninstall', '--bundle', 'old-only', '--target', 'repo-kiro']);
+      expect(migrate.exitCode, migrate.stdout).toBe(0);
+      expect(migrate.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);
+
       const result = await run(['uninstall', '--bundle', 'old-only']);
 
       expect(result.exitCode, result.stdout).toBe(0);
-      expect(result.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);
       expect(result.stdout).toContain('Removed the record entry of old-only (tool unknown); 1 file kept because their tool is unknown.');
       expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
       expect(await readFile(oldFile, 'utf8')).toBe('# Old\n');
@@ -372,14 +357,7 @@ describe('uninstall command', () => {
 
     it('after the user-level import, uninstall ignores the old user lockfile: the recorded file goes, that lockfile stays byte-identical', async () => {
       const oldLockfile = resolveUserConfigPaths(userEnv).userLockfile;
-      await writeLockfile(oldLockfile, upsertBundleEntry(emptyLockfile('test'), 'local-foo', {
-        version: '1.0.0',
-        sourceId: 'local-src',
-        sourceType: 'local',
-        installedAt: '2026-10-01T00:00:00.000Z',
-        files: [{ path: 'prompts/hello.prompt.md', checksum: '0'.repeat(64) }]
-      }), new NodeFileSystem());
-      const before = await readFile(oldLockfile, 'utf8');
+      const before = await writeOldLockfile(oldLockfile, { 'local-foo': { version: '1.0.0', files: ['prompts/hello.prompt.md'], sourceId: 'local-src' } });
       await installUser();
       expect(await readInstallRecord(userRecordPath(userEnv))).toMatchObject({ importedUserLockfileAt: expect.any(String) });
 

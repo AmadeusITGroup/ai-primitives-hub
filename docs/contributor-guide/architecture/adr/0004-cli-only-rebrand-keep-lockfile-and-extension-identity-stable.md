@@ -1,6 +1,6 @@
 # ADR-0004: CLI-Only Rebrand — Keep Lockfile and Extension Identity Stable
 
-**Status:** Accepted
+**Status:** Accepted. Lockfile name superseded by [ADR-0011](./0011-ai-primitives-hub-install-records.md)
 
 ## Context
 

@@ -30,6 +30,7 @@ import {
   resolveUserConfigPaths,
   resolveUserHome,
   selectRecord,
+  type StatusRow,
   type TargetLayout,
 } from '@ai-primitives-hub/app';
 import {
@@ -47,6 +48,7 @@ import {
   type RepositoryExclusion,
   type Target,
   type TokenProvider,
+  UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
   FileSystemLayoutConfigLoader,
@@ -63,17 +65,13 @@ import type {
   Context,
 } from './context';
 import {
-  readTargetsSafely,
-  resolveTarget,
-  resolveTargetName,
+  resolveCommandTarget,
 } from './error';
 import {
   createHubManager,
 } from './hub-manager';
-import {
-  loadTargets,
-  resolveEffectiveTarget,
-  type TargetOverrides,
+import type {
+  TargetOverrides,
 } from './target';
 
 /** Writer stamp for records written by the CLI. */
@@ -368,6 +366,8 @@ export const recordRepositoryInstall = async (
 export interface PreparedRepositoryUninstall {
   /** The file named by the commit mode; `recordUninstall` reads both files from its root. */
   location: RecordLocation;
+  /** Every record file of the level the uninstall reads. */
+  locations: readonly RecordLocation[];
   service: InstallRecordService;
   /** The target's type. */
   tool: string;
@@ -397,6 +397,22 @@ export interface RecordedRepositoryUninstall {
   warnings: string[];
 }
 
+/** What each uninstall prepare supplies; {@link toPreparedUninstall} adds the rest. */
+type PreparedUninstallParts = Omit<PreparedRepositoryUninstall, 'loneUnknown' | 'migration'> & { migration?: MigrationReport | undefined };
+
+/**
+ * Add the lone `unknown` bundles and the migration report to an uninstall prepare.
+ * @param parts - What the prepare supplies.
+ */
+const toPreparedUninstall = async (parts: PreparedUninstallParts): Promise<PreparedRepositoryUninstall> => {
+  const { migration, ...rest } = parts;
+  return {
+    ...rest,
+    loneUnknown: new Set((await parts.service.findLoneUnknown(parts.locations)).keys()),
+    ...(migration === undefined ? {} : { migration })
+  };
+};
+
 /**
  * Load, check and migrate the repository record files before anything is removed.
  * Bundles not in `entries` fall back to the old store.
@@ -418,15 +434,15 @@ export const prepareRepositoryUninstall = async (
     const { store, service, locations, location, exclusion } = await openRepositoryRecords(ctx, target, fs, options.locations);
     const given = options.locations !== undefined && options.locations.length > 0;
     const migration = options.dryRun === true || given ? undefined : await migrateLevel({ store, fs, targets: locations, env: ctx.env });
-    return {
+    return await toPreparedUninstall({
       location,
+      locations,
       service,
       tool: target.type,
       exclusion,
       entries: await service.entriesForTool(locations, target.type),
-      loneUnknown: new Set((await service.findLoneUnknown(locations)).keys()),
-      ...(migration === undefined ? {} : { migration })
-    };
+      migration
+    });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
@@ -486,16 +502,16 @@ export const prepareUserUninstall = async (
     // Once the old user lockfile was imported, the user level no longer reads it.
     const imported = record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined;
     const keepPaths = entries.size === 0 || imported ? new Map<string, Set<string>>() : await oldUserLockfilePaths(ctx, target, location.root);
-    return {
+    return await toPreparedUninstall({
       location,
+      locations: [location],
       service,
       tool: target.type,
       entries,
       keepPaths,
-      loneUnknown: new Set((await service.findLoneUnknown([location])).keys()),
       ignoresOldStore: imported,
-      ...(migration === undefined ? {} : { migration })
-    };
+      migration
+    });
   } catch (error) {
     throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
   }
@@ -536,6 +552,24 @@ export const prepareUninstallForTarget = async (
   return target.scope === 'repository'
     ? prepareRepositoryUninstall(ctx, target, options)
     : prepareUserUninstall(ctx, target, { dryRun: options.dryRun });
+};
+
+/**
+ * The tool's other keys of the bundle's identity, such as an older versioned key a merge left next to it.
+ * @param prepared - The level's record files, loaded and checked.
+ * @param bundleId - Recorded key being uninstalled.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+export const otherKeysOfIdentity = async (prepared: PreparedRepositoryUninstall, bundleId: string): Promise<string[]> => {
+  const rows = (await prepared.service.listEntries(prepared.locations)).filter((row) => row.tool === prepared.tool);
+  const own = rows.find((row) => row.bundleId === bundleId);
+  if (own === undefined) {
+    return [];
+  }
+  const identity = recordIdentityOf(bundleId, own.version);
+  return [...new Set(rows
+    .filter((row) => row.bundleId !== bundleId && recordIdentityOf(row.bundleId, row.version) === identity)
+    .map((row) => row.bundleId))];
 };
 
 /**
@@ -694,6 +728,114 @@ export const prepareRecordSelection = async (
 };
 
 /**
+ * A record selection with its entries, for `update` and `uninstall <bundle-id>`;
+ * with no target, the record decides which tools act.
+ */
+export interface RecordDecision {
+  /** The typed `--lockfile` / `--scope`. */
+  input: Omit<RecordSelectionInput, 'write'>;
+  /** The target the selection was made for, when there is one. */
+  target?: Target;
+  /** The selection: `--lockfile`, then `--scope`, then the target or the default rule. */
+  prepared: PreparedRecordSelection;
+  /** Every (bundle, tool) entry of the selected 3.0.0 record files. */
+  rows: StatusRow[];
+}
+
+/**
+ * Select the record and list its entries; `options.write` migrates the level first.
+ * @param ctx - CLI context.
+ * @param input - Command name and the typed `--lockfile` / `--scope`.
+ * @param options - Selection options.
+ * @param options.write - `true` to migrate before selecting.
+ * @param options.target - Effective target the level is selected for, when there is one.
+ * @throws {RegistryError} A `RECORD.*` error naming the command and the file.
+ */
+export const prepareRecordDecision = async (
+  ctx: Context,
+  input: Omit<RecordSelectionInput, 'write'>,
+  options: { write?: boolean; target?: Target } = {}
+): Promise<RecordDecision> => {
+  const { target } = options;
+  const prepared = await prepareRecordSelection(ctx, { ...input, write: options.write === true }, target);
+  const { selection, service } = prepared;
+  try {
+    const rows = selection.locations.length === 0 ? [] : await service.listEntries(selection.locations);
+    return { input, ...(target === undefined ? {} : { target }), prepared, rows };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError(input.command, error) : error;
+  }
+};
+
+/**
+ * The decision a real run acts on: selected again with `write`, so the level is migrated; a dry run keeps `decision`.
+ * @param ctx - CLI context.
+ * @param decision - The read-only decision.
+ * @param options - Preview options.
+ * @param options.dryRun - `true` for `--dry-run`.
+ * @throws {RegistryError} A `RECORD.*` error naming the command and the file.
+ */
+export const migrateDecision = async (
+  ctx: Context,
+  decision: RecordDecision,
+  options: { dryRun?: boolean } = {}
+): Promise<RecordDecision> =>
+  options.dryRun === true ? decision : prepareRecordDecision(ctx, decision.input, { write: true, target: decision.target });
+
+/**
+ * The distinct tools a bundle has entries for, in row order.
+ * @param rows - Rows of a {@link RecordDecision}.
+ * @param bundleId - Bundle id.
+ */
+export const recordedTools = (rows: readonly StatusRow[], bundleId: string): string[] =>
+  [...new Set(rows.filter((row) => row.bundleId === bundleId).map((row) => row.tool))];
+
+/** Outcome of {@link prepareUnknownUninstall}. */
+export type PreparedUnknownUninstall =
+  /** Still a lone `unknown` entry: remove it with {@link recordUnknownUninstall}. */
+  | { uninstall: PreparedRepositoryUninstall }
+  /** The migration changed the bundle's entries: decide again on this selection. */
+  | { changed: RecordDecision };
+
+/**
+ * Prepare `uninstall <bundle-id>` of a lone `unknown` entry with no target; the level is migrated first unless `--dry-run`.
+ * @param ctx - CLI context.
+ * @param decision - The read-only decision that found the entry.
+ * @param bundleId - Bundle to uninstall.
+ * @param options - Preview options.
+ * @param options.dryRun - `true` for `--dry-run`, which never migrates.
+ * @throws {RegistryError} A `RECORD.*` error naming the file; nothing was removed.
+ */
+export const prepareUnknownUninstall = async (
+  ctx: Context,
+  decision: RecordDecision,
+  bundleId: string,
+  options: { dryRun?: boolean } = {}
+): Promise<PreparedUnknownUninstall> => {
+  const migrated = await migrateDecision(ctx, decision, options);
+  const tools = recordedTools(migrated.rows, bundleId);
+  if (tools.length !== 1 || tools[0] !== UNKNOWN_TOOL_NAME) {
+    return { changed: migrated };
+  }
+  const { selection, service, migration } = migrated.prepared;
+  try {
+    const location = await service.holdingLocation(selection.locations, bundleId, UNKNOWN_TOOL_NAME);
+    return {
+      uninstall: await toPreparedUninstall({
+        location: location ?? selection.locations[0],
+        locations: selection.locations,
+        service,
+        tool: UNKNOWN_TOOL_NAME,
+        entries: new Map(),
+        migration
+      })
+    };
+  } catch (error) {
+    throw isRecordError(error) ? toCommandRecordError('uninstall', error) : error;
+  }
+};
+
+/**
  * Configured sources by id for the source trust gate, in `orderConfiguredSources`
  * order. A hub that cannot be read contributes no source.
  * @param ctx - CLI context.
@@ -814,7 +956,8 @@ export interface OldFileTargetInput {
 export type OldFileOnlyPlan = OldFileOnlyBundles & ({ target: Target } | { reason: string });
 
 /**
- * The old-file-only bundles and their target: the given one, else the only configured one, else the last used one.
+ * The old-file-only bundles and their target: the given one, else the only
+ * configured one, with the overrides applied; else the missing-target reason.
  * @param ctx - CLI context.
  * @param prepared - The command's record selection.
  * @param resolve - Command name, the given target and the overrides.
@@ -833,10 +976,7 @@ export const prepareOldFileOnly = async (
     return { ...old, target: resolve.target };
   }
   try {
-    const targets = await readTargetsSafely(loadTargets(ctx));
-    const name = targets.length === 1 ? targets[0].name : await resolveTargetName(undefined, resolve.command, ctx, () => loadTargets(ctx));
-    const configured = await resolveTarget(name, resolve.command, ctx, () => loadTargets(ctx));
-    return { ...old, target: resolveEffectiveTarget(ctx, configured, resolve.overrides) };
+    return { ...old, target: await resolveCommandTarget(ctx, resolve.command, undefined, resolve.overrides) };
   } catch (error) {
     return { ...old, reason: error instanceof Error ? error.message : String(error) };
   }

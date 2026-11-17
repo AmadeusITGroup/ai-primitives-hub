@@ -105,6 +105,20 @@ export const initGitRoot = async (dir: string): Promise<void> => {
   await writeFile(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 };
 
+/** The local bundle most command tests install: `local-foo` 1.0.0 with one prompt. */
+const LOCAL_FOO_MANIFEST = 'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n';
+
+/**
+ * Write the `local-foo` bundle folder: {@link LOCAL_FOO_MANIFEST} and
+ * `prompts/hello.prompt.md` (`# Hello Prompt`).
+ * @param dir - Bundle folder; created when missing.
+ */
+export const writeLocalFooBundle = async (dir: string): Promise<void> => {
+  await mkdir(path.join(dir, 'prompts'), { recursive: true });
+  await writeFile(path.join(dir, 'deployment-manifest.yml'), LOCAL_FOO_MANIFEST);
+  await writeFile(path.join(dir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
+};
+
 /**
  * Turn a git root into a linked worktree whose common git dir holds `info/exclude`.
  * @param dir - Git root made by {@link initGitRoot}.

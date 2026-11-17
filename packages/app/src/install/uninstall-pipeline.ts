@@ -2,18 +2,15 @@
  * Uninstall Pipeline.
  *
  * Mirrors the install pipeline but for removal operations:
- * - Resolve installed bundle from the lockfile
+ * - Resolve the installed bundle from an older 2.0.0 repository file
  * - Plan file removals
  * - Execute removals via target writer
- * - Update the lockfile
+ * - Update that file
  *
- * Repository scope only — see `stores/json-lockfile-store.ts`'s module
- * doc for why. Since the lockfile is split across two physical files
- * (`prompt-registry.lock.json` for `commit` mode,
- * `prompt-registry.local.lock.json` for `local-only`) with no
- * per-entry `target` field, a bundle id is looked up in both files
- * (mirroring the extension's own `LockfileManager.remove()`), and
- * whichever file it's found in is the one updated.
+ * Handles only bundles in the older 2.0.0 repository files
+ * (`prompt-registry.lock.json`, `prompt-registry.local.lock.json`), not in
+ * the install record. Those files have no per-entry `target` field, so a
+ * bundle id is looked up in both and the file it's found in is updated.
  *
  * Known gap (matches the reference branch's own pipeline, not a
  * regression introduced here): per-file removal goes through the

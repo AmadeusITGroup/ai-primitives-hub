@@ -164,11 +164,14 @@ flowchart TB
         end
 
         subgraph Stores["State Stores"]
-            lockfile[JSON Lockfile Store]
-            targetState[Target State Store]
             layoutConfig[Layout Config Store]
             activeHub[Active Hub Store]
             profileActivation[Profile Activation Store]
+        end
+
+        subgraph Records["Install Records"]
+            recordFs[NodeRecordFs]
+            recordSchema[RecordSchemaValidator]
         end
 
         subgraph Scaffolding["Scaffolding"]
@@ -231,6 +234,7 @@ flowchart TB
     xdgAppStorage --> FS
 
     Stores --> FS
+    Records --> FS
     Storage --> FS
     indexStore --> FS
 
@@ -255,7 +259,8 @@ flowchart TB
 | PrimitiveIndex | Search API with faceting and BM25 scoring | `search/primitive-index.ts` |
 | JSON Index Store | Persist primitive index to JSON | `stores/json-index-store.ts` |
 | XdgAppStorage | XDG Base Directory-compliant `AppStorage` adapter | `storage/xdg-app-storage.ts` |
-| State Stores | Lockfile, target-state, active hub, profile activation | `stores/*` |
+| State Stores | Layout config, active hub, profile activation | `stores/*` |
+| Install Records | Record file access and `3.0.0` schema validation | `records/node-record-fs.ts`, `records/record-schema-validator.ts` |
 | FileTreeTargetWriter | Per-target file writing with layout routing | `writers/file-tree-target-writer.ts` |
 | Default Layouts | Built-in target layouts for vscode, vscode-insiders, copilot-cli, kiro, windsurf, claude-code | `writers/default-layouts.json` |
 | Template Engine | Handlebars template rendering | `scaffolding/template-engine.ts` |
@@ -317,8 +322,14 @@ flowchart TB
             fileTreeWriter[FileTreeTargetWriter]
         end
 
+        subgraph Records["Install Records"]
+            recordStore[RecordStore]
+            recordService[InstallRecordService]
+            recordMigration[migrateRecords]
+        end
+
         subgraph Stores["App Stores"]
-            lockfileStore[JSON Lockfile Store]
+            lockfileStore[Older 2.0.0 Lockfile Store]
         end
 
         subgraph Update["Update"]
@@ -358,6 +369,10 @@ flowchart TB
     exportProfile --> FS
     fileTreeWriter --> FS
     lockfileStore --> FS
+    recordService --> recordStore
+    recordMigration --> recordStore
+    recordMigration --> lockfileStore
+    recordStore --> FS
     checkUpdates --> FS
     autoUpdate --> FS
     logEvent --> FS
@@ -389,7 +404,10 @@ flowchart TB
 | Claude Code Transformer | Claude Code transform | `transform/transformers/claude-code-transformer.ts` |
 | Export Profile | Export shortlist to profile | `search/export-profile.ts` |
 | FileTreeTargetWriter | App-level writer composition | `writers/file-tree-writer.ts` |
-| JSON Lockfile Store | App-level lockfile store | `stores/json-lockfile-store.ts` |
+| RecordStore | Load and atomically save install record files | `records/record-store.ts` |
+| InstallRecordService | Record installs, superseded files, `status` rows, entry moves | `records/install-record-service.ts` |
+| Record Migration | Move older 2.0.0 stores into the install record | `records/record-migration.ts` |
+| Older Lockfile Store | Older 2.0.0 lockfiles (migration, workspace scope, `profile activate`) | `stores/json-lockfile-store.ts` |
 | Check Updates | Update checking orchestration | `update/check-updates.ts` |
 | Auto Update | Auto-update orchestration | `update/auto-update.ts` |
 
@@ -484,7 +502,7 @@ flowchart TB
             registryMgr[RegistryManager]
             bundleInstaller[BundleInstaller]
             userScopeService[UserScopeService]
-            lockfileMgr[LockfileManager]
+            recordAdapter[ExtensionRecordAdapter]
             hubStorage[HubStorage]
         end
 
@@ -517,9 +535,9 @@ flowchart TB
 | RegistryManager | Coordinates adapters, storage, and installer | `src/services/registry-manager.ts` |
 | BundleInstaller | Download, extract, validate, and install bundles | `src/services/bundle-installer.ts` |
 | UserScopeService | User-scope primitive sync with layout and transforms | `src/services/user-scope-service.ts` |
-| LockfileManager | Repository lockfile management | `src/services/lockfile-manager.ts` |
+| ExtensionRecordAdapter | Shared install records for the extension | `src/services/extension-record-adapter.ts` |
 | HubStorage | Hub persistent storage | `src/storage/hub-storage.ts` |
-| RegistryStorage | VS Code globalStorage-based state | `src/storage/registry-storage.ts` |
+| RegistryStorage | VS Code globalStorage-based state, through `ExtensionAppStorage` | `src/storage/registry-storage.ts`, `src/storage/extension-app-storage.ts` |
 
 **Note**: The extension is being migrated onto `app`/`core`/`infra` through a strangler-fig approach (see [ADR-0001](../adr/0001-ports-and-adapters-for-cli-and-extension.md)); the `Services` layer is becoming thin delegators over the shared `app` use cases.
 

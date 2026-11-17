@@ -4,8 +4,8 @@
  *
  * Splits the registry/bookkeeping directories across the three XDG Base
  * Directory roots, per their actual nature: `config.json` under
- * `XDG_CONFIG_HOME`, the bundle/source cache under `XDG_CACHE_HOME`, and
- * everything else (installed-bundle records, profiles, logs — genuine
+ * `XDG_CONFIG_HOME` with the user install record, the bundle/source cache under
+ * `XDG_CACHE_HOME`, and everything else (profiles, logs — genuine
  * persistent data, not cache or config) under `XDG_DATA_HOME`. Each
  * falls back to `~/.config`, `~/.cache`, `~/.local/share` respectively
  * (POSIX convention) when the corresponding env var is unset.
@@ -49,9 +49,6 @@ export class XdgAppStorage implements AppStorage {
       cache: cacheDir,
       sourcesCache: path.join(cacheDir, 'sources'),
       bundlesCache: path.join(cacheDir, 'bundles'),
-      installed: path.join(dataDir, 'installed'),
-      userInstalled: path.join(dataDir, 'installed', 'user'),
-      profilesInstalled: path.join(dataDir, 'installed', 'profiles'),
       profiles: path.join(dataDir, 'profiles'),
       logs: path.join(dataDir, 'logs'),
       userRecord: path.join(configDir, USER_RECORD_FILE_NAME)
