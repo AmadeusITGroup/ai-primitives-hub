@@ -238,11 +238,14 @@ export class SecurityRateCommand extends Command {
           request: { ...request, scannerName: this.scannerName ?? 'unspecified' }
         });
       }
-      if (this.reportJson !== undefined) {
-        await writeReport(ctx, this.reportJson, `${JSON.stringify(result.report, null, 2)}\n`, this.overwrite);
-      }
-      if (this.reportMarkdown !== undefined) {
-        await writeReport(ctx, this.reportMarkdown, renderQualityMarkdown(result.report), this.overwrite);
+      // An incomplete scan can look clean, so no report file may carry its passing verdict.
+      if (scan?.complete !== false) {
+        if (this.reportJson !== undefined) {
+          await writeReport(ctx, this.reportJson, `${JSON.stringify(result.report, null, 2)}\n`, this.overwrite);
+        }
+        if (this.reportMarkdown !== undefined) {
+          await writeReport(ctx, this.reportMarkdown, renderQualityMarkdown(result.report), this.overwrite);
+        }
       }
       formatOutput({
         ctx,

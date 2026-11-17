@@ -192,6 +192,16 @@ describe('security rate command', () => {
     expect((await rate(['--findings', findings])).exitCode).toBe(0);
   });
 
+  it('writes no report when the scan is incomplete', async () => {
+    await writeFile(path.join(directory, 'skills', 'good', 'big.md'), 'a'.repeat(1_100_000));
+    const json = path.join(directory, 'incomplete.json');
+    const markdown = path.join(directory, 'incomplete.md');
+    const result = await rate(['--report-json', json, '--report-markdown', markdown]);
+    expect(result.exitCode).toBe(65);
+    await expect(readFile(json, 'utf8')).rejects.toThrow();
+    await expect(readFile(markdown, 'utf8')).rejects.toThrow();
+  });
+
   it('records the tag only for runs on a tag', async () => {
     const tagOf = async (env: Record<string, string>): Promise<string> => {
       const result = await rate(['--findings', findings, '-o', 'json', '--fail-on', 'none'], env);
