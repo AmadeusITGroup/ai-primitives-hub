@@ -46,7 +46,7 @@ export const parseSecurityDocument = (content: string): ParsedSecurityDocument =
         fenceLength = 0;
       }
     }
-    if (text.trimStart().startsWith('#')) {
+    if (!inCodeBlock && text.trimStart().startsWith('#')) {
       section = text.trimStart().replace(/^#+/, '').trim();
       inExample = EXAMPLE_SECTION.test(section);
     }

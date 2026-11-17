@@ -40,10 +40,10 @@ describe('RuleBasedSecurityScanEngine', () => {
     const second = new RuleBasedSecurityScanEngine().descriptor;
     expect(first).toEqual({
       id: 'builtin',
-      version: '1.1.1',
+      version: '1.1.2',
       rulePackId: 'md-security-scanner',
-      rulePackVersion: '1.10.9-compatible.2',
-      rulePackDigest: 'sha256:180edc21a33634b5c2d5505e423b41b02967a4bd56568052f4063f0970829762'
+      rulePackVersion: '1.10.9-compatible.3',
+      rulePackDigest: 'sha256:5577841ed1c38a5b4acf7f68aed2c59b2aa68275b9f4e545295a302ba044b28f'
     });
     expect(second).toEqual(first);
   });

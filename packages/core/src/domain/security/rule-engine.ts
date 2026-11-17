@@ -190,7 +190,12 @@ const agenticRules: PatternRule[] = [
   makeRule('SKL-008', 'Security Scanner Evasion', 'HIGH', /\b(?:disable|skip|bypass|evade|suppress)\s+(?:security\s+)?scann(?:er|ing|s)/i, 'agentic_skills', OWASP_WEB),
   makeRule('LLM-002', 'Insecure Output Handling', 'HIGH', /(?:innerHTML|dangerouslySetInnerHTML|raw\s+HTML)/i, 'insecure_output', OWASP_WEB),
   makeRule('LLM-004', 'Unbounded Model Work', 'HIGH', /while\s*\(\s*true\s*\)|for\s*\(\s*;;\s*\)/i, 'model_dos', OWASP_WEB),
-  makeRule('LLM-005', 'Unpinned Package Installation', 'HIGH', /(?:pip|npm|pnpm|yarn)\s+install\b(?![^\n]*@[0-9]+\.[0-9]+)/i, 'supply_chain', OWASP_WEB),
+  makeRule(
+    'LLM-005', 'Unpinned Package Installation', 'HIGH',
+    // An install is clean only when every package argument is pinned; options and pinned names are skipped.
+    /\b(?:pip|npm|pnpm|yarn)\s+install\b(?:(?:\s+(?:-\S*|(?!-)\S+@\d+\.\d+\S*))*\s+(?!-)(?!\S+@\d+\.\d+)[\w@./~][^\s|;&<>]*|(?:\s+-\S*)*\s*(?:$|[|;&]))/i,
+    'supply_chain', OWASP_WEB
+  ),
   makeRule('ASI-003', 'Agent Identity or Privilege Abuse', 'HIGH', /(?:impersonate|assume|forge)\s+(?:another\s+)?(?:agent|identity|user)/i, 'agent_identity', OWASP_WEB),
   makeRule('ASI-005', 'Unexpected Code Execution', 'CRITICAL', /\b(?:eval|exec|child_process)\s*\(/i, 'code_execution', OWASP_WEB)
 ];
@@ -424,6 +429,9 @@ const scanContextualLineRules = (
         continue;
       }
       if (!patternMatches(rule.pattern, line.text) || (rule.excludePattern !== undefined && patternMatches(rule.excludePattern, line.text))) {
+        continue;
+      }
+      if (rule.lineTest !== undefined && !rule.lineTest(line.text)) {
         continue;
       }
       if (rule.contextPattern !== undefined) {
@@ -916,8 +924,8 @@ const activeDefenseRules: PatternRule[] = [
   }
 ];
 // Bump these revisions when evaluator/parser behavior changes outside the rule data.
-const ENGINE_VERSION = '1.1.1';
-const RULE_PACK_VERSION = '1.10.9-compatible.2';
+const ENGINE_VERSION = '1.1.2';
+const RULE_PACK_VERSION = '1.10.9-compatible.3';
 const packDigest = `sha256:${createHash('sha256')
   .update(JSON.stringify([
     ...allRules,
@@ -938,6 +946,8 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
   const configNames = new Set(['CLAUDE.md', 'AGENTS.md', 'SKILL.md']);
   const basename = document.displayPath.replaceAll('\\', '/').split('/').at(-1) ?? '';
   const findings: SecurityFinding[] = configNames.has(basename) ? scanFileMode(document) : [];
+  // A SKILL.md is a skill even when its frontmatter lacks name or description.
+  const agentConfig = parsed.artifactClass === 'skill' || parsed.artifactClass === 'agent_config' || basename === 'SKILL.md';
   for (const [index, line] of parsed.lines.entries()) {
     cancellation.throwIfCancelled();
     if (line.text.length > 1_048_576) {
@@ -946,7 +956,6 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
     let secretScanText = line.text.replace(safeSecretPlaceholders, (match) => '$'.repeat(match.length))
       .replace(/\bAKIAIOSFODNN7EXAMPLE\b/g, '$'.repeat(20));
     for (const rule of markdown ? allRules : [...secretRules, ...hookRules]) {
-      const agentConfig = parsed.artifactClass === 'skill' || parsed.artifactClass === 'agent_config';
       if (rule.id === 'AGT-003' && !options.includeLlmControls) {
         continue;
       }
@@ -983,7 +992,7 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       ...scanStructuredMarkdownRules(document, parsed)
     );
   }
-  if (markdown && (parsed.artifactClass === 'skill' || parsed.artifactClass === 'agent_config')) {
+  if (markdown && agentConfig) {
     const allowedTools = /allowed-tools|permissions?\.allow/i.test(document.content);
     const denyTools = /deny-tools|permissions?\.deny|denied-tools/i.test(document.content);
     const preToolUse = /PreToolUse/i.test(document.content);
@@ -1003,7 +1012,7 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       let match = assignment.exec(line.text);
       while (match !== null) {
         if (entropy(match[1]) > 4.5 && !/^([0-9a-f]{8}-){4}[0-9a-f]{12}$/i.test(match[1])) {
-          findings.push({ ...createFinding(document, entropyRule, index + 1, line.section, line.text.trim(), 'HIGH', 'MEDIUM') });
+          findings.push({ ...createFinding(document, entropyRule, index + 1, line.section, line.text.trim(), line.inExample ? 'MEDIUM' : 'HIGH', 'MEDIUM') });
         }
         match = assignment.exec(line.text);
       }
