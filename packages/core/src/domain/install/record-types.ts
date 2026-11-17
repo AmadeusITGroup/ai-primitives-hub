@@ -32,6 +32,9 @@ export const LOCAL_RECORD_FILE_NAME = 'ai-primitives-hub.local.lock.json';
 /** Both repository record file names, committed first. */
 export const RECORD_FILE_NAMES = [RECORD_FILE_NAME, LOCAL_RECORD_FILE_NAME] as const;
 
+/** The one user-level install record per machine, in the user config folder. */
+export const USER_RECORD_FILE_NAME = 'ai-primitives-hub.user.lock.json';
+
 /** Largest record file accepted, in bytes. */
 export const RECORD_MAX_BYTES = 10 * 1024 * 1024;
 

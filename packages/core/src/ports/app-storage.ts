@@ -42,6 +42,8 @@ export interface AppStoragePaths {
   profiles: string;
   /** Log output. */
   logs: string;
+  /** The one user-level install record per machine, shared by the CLI and every VS Code profile. */
+  userRecord: string;
 }
 
 /**

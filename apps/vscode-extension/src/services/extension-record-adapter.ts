@@ -1,11 +1,13 @@
 /**
  * Extension record adapter: the extension's composition of the shared install
- * record. Records every repository install under the host tool and reads and
- * changes the old `prompt-registry.lock.json` files; the record logic lives in app.
+ * record. Records every repository install under the host tool, handles the
+ * shared user record, and reads and changes the old `prompt-registry.lock.json`
+ * files; the record logic lives in app.
  * @module services/extension-record-adapter
  */
 import * as path from 'node:path';
 import {
+  assertUserFolderInsideHome,
   cleanupOrphanedSource,
   createInstallRecordServices,
   deleteLockfile,
@@ -28,6 +30,7 @@ import {
   type RecordStore,
   remapSourceId,
   removeBundleEntry,
+  resolveUserHome,
   toRecordSource,
   upsertBundleEntry,
   upsertSource,
@@ -40,6 +43,7 @@ import {
   type LockfileSourceDescriptor,
   recordErrorDetails,
   type RecordFs,
+  type RecordLevel,
   type RecordLocation,
   type RegistrySource,
   type TargetType,
@@ -86,6 +90,10 @@ export interface ExtensionRecordAdapterOptions {
   fs?: RecordFs;
   /** Host tool; `detectHostApp()` by default. */
   hostTool?: TargetType;
+  /** Absolute user record path; the user record is not used without it. */
+  userRecordPath?: string;
+  /** Environment for the home folder; `process.env` by default. */
+  env?: Record<string, string | undefined>;
 }
 
 /** One old `prompt-registry` lockfile at a workspace root. */
@@ -112,6 +120,16 @@ export interface RetiredOldEntry {
 }
 
 const toSlashes = (recordedPath: string): string => recordedPath.replaceAll('\\', '/');
+
+/**
+ * The entry under `bundleId`, first in file order; otherwise the latest installed.
+ * @param found - Entries of one bundle identity.
+ * @param bundleId - Key asked for.
+ */
+const preferredEntry = (found: readonly LocatedToolEntry[], bundleId: string): LocatedToolEntry | undefined =>
+  found.find((located) => located.bundleId === bundleId)
+  ?? found.reduce<LocatedToolEntry | undefined>((latest, located) =>
+    latest === undefined || Date.parse(located.entry.installedAt) > Date.parse(latest.entry.installedAt) ? located : latest, undefined);
 
 /** `LockfileFs` over `RecordFs`, writing atomically. */
 class RecordLockfileFs implements LockfileFs {
@@ -144,6 +162,12 @@ export class ExtensionRecordAdapter {
   private readonly sources: RecordSourcesPort;
   private readonly lockfileFs: LockfileFs;
   private readonly logger = Logger.getInstance();
+  /** The user level's home folder, the root of every user record path. */
+  public readonly home: string;
+  private readonly userRecordPath: string | undefined;
+  private loggedWslUserRecord = false;
+  /** Tail of each record file's job queue, by resolved path. */
+  private readonly recordQueues = new Map<string, Promise<unknown>>();
 
   public constructor(options: ExtensionRecordAdapterOptions) {
     const services = createInstallRecordServices({ generatedBy: getExtensionRecordGeneratedBy(), fs: options.fs });
@@ -153,6 +177,38 @@ export class ExtensionRecordAdapter {
     this.hostTool = options.hostTool ?? detectHostApp();
     this.sources = options.sources;
     this.lockfileFs = new RecordLockfileFs(this.fs);
+    this.home = resolveUserHome(options.env ?? process.env);
+    this.userRecordPath = options.userRecordPath;
+  }
+
+  private entriesIn(locations: readonly RecordLocation[], bundleId: string, tool?: string): Promise<LocatedToolEntry[]> {
+    return this.service.findEntries(locations, bundleId, tool);
+  }
+
+  private allEntriesIn(locations: readonly RecordLocation[]): Promise<LocatedToolEntry[]> {
+    return this.service.listToolEntries(locations);
+  }
+
+  // The host tool's entries under the key, or under another key of the same identity at that entry's version.
+  private async hostEntriesIn(locations: readonly RecordLocation[], bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
+    const identity = version === undefined ? bundleId : recordIdentityOf(bundleId, version);
+    return (await this.allEntriesIn(locations)).filter((located) =>
+      located.tool === this.hostTool
+      && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
+  }
+
+  // Refuse a bundle whose entries in these files all belong to another tool.
+  private async assertHostToolIn(
+    locations: readonly RecordLocation[],
+    bundleId: string,
+    action: CliManagedAction,
+    level: RecordLevel
+  ): Promise<void> {
+    const tools = (await this.entriesIn(locations, bundleId)).map((located) => located.tool);
+    if (tools.length === 0 || tools.includes(this.hostTool)) {
+      return;
+    }
+    throw cliManagedError(bundleId, action, tools.toSorted()[0], level);
   }
 
   // An I/O error other than "missing" is logged and counts as present.
@@ -165,6 +221,26 @@ export class ExtensionRecordAdapter {
     await (Object.keys(lock.bundles).length === 0
       ? deleteLockfile(file, this.lockfileFs)
       : writeLockfile(file, lock, this.lockfileFs));
+  }
+
+  /**
+   * Run a record mutation after every earlier one queued for the same file;
+   * concurrent load-change-save cycles of one file would lose entries.
+   * @param recordPath - Record file the job changes.
+   * @param work - The mutation.
+   */
+  public serialize<T>(recordPath: string, work: () => Promise<T>): Promise<T> {
+    const key = path.resolve(recordPath);
+    const previous = this.recordQueues.get(key) ?? Promise.resolve();
+    const run = previous.then(work);
+    const tail = run.then(() => undefined, () => undefined);
+    this.recordQueues.set(key, tail);
+    void tail.then(() => {
+      if (this.recordQueues.get(key) === tail) {
+        this.recordQueues.delete(key);
+      }
+    });
+    return run;
   }
 
   /**
@@ -222,7 +298,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findEntries(workspaceFolder: string, bundleId: string): Promise<LocatedToolEntry[]> {
-    return this.service.findEntries(await this.locations(workspaceFolder), bundleId);
+    return this.entriesIn(await this.locations(workspaceFolder), bundleId);
   }
 
   /**
@@ -234,10 +310,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findHostEntries(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
-    const identity = version === undefined ? bundleId : recordIdentityOf(bundleId, version);
-    return (await this.service.listToolEntries(await this.locations(workspaceFolder))).filter((located) =>
-      located.tool === this.hostTool
-      && (located.bundleId === bundleId || recordIdentityOf(located.bundleId, located.entry.version) === identity));
+    return this.hostEntriesIn(await this.locations(workspaceFolder), bundleId, version);
   }
 
   /**
@@ -249,13 +322,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async findHostEntry(workspaceFolder: string, bundleId: string, version?: string): Promise<LocatedToolEntry | undefined> {
-    const found = await this.findHostEntries(workspaceFolder, bundleId, version);
-    const exact = found.find((located) => located.bundleId === bundleId);
-    if (exact !== undefined) {
-      return exact;
-    }
-    return found.reduce<LocatedToolEntry | undefined>((latest, located) =>
-      latest === undefined || Date.parse(located.entry.installedAt) > Date.parse(latest.entry.installedAt) ? located : latest, undefined);
+    return preferredEntry(await this.findHostEntries(workspaceFolder, bundleId, version), bundleId);
   }
 
   /**
@@ -264,7 +331,7 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} Any `RECORD.*` error from loading.
    */
   public async listAllEntries(workspaceFolder: string): Promise<LocatedToolEntry[]> {
-    return this.service.listToolEntries(await this.locations(workspaceFolder));
+    return this.allEntriesIn(await this.locations(workspaceFolder));
   }
 
   /**
@@ -285,11 +352,115 @@ export class ExtensionRecordAdapter {
    * @throws {RegistryError} `RECORD.CLI_MANAGED` naming the tool; any `RECORD.*` error from loading.
    */
   public async assertHostTool(bundleId: string, action: CliManagedAction, workspaceFolder: string): Promise<void> {
-    const tools = (await this.findEntries(workspaceFolder, bundleId)).map((located) => located.tool);
-    if (tools.length === 0 || tools.includes(this.hostTool)) {
-      return;
+    await this.assertHostToolIn(await this.locations(workspaceFolder), bundleId, action, 'repository');
+  }
+
+  /**
+   * Whether user installs use the shared user record. Not in WSL, where user
+   * files go to the Windows home, outside the WSL home the record is rooted at.
+   */
+  public usesSharedUserRecord(): boolean {
+    if (vscode.env.remoteName === 'wsl') {
+      if (!this.loggedWslUserRecord) {
+        this.loggedWslUserRecord = true;
+        this.logger.info('The shared user record is not used in WSL; user installs are tracked by the extension only.');
+      }
+      return false;
     }
-    throw cliManagedError(bundleId, action, tools.toSorted()[0]);
+    return this.userRecordPath !== undefined;
+  }
+
+  /**
+   * The user record location, rooted at the home folder.
+   * @throws {Error} When no user record path is configured.
+   */
+  public userLocation(): RecordLocation {
+    if (this.userRecordPath === undefined) {
+      throw new Error('No user record path is configured for the extension record adapter');
+    }
+    return this.store.resolveUser({ home: this.home, path: this.userRecordPath });
+  }
+
+  /**
+   * Load and check the user record and refuse a user target folder outside home, before anything is written.
+   * @param folders - Absolute folders the user install writes into.
+   * @throws {RegistryError} A `RECORD.*` error.
+   */
+  public async prepareUserInstall(folders: readonly string[]): Promise<RecordLocation> {
+    const location = this.userLocation();
+    await this.store.load(location);
+    for (const folder of folders) {
+      await assertUserFolderInsideHome(this.fs, this.home, folder);
+    }
+    return location;
+  }
+
+  /**
+   * Every tool entry of a bundle in the user record.
+   * @param bundleId - Bundle id.
+   */
+  public async findUserEntries(bundleId: string): Promise<LocatedToolEntry[]> {
+    return this.entriesIn([this.userLocation()], bundleId);
+  }
+
+  /**
+   * The host tool's user record entries of a bundle: under its key, or with `version`
+   * under another key of the same identity, each taken at the entry's recorded version.
+   * @param bundleId - Bundle id.
+   * @param version - Version `bundleId` carries; without it only the key matches.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async findUserHostEntries(bundleId: string, version?: string): Promise<LocatedToolEntry[]> {
+    const locations = [this.userLocation()];
+    return version === undefined ? this.entriesIn(locations, bundleId, this.hostTool) : this.hostEntriesIn(locations, bundleId, version);
+  }
+
+  /**
+   * The host tool's entry of a bundle in the user record: under its key, or
+   * with `version` the latest installed of the same identity.
+   * @param bundleId - Bundle id.
+   * @param version - Version `bundleId` carries; without it only the key matches.
+   * @throws {RegistryError} Any `RECORD.*` error from loading.
+   */
+  public async findUserHostEntry(bundleId: string, version?: string): Promise<LocatedToolEntry | undefined> {
+    return preferredEntry(await this.findUserHostEntries(bundleId, version), bundleId);
+  }
+
+  /** Every tool entry of every bundle in the user record. */
+  public async listUserEntries(): Promise<LocatedToolEntry[]> {
+    return this.allEntriesIn([this.userLocation()]);
+  }
+
+  /**
+   * Refuse an action on a user-level bundle whose user record entries all belong to another tool.
+   * @param bundleId - Bundle the action targets.
+   * @param action - The action, for the message.
+   * @throws {RegistryError} `RECORD.CLI_MANAGED`, or a `RECORD.*` error from loading.
+   */
+  public async assertUserHostTool(bundleId: string, action: CliManagedAction): Promise<void> {
+    await this.assertHostToolIn([this.userLocation()], bundleId, action, 'user');
+  }
+
+  /**
+   * Retire a bundle's profile (user) installation: unsync its user files except
+   * those a user record entry still lists, then remove the installation.
+   * @param bundleId - Bundle being retired.
+   * @param unsync - Removes the bundle's user files, leaving every path in `keep`.
+   * @param removeInstallation - Removes the extension's installation of the bundle.
+   */
+  public async retireProfileEntry(
+    bundleId: string,
+    unsync: (keep: Set<string>) => Promise<void>,
+    removeInstallation: () => Promise<void>
+  ): Promise<void> {
+    const location = this.userLocation();
+    const keep = new Set<string>();
+    for (const listed of await this.listedPathsIn(location)) {
+      keep.add(path.join(location.root, ...listed.split('/')));
+    }
+    this.logger.debug(`Retiring the profile installation of ${bundleId}; ${keep.size} user record path(s) kept`);
+    await unsync(keep);
+    await removeInstallation();
   }
 
   /** Configured sources in lookup order, one per id: active hub, detached, then any other. */
