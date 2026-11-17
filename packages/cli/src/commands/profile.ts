@@ -1919,7 +1919,7 @@ export class ProfilePublishCommand extends BaseProfileCommand {
     } catch (err) {
       return invalidProfile(`is not valid YAML: ${err instanceof Error ? err.message : String(err)}`, err instanceof Error ? err : undefined);
     }
-    if (!parsed || typeof parsed !== 'object') {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return invalidProfile('is empty or is not a YAML mapping');
     }
 
