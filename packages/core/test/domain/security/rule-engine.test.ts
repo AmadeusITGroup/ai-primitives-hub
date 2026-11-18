@@ -43,7 +43,7 @@ describe('RuleBasedSecurityScanEngine', () => {
       version: '1.1.2',
       rulePackId: 'md-security-scanner',
       rulePackVersion: '1.10.9-compatible.3',
-      rulePackDigest: 'sha256:5577841ed1c38a5b4acf7f68aed2c59b2aa68275b9f4e545295a302ba044b28f'
+      rulePackDigest: 'sha256:3ad7b9f0c28b7442adf4746d674bf39e82a51462ce1a7699e9db09b70739aa87'
     });
     expect(second).toEqual(first);
   });

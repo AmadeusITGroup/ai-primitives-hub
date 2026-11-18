@@ -1,7 +1,8 @@
 /**
- * Fix suggestions for findings that come without one, looked up by exact rule id first and then
- * by rule family prefix.
- * @module domain/security/rating/remediation
+ * Remediation text of the scanner rules, looked up by exact rule id first and then by rule family
+ * prefix. The rule engine gives it to the findings it reports; the security rating uses it for
+ * findings from a scan report that carry no fix.
+ * @module domain/security/remediations
  */
 
 const GENERIC = 'Review the finding in context. If it is documentation that only quotes the pattern, move it into a fenced '
@@ -46,9 +47,15 @@ const BY_PREFIX: readonly (readonly [string, string])[] = [
 ];
 
 /**
- * Suggested fix for a rule.
+ * Remediation text written for a rule, if there is one.
  * @param ruleId - Scanner rule id, e.g. `HKS-001`
  */
-export const recommendedFixFor = (ruleId: string): string =>
+export const remediationForRule = (ruleId: string): string | undefined =>
   (Object.hasOwn(BY_RULE, ruleId) ? BY_RULE[ruleId] : undefined)
-  ?? BY_PREFIX.find(([prefix]) => ruleId.startsWith(prefix))?.[1] ?? GENERIC;
+  ?? BY_PREFIX.find(([prefix]) => ruleId.startsWith(prefix))?.[1];
+
+/**
+ * Suggested fix for a rule, or a generic hint for a rule without remediation text.
+ * @param ruleId - Scanner rule id, e.g. `HKS-001`
+ */
+export const recommendedFixFor = (ruleId: string): string => remediationForRule(ruleId) ?? GENERIC;

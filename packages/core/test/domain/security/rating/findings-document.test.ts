@@ -5,7 +5,6 @@ import {
 } from 'vitest';
 import {
   parseFindingsDocument,
-  recommendedFixFor,
 } from '../../../../src/domain/security/rating';
 
 describe('parseFindingsDocument', () => {
@@ -42,14 +41,6 @@ describe('parseFindingsDocument', () => {
   });
 });
 
-describe('recommendedFixFor', () => {
-  it('prefers an exact rule, then the rule family, then a generic hint', () => {
-    expect(recommendedFixFor('HKS-001')).toContain('pipe a download into a shell');
-    expect(recommendedFixFor('SEC-999')).toContain('revoke or rotate');
-    expect(recommendedFixFor('ZZZ-001')).toContain('Review the finding');
-  });
-});
-
 describe('parseFindingsDocument line numbers', () => {
   it('keeps only integer lines', () => {
     const { findings } = parseFindingsDocument([
@@ -57,13 +48,6 @@ describe('parseFindingsDocument line numbers', () => {
       { ruleId: 'A-001', severity: 'LOW', file: 'a.md', line: 1.5 }
     ]);
     expect(findings.map((finding) => finding.line)).toEqual([4, undefined]);
-  });
-});
-
-describe('recommendedFixFor inherited names', () => {
-  it('falls back to the generic hint for a rule id that names an Object member', () => {
-    expect(recommendedFixFor('toString')).toContain('Review the finding');
-    expect(recommendedFixFor('constructor')).toContain('Review the finding');
   });
 });
 

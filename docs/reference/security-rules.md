@@ -28,6 +28,9 @@ or safety. It does not execute hook commands, tools or artifact instructions.
   prompt-level controls are not checks of actual runtime enforcement.
 - Secret and MCP argument evidence is redacted. Placeholder exceptions apply
   to the placeholder itself, not unrelated credentials on the same line.
+- A finding carries the remediation text of its rule (`recommended_fix`).
+  `security rate` uses the same text for findings from a scan report that have
+  none.
 
 All other checks are enabled, subject to their artifact/context conditions.
 `C`, `H`, `M`, `L`, and `I` below mean CRITICAL, HIGH, MEDIUM, LOW, and INFO.

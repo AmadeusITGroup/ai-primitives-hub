@@ -8,7 +8,7 @@
 import * as path from 'node:path';
 import {
   recommendedFixFor,
-} from './remediation';
+} from '../remediations';
 import {
   DEFAULT_SCORING_WEIGHTS,
   gateFailed,

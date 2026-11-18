@@ -24,6 +24,9 @@ import type {
 import {
   parseSecurityDocument,
 } from './markdown-context';
+import {
+  remediationForRule,
+} from './remediations';
 import type {
   SecurityDocument,
   SecurityFinding,
@@ -66,7 +69,8 @@ const makeRule = (id: string, title: string, severity: SecuritySeverity, pattern
   category,
   owasp,
   risk: category === 'secrets' ? 'A credential-like value in an AI artifact may be usable by an attacker.' : 'The detected content may weaken the security of an AI artifact.',
-  fix: category === 'secrets' ? 'Remove the value and use an approved secrets manager.' : 'Remove the risky content and apply the recommended secure control.'
+  fix: remediationForRule(id)
+    ?? (category === 'secrets' ? 'Remove the value and use an approved secrets manager.' : 'Remove the risky content and apply the recommended secure control.')
 });
 
 const secretPatterns = {
