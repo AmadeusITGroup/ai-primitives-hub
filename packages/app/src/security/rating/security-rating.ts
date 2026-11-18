@@ -1,39 +1,39 @@
 /**
- * Quality rating: score each bundle (collection or skill) of a source checkout from the findings
+ * Security rating: score each bundle (collection or skill) of a source checkout from the findings
  * of a scan, and the source as the average of its bundles.
  *
  * The rating does not scan anything itself, so it works with the findings of any scanner.
- * @module app/quality/quality-rating
+ * @module app/security/rating/security-rating
  */
 import * as path from 'node:path';
 import type {
-  QualityFailOn,
-  QualityFinding,
-  QualityReport,
+  SecurityRatingFailOn,
+  SecurityRatingFinding,
+  SecurityRatingReport,
 } from '@ai-primitives-hub/core';
 import {
-  buildQualityReport,
+  buildSecurityRatingReport,
 } from '@ai-primitives-hub/core';
 import {
   discoverBundles,
 } from './bundle-discovery';
 
-export interface QualityRatingRequest {
+export interface SecurityRatingRequest {
   /** Checkout to rate. */
   root: string;
   /** `owner/repo`, recorded in the report and used for skill bundle ids. */
   repository: string;
   tag?: string;
   commit?: string;
-  failOn: QualityFailOn;
+  failOn: SecurityRatingFailOn;
   collectionsPath?: string;
   skillsPath?: string;
   /** Name of the tool that produced the findings, recorded in the report. */
   scannerName: string;
 }
 
-export interface QualityRatingResult {
-  report: QualityReport;
+export interface SecurityRatingResult {
+  report: SecurityRatingReport;
   /** Collection items that were missing or outside the repository. */
   warnings: readonly string[];
 }
@@ -65,11 +65,11 @@ const isOutsideRoot = (root: string, file: string): boolean => {
  * @param options.findings
  * @param options.generatedAt
  */
-export const runQualityRating = (options: {
-  request: QualityRatingRequest;
-  findings: readonly QualityFinding[];
+export const runSecurityRating = (options: {
+  request: SecurityRatingRequest;
+  findings: readonly SecurityRatingFinding[];
   generatedAt: string;
-}): QualityRatingResult => {
+}): SecurityRatingResult => {
   const { request } = options;
   const discovered = discoverBundles(request.root, {
     repository: request.repository,
@@ -79,7 +79,7 @@ export const runQualityRating = (options: {
   const findings = options.findings
     .filter((item) => !isOutsideRoot(request.root, item.file))
     .map((item) => ({ ...item, file: relativeToRoot(request.root, item.file) }));
-  const report = buildQualityReport({
+  const report = buildSecurityRatingReport({
     findings,
     bundles: discovered.bundles,
     mode: discovered.mode,

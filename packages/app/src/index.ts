@@ -20,7 +20,6 @@ export * from './discovery';
 export * from './hub-editor';
 export * from './install';
 export * from './mcp';
-export * from './quality';
 export * from './writers';
 export * from './stores';
 export * from './update';

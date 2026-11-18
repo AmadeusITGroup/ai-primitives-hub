@@ -1,5 +1,5 @@
 /**
- * Weighted quality scoring of scanner findings.
+ * Weighted security rating of scanner findings.
  *
  * Every finding costs points; none is ignored:
  *
@@ -11,25 +11,25 @@
  * The weights, curve and bands are chosen together so that one full-strength finding of each
  * severity lands in its own band (LOW 93 low, MEDIUM 82 medium, HIGH 61 high, CRITICAL 37
  * critical).
- * @module domain/quality/scoring
+ * @module domain/security/rating/scoring
  */
 import type {
-  QualityConfidence,
-  QualityFinding,
-  QualitySeverity,
+  SecurityRatingConfidence,
+  SecurityRatingFinding,
+  SecurityRatingSeverity,
 } from './types';
 
 export type PathContext = 'primitive' | 'doc' | 'vendored';
 
 /** Risk label of a score; `unknown` when there is no score. */
-export type QualityRisk = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type SecurityRatingRisk = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
 
 /** Gate level: a bundle fails when its score is below the limit of this level. */
-export type QualityFailOn = 'none' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type SecurityRatingFailOn = 'none' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export interface ScoringWeights {
-  readonly severityPoints: Readonly<Record<QualitySeverity, number>>;
-  readonly confidenceFactor: Readonly<Record<QualityConfidence, number>>;
+  readonly severityPoints: Readonly<Record<SecurityRatingSeverity, number>>;
+  readonly confidenceFactor: Readonly<Record<SecurityRatingConfidence, number>>;
   readonly contextFactor: Readonly<Record<PathContext, number>>;
   readonly ruleFactor: Readonly<Record<string, number>>;
   /** Factor for the 1st, 2nd, 3rd and later finding of one rule in one file. */
@@ -60,11 +60,11 @@ export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = {
   vendoredSuffixes: ['.min.js', '.min.css', '.map']
 };
 
-export type ScoredFinding = Pick<QualityFinding, 'ruleId' | 'severity' | 'confidence' | 'file' | 'line'>;
+export type ScoredFinding = Pick<SecurityRatingFinding, 'ruleId' | 'severity' | 'confidence' | 'file' | 'line'>;
 
 export interface ScoredFindings {
   score: number;
-  risk: QualityRisk;
+  risk: SecurityRatingRisk;
   penalty: number;
   /** Points of each input finding, in input order. */
   points: number[];
@@ -94,7 +94,7 @@ export const classifyPath = (file: string, weights: ScoringWeights = DEFAULT_SCO
  * @param score - 0-100, or null when unscored
  * @param weights - Scoring weights
  */
-export const riskFromScore = (score: number | null, weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS): QualityRisk => {
+export const riskFromScore = (score: number | null, weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS): SecurityRatingRisk => {
   if (score === null) {
     return 'unknown';
   }
@@ -159,7 +159,7 @@ export const scoreFindings = (
  * @param weights - Scoring weights
  */
 export const gateScoreLimit = (
-  failOn: Exclude<QualityFailOn, 'none'>,
+  failOn: Exclude<SecurityRatingFailOn, 'none'>,
   weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
 ): number => {
   const limits = { CRITICAL: weights.riskBands.high, HIGH: weights.riskBands.medium, MEDIUM: weights.riskBands.low, LOW: 100 };
@@ -174,6 +174,6 @@ export const gateScoreLimit = (
  */
 export const gateFailed = (
   score: number | null,
-  failOn: QualityFailOn,
+  failOn: SecurityRatingFailOn,
   weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
 ): boolean => failOn !== 'none' && score !== null && score < gateScoreLimit(failOn, weights);

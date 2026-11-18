@@ -1,9 +1,9 @@
 /**
- * Quality report: rates each bundle (collection) on its own and the source as the average of its
+ * Security rating report: rates each bundle (collection) on its own and the source as the average of its
  * bundles, from the findings of a scan.
  *
- * The JSON shape is `quality-report.schema.json` (schemaVersion 1).
- * @module domain/quality/quality-report
+ * The JSON shape is `security-rating-report.schema.json` (schemaVersion 1).
+ * @module domain/security/rating/security-rating-report
  */
 import * as path from 'node:path';
 import {
@@ -12,25 +12,25 @@ import {
 import {
   DEFAULT_SCORING_WEIGHTS,
   gateFailed,
-  type QualityFailOn,
-  type QualityRisk,
   riskFromScore,
   scoreFindings,
   type ScoringWeights,
+  type SecurityRatingFailOn,
+  type SecurityRatingRisk,
 } from './scoring';
 import type {
-  QualityFinding,
-  QualitySeverity,
+  SecurityRatingFinding,
+  SecurityRatingSeverity,
 } from './types';
 import {
-  QUALITY_SEVERITIES,
+  SECURITY_RATING_SEVERITIES,
 } from './types';
 
-export type QualityReportMode = 'release-archives' | 'collections' | 'skills' | 'repository';
+export type SecurityRatingReportMode = 'release-archives' | 'collections' | 'skills' | 'repository';
 
-export interface QualityFindingEntry {
+export interface SecurityRatingFindingEntry {
   ruleId: string;
-  severity: QualitySeverity;
+  severity: SecurityRatingSeverity;
   /** Points this finding costs. */
   points: number;
   file: string;
@@ -40,40 +40,40 @@ export interface QualityFindingEntry {
   fix: string;
 }
 
-export interface QualityBlock {
+export interface SecurityRatingBlock {
   score: number | null;
-  risk: QualityRisk;
+  risk: SecurityRatingRisk;
   penalty: number;
-  counts: Record<QualitySeverity, number>;
+  counts: Record<SecurityRatingSeverity, number>;
   /** The costliest findings; counts cover all of them. */
-  findings: QualityFindingEntry[];
+  findings: SecurityRatingFindingEntry[];
 }
 
-export interface QualityBundleMetadata {
+export interface SecurityRatingBundleMetadata {
   author: string | null;
   kind: Record<string, number>;
   labels: string[];
 }
 
-export interface QualityBundle extends QualityBlock {
+export interface SecurityRatingBundle extends SecurityRatingBlock {
   id: string;
   version: string;
-  metadata?: QualityBundleMetadata;
+  metadata?: SecurityRatingBundleMetadata;
 }
 
-export interface QualitySourceBlock extends QualityBlock {
+export interface SecurityRatingSourceBlock extends SecurityRatingBlock {
   /** `bundles-average`, or `repository` when no bundles were found and the whole checkout was rated. */
   basis: 'bundles-average' | 'repository';
 }
 
-export interface QualityReport {
+export interface SecurityRatingReport {
   schemaVersion: 1;
   generatedAt: string;
   scanner: { name: string };
-  source: { repository: string; tag: string; commit: string; mode: QualityReportMode };
-  repo: QualitySourceBlock;
-  bundles: QualityBundle[];
-  gate: { failOn: Uppercase<QualityFailOn>; passed: boolean };
+  source: { repository: string; tag: string; commit: string; mode: SecurityRatingReportMode };
+  repo: SecurityRatingSourceBlock;
+  bundles: SecurityRatingBundle[];
+  gate: { failOn: Uppercase<SecurityRatingFailOn>; passed: boolean };
 }
 
 /** A bundle and the repository-relative files it ships. */
@@ -81,7 +81,7 @@ export interface BundleFiles {
   id: string;
   version: string;
   files: readonly string[];
-  metadata?: QualityBundleMetadata;
+  metadata?: SecurityRatingBundleMetadata;
 }
 
 export interface RateOptions {
@@ -92,8 +92,8 @@ export interface RateOptions {
 
 export const DEFAULT_MAX_LISTED_FINDINGS = 20;
 
-const emptyCounts = (): Record<QualitySeverity, number> =>
-  Object.fromEntries(QUALITY_SEVERITIES.map((severity) => [severity, 0])) as Record<QualitySeverity, number>;
+const emptyCounts = (): Record<SecurityRatingSeverity, number> =>
+  Object.fromEntries(SECURITY_RATING_SEVERITIES.map((severity) => [severity, 0])) as Record<SecurityRatingSeverity, number>;
 
 const round1 = (value: number): number => Math.round(value * 10) / 10;
 
@@ -108,7 +108,7 @@ export const normalizeReportPath = (file: string): string => path.posix.normaliz
  * @param findings - Findings of one bundle, or of the whole repository
  * @param options - Weights and list size
  */
-export const rateFindings = (findings: readonly QualityFinding[], options: RateOptions = {}): QualityBlock => {
+export const rateFindings = (findings: readonly SecurityRatingFinding[], options: RateOptions = {}): SecurityRatingBlock => {
   const weights = options.weights ?? DEFAULT_SCORING_WEIGHTS;
   const scored = scoreFindings(findings, weights);
   const counts = emptyCounts();
@@ -143,16 +143,16 @@ export const rateFindings = (findings: readonly QualityFinding[], options: RateO
  * @param maxFindings - How many of the costliest findings to list
  * @param weights - Scoring weights
  */
-export const aggregateQualityBlocks = (
-  blocks: readonly QualityBlock[],
+export const aggregateSecurityRatingBlocks = (
+  blocks: readonly SecurityRatingBlock[],
   maxFindings: number = DEFAULT_MAX_LISTED_FINDINGS,
   weights: ScoringWeights = DEFAULT_SCORING_WEIGHTS
-): QualityBlock => {
+): SecurityRatingBlock => {
   const scores = blocks.flatMap((block) => (block.score === null ? [] : [block.score]));
   const score = scores.length === 0 ? null : Math.floor((2 * scores.reduce((sum, value) => sum + value, 0) + scores.length) / (2 * scores.length));
   const counts = emptyCounts();
   for (const block of blocks) {
-    for (const severity of QUALITY_SEVERITIES) {
+    for (const severity of SECURITY_RATING_SEVERITIES) {
       counts[severity] += block.counts[severity];
     }
   }
@@ -167,12 +167,12 @@ export const aggregateQualityBlocks = (
   };
 };
 
-export interface BuildQualityReportInput {
-  findings: readonly QualityFinding[];
+export interface BuildSecurityRatingReportInput {
+  findings: readonly SecurityRatingFinding[];
   /** Bundles to rate; empty rates the whole repository as one unit. */
   bundles: readonly BundleFiles[];
-  mode: QualityReportMode;
-  failOn: QualityFailOn;
+  mode: SecurityRatingReportMode;
+  failOn: SecurityRatingFailOn;
   generatedAt: string;
   scanner: { name: string };
   source: { repository: string; tag: string; commit: string };
@@ -181,14 +181,14 @@ export interface BuildQualityReportInput {
 }
 
 /**
- * Build the quality report of a scan.
+ * Build the security rating report of a scan.
  * @param input - Scan findings, the bundles with their files, and report metadata
  */
-export const buildQualityReport = (input: BuildQualityReportInput): QualityReport => {
+export const buildSecurityRatingReport = (input: BuildSecurityRatingReportInput): SecurityRatingReport => {
   const weights = input.weights ?? DEFAULT_SCORING_WEIGHTS;
   const options: RateOptions = { weights, maxFindings: input.maxFindings };
   const limit = input.maxFindings ?? DEFAULT_MAX_LISTED_FINDINGS;
-  const bundles: QualityBundle[] = input.bundles.map((bundle) => {
+  const bundles: SecurityRatingBundle[] = input.bundles.map((bundle) => {
     const files = new Set(bundle.files.map((file) => normalizeReportPath(file)));
     const own = input.findings.filter((item) => files.has(normalizeReportPath(item.file)));
     return {
@@ -198,8 +198,8 @@ export const buildQualityReport = (input: BuildQualityReportInput): QualityRepor
       ...(bundle.metadata === undefined ? {} : { metadata: bundle.metadata })
     };
   });
-  const repo: QualitySourceBlock = bundles.length > 0
-    ? { ...aggregateQualityBlocks(bundles, limit, weights), basis: 'bundles-average' }
+  const repo: SecurityRatingSourceBlock = bundles.length > 0
+    ? { ...aggregateSecurityRatingBlocks(bundles, limit, weights), basis: 'bundles-average' }
     : { ...rateFindings(input.findings, options), basis: 'repository' };
   const failed = bundles.length > 0
     ? bundles.some((bundle) => gateFailed(bundle.score, input.failOn, weights))
@@ -211,6 +211,6 @@ export const buildQualityReport = (input: BuildQualityReportInput): QualityRepor
     source: { ...input.source, mode: bundles.length > 0 ? input.mode : 'repository' },
     repo,
     bundles,
-    gate: { failOn: input.failOn.toUpperCase() as Uppercase<QualityFailOn>, passed: !failed }
+    gate: { failOn: input.failOn.toUpperCase() as Uppercase<SecurityRatingFailOn>, passed: !failed }
   };
 };

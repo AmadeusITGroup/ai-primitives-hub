@@ -4,18 +4,18 @@
  * Accepts the JSON that scanners write: an object with a `findings` array, or a bare array.
  * Entries that lack a rule id, a file or a known severity are skipped and counted rather than
  * guessed.
- * @module domain/quality/findings-document
+ * @module domain/security/rating/findings-document
  */
 import {
-  QUALITY_CONFIDENCES,
-  QUALITY_SEVERITIES,
-  type QualityConfidence,
-  type QualityFinding,
-  type QualitySeverity,
+  SECURITY_RATING_CONFIDENCES,
+  SECURITY_RATING_SEVERITIES,
+  type SecurityRatingConfidence,
+  type SecurityRatingFinding,
+  type SecurityRatingSeverity,
 } from './types';
 
 export interface ParsedFindings {
-  findings: QualityFinding[];
+  findings: SecurityRatingFinding[];
   /** Entries that were not valid findings. */
   skipped: number;
   /** The `complete` flag of the report when it has one; other scanners omit it. */
@@ -39,10 +39,10 @@ export const parseFindingsDocument = (document: unknown): ParsedFindings => {
   if (entries === undefined) {
     throw new TypeError('expected an object with a "findings" array, or an array of findings');
   }
-  const findings: QualityFinding[] = [];
+  const findings: SecurityRatingFinding[] = [];
   let skipped = 0;
   for (const entry of entries as unknown[]) {
-    const severity: QualitySeverity | undefined = isRecord(entry) ? oneOf(QUALITY_SEVERITIES, entry.severity) : undefined;
+    const severity: SecurityRatingSeverity | undefined = isRecord(entry) ? oneOf(SECURITY_RATING_SEVERITIES, entry.severity) : undefined;
     // The security scan report writes snake_case names; other scanners use camelCase.
     const ruleId = isRecord(entry) ? entry.ruleId ?? entry.rule_id : undefined;
     const recommendedFix = isRecord(entry) ? entry.recommendedFix ?? entry.recommended_fix : undefined;
@@ -51,7 +51,7 @@ export const parseFindingsDocument = (document: unknown): ParsedFindings => {
       continue;
     }
     // A finding without a confidence counts in full: assuming it is doubtful would hide it.
-    const confidence: QualityConfidence = oneOf(QUALITY_CONFIDENCES, entry.confidence) ?? 'HIGH';
+    const confidence: SecurityRatingConfidence = oneOf(SECURITY_RATING_CONFIDENCES, entry.confidence) ?? 'HIGH';
     findings.push({
       ruleId,
       title: typeof entry.title === 'string' && entry.title !== '' ? entry.title : ruleId,

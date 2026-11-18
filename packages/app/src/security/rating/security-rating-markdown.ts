@@ -1,28 +1,28 @@
 /**
- * Markdown for a quality report: the job summary or pull-request comment.
+ * Markdown for a security rating report: the job summary or pull-request comment.
  *
  * Score bars, risk badges, a collapsible findings table per failing bundle, and the full table
  * collapsed. GitHub renders the tables and `<details>` blocks; the text still reads without them.
- * @module app/quality/quality-markdown
+ * @module app/security/rating/security-rating-markdown
  */
 import {
   DEFAULT_SCORING_WEIGHTS,
   gateFailed,
   gateScoreLimit,
-  type QualityBundle,
-  type QualityFailOn,
-  type QualityReport,
-  type QualityRisk,
-  type QualitySeverity,
+  type SecurityRatingBundle,
+  type SecurityRatingFailOn,
+  type SecurityRatingReport,
+  type SecurityRatingRisk,
+  type SecurityRatingSeverity,
 } from '@ai-primitives-hub/core';
 
-const ICONS: Readonly<Record<QualityRisk, string>> = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴', unknown: '⚪' };
+const ICONS: Readonly<Record<SecurityRatingRisk, string>> = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴', unknown: '⚪' };
 const RISK_ORDER = ['critical', 'high', 'medium', 'low'] as const;
 const OK = '✅';
 const FAIL = '❌';
 const WARN = '⚠️';
 
-export const riskBadge = (risk: QualityRisk): string => `${ICONS[risk]} ${risk}`;
+export const riskBadge = (risk: SecurityRatingRisk): string => `${ICONS[risk]} ${risk}`;
 
 export const scoreBar = (score: number | null, width = 10): string => {
   if (score === null) {
@@ -38,8 +38,8 @@ const escapeCell = (text: string): string => text.replaceAll('|', String.raw`\|`
 
 const escapeHtml = (text: string): string => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-const riskCounts = (bundles: readonly QualityBundle[]): string => {
-  const counts = new Map<QualityRisk, number>();
+const riskCounts = (bundles: readonly SecurityRatingBundle[]): string => {
+  const counts = new Map<SecurityRatingRisk, number>();
   for (const bundle of bundles) {
     if (bundle.score !== null) {
       counts.set(bundle.risk, (counts.get(bundle.risk) ?? 0) + 1);
@@ -49,13 +49,13 @@ const riskCounts = (bundles: readonly QualityBundle[]): string => {
   return parts.length > 0 ? parts.join(' · ') : 'no scored bundles';
 };
 
-const severityCounts = (counts: Readonly<Record<QualitySeverity, number>>): string =>
+const severityCounts = (counts: Readonly<Record<SecurityRatingSeverity, number>>): string =>
   (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((severity) => `${String(counts[severity])}${severity[0]}`).join(' ');
 
 const details = (summary: string, body: readonly string[]): string[] =>
   [`<details><summary>${summary}</summary>`, '', ...body, '', '</details>', ''];
 
-const findingsTable = (findings: QualityBundle['findings'], limit = 5): string[] => {
+const findingsTable = (findings: SecurityRatingBundle['findings'], limit = 5): string[] => {
   const lines = ['| Cost | Rule | Where | How to fix |', '|---:|---|---|---|'];
   for (const item of findings.slice(0, limit)) {
     lines.push(`| -${String(item.points)} | \`${escapeCell(item.ruleId)}\` ${escapeCell(item.title)} | \`${escapeCell(item.file)}:${String(item.line)}\` | ${escapeCell(item.fix)} |`);
@@ -66,7 +66,7 @@ const findingsTable = (findings: QualityBundle['findings'], limit = 5): string[]
   return lines;
 };
 
-const bundlesTable = (bundles: readonly QualityBundle[], failOn: QualityFailOn): string[] => {
+const bundlesTable = (bundles: readonly SecurityRatingBundle[], failOn: SecurityRatingFailOn): string[] => {
   const lines = ['| | Bundle | Score | Risk | Findings | Costliest finding |', '|:-:|---|---|---|---|---|'];
   const ordered = bundles.toSorted((a, b) => (a.score ?? -1) - (b.score ?? -1) || a.id.localeCompare(b.id));
   for (const bundle of ordered) {
@@ -79,7 +79,7 @@ const bundlesTable = (bundles: readonly QualityBundle[], failOn: QualityFailOn):
   return lines;
 };
 
-const bundleSections = (bundles: readonly QualityBundle[], failOn: QualityFailOn, attentionLimit = 10): string[] => {
+const bundleSections = (bundles: readonly SecurityRatingBundle[], failOn: SecurityRatingFailOn, attentionLimit = 10): string[] => {
   const failing = bundles.filter((bundle) => gateFailed(bundle.score, failOn));
   const lowest = bundles.filter((bundle) => bundle.penalty > 0 && bundle.score !== null)
     .toSorted((a, b) => (a.score ?? 0) - (b.score ?? 0)).slice(0, 5);
@@ -99,7 +99,7 @@ const bundleSections = (bundles: readonly QualityBundle[], failOn: QualityFailOn
   return lines;
 };
 
-const gateLine = (failOn: QualityFailOn, failing: number, total: number): string => {
+const gateLine = (failOn: SecurityRatingFailOn, failing: number, total: number): string => {
   if (failOn === 'none') {
     return 'Gate: off (report only).';
   }
@@ -115,10 +115,10 @@ const howScoringWorks = (): string => {
 };
 
 /**
- * Render a quality report as markdown.
+ * Render a security rating report as markdown.
  * @param report - Report from the rating use case
  */
-export const renderQualityMarkdown = (report: QualityReport): string => {
+export const renderSecurityRatingMarkdown = (report: SecurityRatingReport): string => {
   const failOn = report.gate.failOn === 'NONE' ? 'none' : report.gate.failOn;
   const failed = !report.gate.passed;
   const { repo, bundles } = report;

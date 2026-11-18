@@ -4,14 +4,14 @@ import {
   it,
 } from 'vitest';
 import {
-  aggregateQualityBlocks,
-  buildQualityReport,
+  aggregateSecurityRatingBlocks,
+  buildSecurityRatingReport,
   normalizeReportPath,
-  type QualityFinding,
   rateFindings,
-} from '../../../src/domain/quality';
+  type SecurityRatingFinding,
+} from '../../../../src/domain/security/rating';
 
-const finding = (overrides: Partial<QualityFinding> = {}): QualityFinding => ({
+const finding = (overrides: Partial<SecurityRatingFinding> = {}): SecurityRatingFinding => ({
   ruleId: 'HKS-001',
   title: 'Remote Shell Pipe',
   severity: 'HIGH',
@@ -24,7 +24,7 @@ const finding = (overrides: Partial<QualityFinding> = {}): QualityFinding => ({
 
 const generatedAt = '2026-10-29T10:00:00.000Z';
 
-const build = (findings: QualityFinding[], failOn: 'none' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' = 'CRITICAL') => buildQualityReport({
+const build = (findings: SecurityRatingFinding[], failOn: 'none' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' = 'CRITICAL') => buildSecurityRatingReport({
   findings,
   bundles: [
     { id: 'a', version: '1.0.0', files: ['skills/a/SKILL.md', 'prompts/a.prompt.md'] },
@@ -38,7 +38,7 @@ const build = (findings: QualityFinding[], failOn: 'none' | 'CRITICAL' | 'HIGH' 
   source: { repository: 'o/r', tag: '', commit: 'abc' }
 });
 
-describe('quality report', () => {
+describe('security rating report', () => {
   describe('rateFindings', () => {
     it('summarises score, risk, penalty, counts and the costliest findings with their fix', () => {
       const block = rateFindings([
@@ -71,20 +71,20 @@ describe('quality report', () => {
     });
   });
 
-  describe('aggregateQualityBlocks', () => {
+  describe('aggregateSecurityRatingBlocks', () => {
     it('averages the scores with halves rounded up and bands that average', () => {
       const blocks = [91, 100].map((score) => ({ score, risk: 'low' as const, penalty: 0, counts: { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 }, findings: [] }));
-      const result = aggregateQualityBlocks(blocks, 20);
+      const result = aggregateSecurityRatingBlocks(blocks, 20);
       expect(result.score).toBe(96);
       expect(result.risk).toBe('low');
     });
 
     it('ignores unscored blocks and gives null when none is scored', () => {
-      expect(aggregateQualityBlocks([], 20)).toMatchObject({ score: null, risk: 'unknown' });
+      expect(aggregateSecurityRatingBlocks([], 20)).toMatchObject({ score: null, risk: 'unknown' });
     });
   });
 
-  describe('buildQualityReport', () => {
+  describe('buildSecurityRatingReport', () => {
     const findings = [
       finding({ file: 'skills/a/SKILL.md', ruleId: 'HKS-001', severity: 'CRITICAL' }),
       finding({ file: 'skills/b/SKILL.md', ruleId: 'INJ-001', severity: 'MEDIUM' }),
@@ -115,7 +115,7 @@ describe('quality report', () => {
     });
 
     it('normalises separators when matching findings to bundle files', () => {
-      const report = buildQualityReport({
+      const report = buildSecurityRatingReport({
         findings: [finding({ file: 'skills\\a\\SKILL.md' })],
         bundles: [{ id: 'a', version: '1', files: ['./skills/a/SKILL.md'] }],
         mode: 'collections', failOn: 'HIGH', generatedAt, scanner: { name: 'x' }, source: { repository: 'o/r', tag: '', commit: '' }
@@ -124,7 +124,7 @@ describe('quality report', () => {
     });
 
     it('falls back to the whole repository when there are no bundles', () => {
-      const report = buildQualityReport({
+      const report = buildSecurityRatingReport({
         findings, bundles: [], mode: 'repository', failOn: 'CRITICAL', generatedAt,
         scanner: { name: 'x' }, source: { repository: 'o/r', tag: '', commit: '' }
       });

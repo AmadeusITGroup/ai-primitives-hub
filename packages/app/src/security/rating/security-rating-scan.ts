@@ -1,6 +1,6 @@
 /**
  * Scan a source checkout with the security scanner, then rate its bundles from the findings.
- * @module app/quality/quality-scan
+ * @module app/security/rating/security-rating-scan
  */
 import type {
   SecurityResourceLimits,
@@ -10,16 +10,16 @@ import {
   type SecurityScanDependencies,
   type SecurityScanOptions,
   type SecurityScanResult,
-} from '../security';
+} from '../security-scan-use-case';
 import {
-  type QualityRatingRequest,
-  type QualityRatingResult,
-  runQualityRating,
-} from './quality-rating';
+  runSecurityRating,
+  type SecurityRatingRequest,
+  type SecurityRatingResult,
+} from './security-rating';
 
 const DEFAULT_SCANNER_NAME = 'ai-primitives-hub-security';
 
-export interface QualityScanResult extends QualityRatingResult {
+export interface SecurityRatingScanResult extends SecurityRatingResult {
   /** The underlying scan, for coverage and operational errors. */
   scan: SecurityScanResult;
 }
@@ -30,11 +30,11 @@ export interface QualityScanResult extends QualityRatingResult {
  */
 export const scanAndRate = async (
   options: SecurityScanDependencies & {
-    request: Omit<QualityRatingRequest, 'scannerName'> & { scannerName?: string };
+    request: Omit<SecurityRatingRequest, 'scannerName'> & { scannerName?: string };
     scanOptions?: SecurityScanOptions;
     limits?: SecurityResourceLimits;
   }
-): Promise<QualityScanResult> => {
+): Promise<SecurityRatingScanResult> => {
   const { request } = options;
   const scan = await runSecurityScan({
     input: options.input,
@@ -55,7 +55,7 @@ export const scanAndRate = async (
       ignoreTrust: 'none'
     }
   });
-  const rated = runQualityRating({
+  const rated = runSecurityRating({
     findings: scan.findings,
     generatedAt: options.clock.nowIso(),
     request: { ...request, scannerName: request.scannerName ?? DEFAULT_SCANNER_NAME }

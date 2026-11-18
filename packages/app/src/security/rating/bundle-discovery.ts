@@ -10,15 +10,15 @@
  *   `skills-<owner>-<repo>-<name>`.
  *
  * Paths that leave the repository, and symlinks, are ignored.
- * @module app/quality/bundle-discovery
+ * @module app/security/rating/bundle-discovery
  */
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type {
   BundleFiles,
-  QualityBundleMetadata,
-  QualityReportMode,
+  SecurityRatingBundleMetadata,
+  SecurityRatingReportMode,
 } from '@ai-primitives-hub/core';
 import {
   normalizeRepoRelativePath,
@@ -33,7 +33,7 @@ export interface BundleDiscoveryOptions {
 }
 
 export interface DiscoveredBundles {
-  mode: Exclude<QualityReportMode, 'release-archives'>;
+  mode: Exclude<SecurityRatingReportMode, 'release-archives'>;
   bundles: BundleFiles[];
   warnings: string[];
 }
@@ -178,7 +178,7 @@ const discoverCollections = (root: string, collectionsPath: string): { bundles: 
     const tags = Array.isArray(document.tags)
       ? [...new Set(document.tags.filter((tag): tag is string => typeof tag === 'string' && tag !== ''))]
       : [];
-    const metadata: QualityBundleMetadata = {
+    const metadata: SecurityRatingBundleMetadata = {
       author: typeof document.author === 'string' && document.author !== '' ? document.author : null,
       kind: Object.fromEntries(Object.entries(kinds).toSorted(([a], [b]) => a.localeCompare(b))),
       labels: tags

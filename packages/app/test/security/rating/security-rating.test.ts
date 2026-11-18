@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
-  QualityFinding,
+  SecurityRatingFinding,
 } from '@ai-primitives-hub/core';
 import {
   afterEach,
@@ -12,12 +12,12 @@ import {
   it,
 } from 'vitest';
 import {
-  runQualityRating,
-} from '../../src/quality';
+  runSecurityRating,
+} from '../../../src/security/rating';
 
 const generatedAt = '2023-11-14T22:13:20.000Z';
 
-const finding = (file: string, ruleId: string, severity: QualityFinding['severity']): QualityFinding => ({
+const finding = (file: string, ruleId: string, severity: SecurityRatingFinding['severity']): SecurityRatingFinding => ({
   ruleId, title: `${ruleId} title`, severity, confidence: 'HIGH', file, line: 1
 });
 
@@ -27,7 +27,7 @@ const write = (root: string, relative: string, text = 'x'): void => {
   fs.writeFileSync(target, text);
 };
 
-describe('runQualityRating', () => {
+describe('runSecurityRating', () => {
   let root: string;
 
   beforeEach(() => {
@@ -43,13 +43,13 @@ describe('runQualityRating', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  const findings = (absolute = false): QualityFinding[] => [
+  const findings = (absolute = false): SecurityRatingFinding[] => [
     finding('skills/a/SKILL.md', 'HKS-001', 'CRITICAL'),
     finding('skills/b/SKILL.md', 'INJ-001', 'MEDIUM'),
     finding('README.md', 'MD-002', 'HIGH')
   ].map((item) => (absolute ? { ...item, file: path.join(root, item.file) } : item));
 
-  const rate = (options: { failOn?: 'none' | 'CRITICAL' | 'HIGH'; absolute?: boolean } = {}) => runQualityRating({
+  const rate = (options: { failOn?: 'none' | 'CRITICAL' | 'HIGH'; absolute?: boolean } = {}) => runSecurityRating({
     findings: findings(options.absolute),
     generatedAt,
     request: { root, repository: 'o/r', failOn: options.failOn ?? 'CRITICAL', commit: 'abc', scannerName: 'test-scanner' }
@@ -88,7 +88,7 @@ describe('runQualityRating', () => {
   });
 });
 
-describe('runQualityRating findings outside the checkout', () => {
+describe('runSecurityRating findings outside the checkout', () => {
   let root: string;
 
   beforeEach(() => {
@@ -102,7 +102,7 @@ describe('runQualityRating findings outside the checkout', () => {
 
   it('does not count them against the whole repository', () => {
     const outside = [finding('../other/SKILL.md', 'HKS-001', 'CRITICAL'), finding(path.join(path.dirname(root), 'x', 'SKILL.md'), 'HKS-001', 'CRITICAL')];
-    const { report } = runQualityRating({
+    const { report } = runSecurityRating({
       findings: [...outside, finding('..config/SKILL.md', 'MD-002', 'LOW')],
       generatedAt,
       request: { root, repository: 'o/r', failOn: 'CRITICAL', scannerName: 'test-scanner' }

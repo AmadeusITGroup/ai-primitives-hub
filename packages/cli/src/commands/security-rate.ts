@@ -8,18 +8,18 @@
  */
 import * as path from 'node:path';
 import {
-  type QualityRatingResult,
-  renderQualityMarkdown,
-  runQualityRating,
+  renderSecurityRatingMarkdown,
+  runSecurityRating,
   scanAndRate,
+  type SecurityRatingResult,
   type SecurityScanResult,
 } from '@ai-primitives-hub/app';
 import {
   gateFailed,
   parseFindingsDocument,
-  type QualityFailOn,
   RuleBasedSecurityScanEngine,
   type SecurityCancellation,
+  type SecurityRatingFailOn,
 } from '@ai-primitives-hub/core';
 import {
   IsolatedSecurityScanEngine,
@@ -51,7 +51,7 @@ class StaticCancellation implements SecurityCancellation {
   }
 }
 
-const renderText = (result: QualityRatingResult, failOn: QualityFailOn, skipped: number, scan?: SecurityScanResult): string => {
+const renderText = (result: SecurityRatingResult, failOn: SecurityRatingFailOn, skipped: number, scan?: SecurityScanResult): string => {
   const { report } = result;
   const failedBundles = report.bundles.filter((bundle) => gateFailed(bundle.score, failOn));
   const gate = failOn === 'none'
@@ -168,7 +168,7 @@ export class SecurityRateCommand extends Command {
       ctx.stderr.write('security rate takes a single PATH\n');
       return EXIT_USAGE;
     }
-    const failOn = (level === 'NONE' ? 'none' : level) as QualityFailOn;
+    const failOn = (level === 'NONE' ? 'none' : level) as SecurityRatingFailOn;
     const root = path.resolve(ctx.cwd(), this.rest[0] ?? '.');
     const isDirectory = await ctx.fs.stat(root).then((stat) => stat.isDirectory, () => false);
     if (!isDirectory) {
@@ -199,7 +199,7 @@ export class SecurityRateCommand extends Command {
       skillsPath: this.skillsPath
     };
 
-    let result: QualityRatingResult;
+    let result: SecurityRatingResult;
     let scan: SecurityScanResult | undefined;
     let skipped = 0;
     try {
@@ -232,7 +232,7 @@ export class SecurityRateCommand extends Command {
           ctx.stderr.write(`No usable findings in ${this.findings}: ${String(parsed.skipped)} entries lack a rule id, file or severity\n`);
           return EXIT_BAD_INPUT;
         }
-        result = runQualityRating({
+        result = runSecurityRating({
           findings: parsed.findings,
           generatedAt: ctx.clock.nowIso(),
           request: { ...request, scannerName: this.scannerName ?? 'unspecified' }
@@ -244,7 +244,7 @@ export class SecurityRateCommand extends Command {
           await writeReport(ctx, this.reportJson, `${JSON.stringify(result.report, null, 2)}\n`, this.overwrite);
         }
         if (this.reportMarkdown !== undefined) {
-          await writeReport(ctx, this.reportMarkdown, renderQualityMarkdown(result.report), this.overwrite);
+          await writeReport(ctx, this.reportMarkdown, renderSecurityRatingMarkdown(result.report), this.overwrite);
         }
       }
       formatOutput({

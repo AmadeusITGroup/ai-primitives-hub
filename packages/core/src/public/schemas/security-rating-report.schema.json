@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/quality-report.schema.json",
-  "title": "Quality report",
-  "description": "quality-report.json, written by `ai-primitives-hub security rate`. Each bundle (collection or skill) and the source are scored 0-100 from a security scan; hubs read it to show score and risk.",
+  "$id": "https://github.com/AmadeusITGroup/ai-primitives-hub/schemas/security-rating-report.schema.json",
+  "title": "Security rating report",
+  "description": "security-rating-report.json, written by `ai-primitives-hub security rate`. Each bundle (collection or skill) and the source are scored 0-100 from a security scan; hubs read it to show score and risk.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "generatedAt", "scanner", "source", "repo", "bundles", "gate"],

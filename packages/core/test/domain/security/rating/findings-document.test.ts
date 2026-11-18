@@ -6,7 +6,7 @@ import {
 import {
   parseFindingsDocument,
   recommendedFixFor,
-} from '../../../src/domain/quality';
+} from '../../../../src/domain/security/rating';
 
 describe('parseFindingsDocument', () => {
   const entry = { ruleId: 'HKS-001', title: 'Remote Shell Pipe', severity: 'high', confidence: 'medium', file: 'a.md', line: 4, recommendedFix: 'Pin it' };

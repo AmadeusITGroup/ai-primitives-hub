@@ -1,6 +1,6 @@
 import type {
-  QualityBundle,
-  QualityReport,
+  SecurityRatingBundle,
+  SecurityRatingReport,
 } from '@ai-primitives-hub/core';
 import {
   describe,
@@ -8,19 +8,19 @@ import {
   it,
 } from 'vitest';
 import {
-  renderQualityMarkdown,
+  renderSecurityRatingMarkdown,
   riskBadge,
   scoreBar,
-} from '../../src/quality';
+} from '../../../src/security/rating';
 
 const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
 const entry = (ruleId: string, points: number) => ({ ruleId, severity: 'HIGH' as const, points, file: 'skills/x/SKILL.md', line: 3, title: `Title | ${ruleId}`, fix: 'Do the fix' });
 
-const bundle = (id: string, score: number, risk: QualityBundle['risk'], findings = [] as ReturnType<typeof entry>[]): QualityBundle => ({
+const bundle = (id: string, score: number, risk: SecurityRatingBundle['risk'], findings = [] as ReturnType<typeof entry>[]): SecurityRatingBundle => ({
   id, version: '1.0.0', score, risk, penalty: 100 - score, counts: { ...counts, HIGH: findings.length }, findings
 });
 
-const report = (bundles: QualityBundle[], passed: boolean): QualityReport => ({
+const report = (bundles: SecurityRatingBundle[], passed: boolean): SecurityRatingReport => ({
   schemaVersion: 1,
   generatedAt: '2026-10-29T10:00:00.000Z',
   scanner: { name: 'test-scanner' },
@@ -30,7 +30,7 @@ const report = (bundles: QualityBundle[], passed: boolean): QualityReport => ({
   gate: { failOn: 'CRITICAL', passed }
 });
 
-describe('quality markdown', () => {
+describe('security rating markdown', () => {
   it('draws a score bar and a risk badge', () => {
     expect(scoreBar(100)).toBe('█'.repeat(10));
     expect(scoreBar(0)).toBe('░'.repeat(10));
@@ -40,7 +40,7 @@ describe('quality markdown', () => {
   });
 
   it('puts the failing bundle first with its findings and states the verdict', () => {
-    const text = renderQualityMarkdown(report([bundle('good', 100, 'low'), bundle('bad', 20, 'critical', [entry('HKS-001', 20)])], false));
+    const text = renderSecurityRatingMarkdown(report([bundle('good', 100, 'low'), bundle('bad', 20, 'critical', [entry('HKS-001', 20)])], false));
     expect(text).toContain('Security scan: failed');
     expect(text).toContain('1 of 2 bundle(s) are below the limit');
     expect(text).toContain('Needs attention (1 below the gate limit)');
@@ -50,32 +50,32 @@ describe('quality markdown', () => {
   });
 
   it('escapes table cells so a finding cannot break the table', () => {
-    const text = renderQualityMarkdown(report([bundle('bad', 20, 'critical', [entry('R-1', 20)])], false));
+    const text = renderSecurityRatingMarkdown(report([bundle('bad', 20, 'critical', [entry('R-1', 20)])], false));
     expect(text).toContain('Title \\| R-1');
   });
 
   it('says passed with every bundle in a collapsible table', () => {
-    const text = renderQualityMarkdown(report([bundle('a', 100, 'low'), bundle('b', 95, 'low')], true));
+    const text = renderSecurityRatingMarkdown(report([bundle('a', 100, 'low'), bundle('b', 95, 'low')], true));
     expect(text).toContain('Security scan: passed');
     expect(text).toContain('All 2 bundles');
     expect(text).toContain('All 2 bundle(s) pass');
   });
 
   it('shows the whole-repository fallback with a note', () => {
-    const fallback: QualityReport = { ...report([], false), repo: { basis: 'repository', score: 27, risk: 'critical', penalty: 53, counts, findings: [entry('X-1', 20)] } };
-    const text = renderQualityMarkdown(fallback);
+    const fallback: SecurityRatingReport = { ...report([], false), repo: { basis: 'repository', score: 27, risk: 'critical', penalty: 53, counts, findings: [entry('X-1', 20)] } };
+    const text = renderSecurityRatingMarkdown(fallback);
     expect(text).toContain('Whole repository 27/100');
     expect(text).toContain('scanned as one unit');
   });
 
   it('explains how the score works', () => {
-    expect(renderQualityMarkdown(report([bundle('a', 100, 'low')], true))).toContain('exp(−penalty / 40)');
+    expect(renderSecurityRatingMarkdown(report([bundle('a', 100, 'low')], true))).toContain('exp(−penalty / 40)');
   });
 });
 
-describe('quality markdown escaping', () => {
+describe('security rating markdown escaping', () => {
   it('keeps a bundle id with a pipe or markup from breaking the table or the summary', () => {
-    const text = renderQualityMarkdown(report([bundle('a|b', 20, 'critical', [entry('X-1', 20)]), bundle('<img src=x>', 20, 'critical', [entry('X-2', 20)])], false));
+    const text = renderSecurityRatingMarkdown(report([bundle('a|b', 20, 'critical', [entry('X-1', 20)]), bundle('<img src=x>', 20, 'critical', [entry('X-2', 20)])], false));
     expect(text).toContain(String.raw`a\|b`);
     expect(text).not.toContain('<code><img');
     expect(text).toContain('&lt;img src=x&gt;');

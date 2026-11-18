@@ -1,7 +1,7 @@
 import {
-  buildQualityReport,
-  QUALITY_REPORT_SCHEMA,
-  type QualityFinding,
+  buildSecurityRatingReport,
+  SECURITY_RATING_REPORT_SCHEMA,
+  type SecurityRatingFinding,
 } from '@ai-primitives-hub/core';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
@@ -11,7 +11,7 @@ import {
   it,
 } from 'vitest';
 
-const finding = (overrides: Partial<QualityFinding>): QualityFinding => ({
+const finding = (overrides: Partial<SecurityRatingFinding>): SecurityRatingFinding => ({
   ruleId: 'SEC-001',
   title: 'Hardcoded key',
   severity: 'CRITICAL',
@@ -25,10 +25,10 @@ const finding = (overrides: Partial<QualityFinding>): QualityFinding => ({
 const validator = (): ReturnType<Ajv['compile']> => {
   const ajv = new Ajv({ allErrors: true, strict: false });
   addFormats(ajv);
-  return ajv.compile(QUALITY_REPORT_SCHEMA);
+  return ajv.compile(SECURITY_RATING_REPORT_SCHEMA);
 };
 
-const report = (findings: QualityFinding[], bundles: { id: string; files: string[] }[]) => buildQualityReport({
+const report = (findings: SecurityRatingFinding[], bundles: { id: string; files: string[] }[]) => buildSecurityRatingReport({
   findings,
   bundles: bundles.map((bundle) => ({ ...bundle, version: '1.0.0', metadata: { author: null, kind: { skill: 1 }, labels: [] } })),
   mode: 'collections',
@@ -38,7 +38,7 @@ const report = (findings: QualityFinding[], bundles: { id: string; files: string
   source: { repository: 'owner/repo', tag: '', commit: 'abc' }
 });
 
-describe('quality report schema', () => {
+describe('security rating report schema', () => {
   it('accepts a report with bundles', () => {
     const validate = validator();
     const value = report([finding({})], [{ id: 'a', files: ['skills/a/SKILL.md'] }, { id: 'b', files: ['skills/b/SKILL.md'] }]);

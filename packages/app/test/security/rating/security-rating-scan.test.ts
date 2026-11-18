@@ -23,7 +23,7 @@ import {
 } from 'vitest';
 import {
   scanAndRate,
-} from '../../src/quality';
+} from '../../../src/security/rating';
 
 const clock: Clock = { now: () => 1_700_000_000_000, nowIso: () => '2023-11-14T22:13:20.000Z' };
 const cancellation: SecurityCancellation = { cancelled: false, throwIfCancelled: () => undefined };

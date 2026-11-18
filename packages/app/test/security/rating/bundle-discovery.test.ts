@@ -10,7 +10,7 @@ import {
 } from 'vitest';
 import {
   discoverBundles,
-} from '../../src/quality';
+} from '../../../src/security/rating';
 
 const COLLECTION = `id: py-dev
 name: Python

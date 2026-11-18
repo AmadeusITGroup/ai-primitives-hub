@@ -76,8 +76,8 @@ describe('security rate command', () => {
   });
 
   it('writes the JSON and Markdown reports and refuses to replace them without --overwrite', async () => {
-    const json = path.join(directory, 'out', 'quality-report.json');
-    const markdown = path.join(directory, 'out', 'quality-report.md');
+    const json = path.join(directory, 'out', 'security-rating-report.json');
+    const markdown = path.join(directory, 'out', 'security-rating-report.md');
     const args = ['--findings', findings, '--report-json', json, '--report-markdown', markdown, '--scanner-name', 'demo'];
     const result = await rate(args, { GITHUB_REPOSITORY: 'o/r', GITHUB_SHA: 'abc123' });
     expect(result.exitCode).toBe(1);

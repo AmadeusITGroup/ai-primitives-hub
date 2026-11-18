@@ -8,13 +8,13 @@ import {
   DEFAULT_SCORING_WEIGHTS,
   gateFailed,
   gateScoreLimit,
-  type QualityFinding,
   riskFromScore,
   scoreFindings,
   scoreFromPenalty,
-} from '../../../src/domain/quality';
+  type SecurityRatingFinding,
+} from '../../../../src/domain/security/rating';
 
-type ScoredInput = Pick<QualityFinding, 'ruleId' | 'severity' | 'confidence' | 'file' | 'line'>;
+type ScoredInput = Pick<SecurityRatingFinding, 'ruleId' | 'severity' | 'confidence' | 'file' | 'line'>;
 
 const finding = (overrides: Partial<ScoredInput> = {}): ScoredInput => ({
   ruleId: 'HKS-001',
@@ -27,7 +27,7 @@ const finding = (overrides: Partial<ScoredInput> = {}): ScoredInput => ({
 
 const points = (...findings: ScoredInput[]): number[] => scoreFindings(findings).points;
 
-describe('quality scoring', () => {
+describe('security rating scoring', () => {
   describe('points per finding', () => {
     it('costs the severity points at full strength', () => {
       expect((['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'] as const)
@@ -143,7 +143,7 @@ describe('quality scoring', () => {
   });
 });
 
-describe('quality scoring edge cases', () => {
+describe('security rating scoring edge cases', () => {
   it('scores a rule id that names an Object member at full weight', () => {
     const [value] = points(finding({ ruleId: 'toString', severity: 'CRITICAL' }));
     expect(value).toBe(40);

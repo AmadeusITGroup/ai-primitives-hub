@@ -1,7 +1,7 @@
 /**
  * Fix suggestions for findings that come without one, looked up by exact rule id first and then
  * by rule family prefix.
- * @module domain/quality/remediation
+ * @module domain/security/rating/remediation
  */
 
 const GENERIC = 'Review the finding in context. If it is documentation that only quotes the pattern, move it into a fenced '
