@@ -131,6 +131,9 @@ import {
   PromptCreateCommand,
 } from './prompt-create';
 import {
+  SecurityRateCommand,
+} from './security-rate';
+import {
   SecurityScanCommand,
 } from './security-scan';
 import {
@@ -218,6 +221,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   ConfigGetCommand,
   ConfigListCommand,
   ApplyCommand,
+  SecurityRateCommand,
   SkillNewCommand,
   BundleBuildCommand,
   BundleManifestCommand,

@@ -19,6 +19,8 @@ export interface ContextualSecurityRule {
   contextPattern?: RegExp;
   contextRadius?: number;
   requireContext?: boolean;
+  /** Extra check on a line the pattern matched; the rule is skipped when it returns false. */
+  lineTest?: (line: string) => boolean;
   artifactClasses?: readonly SecurityArtifactClass[];
   variantId?: string;
   relatedAst?: string;
@@ -40,6 +42,46 @@ const rule = (
   confidence: 'HIGH',
   ...options
 });
+
+// pip options that take a separate value; the value is not a package.
+const PIP_VALUE_OPTIONS = new Set([
+  '-i', '--index-url', '--extra-index-url', '-c', '--constraint', '-t', '--target', '--prefix', '-f', '--find-links',
+  '--proxy', '--root', '--src', '--cache-dir', '--log', '--retries', '--timeout', '--trusted-host', '--cert',
+  '--client-cert', '--python', '--platform', '--python-version', '--implementation', '--abi', '--report',
+  '--upgrade-strategy', '--no-binary', '--only-binary', '--progress-bar', '--exists-action', '-C', '--config-settings'
+]);
+
+/**
+ * True when a `pip install` on the line has a package that is not pinned with `==`, or names no package.
+ * A requirements file (`-r`) is treated as pinned.
+ * @param line - Line that matched a pip install
+ */
+export const hasUnpinnedPipInstall = (line: string): boolean => {
+  for (const command of line.matchAll(/\bpip\d*\s+install\b([^|;&]*)/gi)) {
+    const tokens = command[1].trim().split(/\s+/).filter((token) => token !== '');
+    let pinned = 0;
+    let unpinned = 0;
+    let requirements = false;
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (token === '-r' || token === '--requirement' || token.startsWith('--requirement=') || /^-r\S/.test(token)) {
+        requirements = true;
+      } else if (PIP_VALUE_OPTIONS.has(token)) {
+        index += 1;
+      } else if (!token.startsWith('-')) {
+        if (token.includes('==')) {
+          pinned += 1;
+        } else {
+          unpinned += 1;
+        }
+      }
+    }
+    if (!requirements && (unpinned > 0 || pinned === 0)) {
+      return true;
+    }
+  }
+  return false;
+};
 
 const hook = (
   id: string,
@@ -64,8 +106,11 @@ export const HIGH_IMPACT_LINE_RULES: readonly ContextualSecurityRule[] = [
     /\s--privileged\b|--pid\s*=\s*host\b|\s-v\s+\/:\/|--cap-add\s+(?:SYS_PTRACE|SYS_ADMIN|ALL)\b/i,
     { skipCode: true }),
   hook('HKS-007', 'Global Package Install in Hook/Script — Supply Chain Risk', 'HIGH',
-    /\bnpm\s+(?:install|i)\s+-g\b|\bpip\d*\s+install\b(?!\s+\S*==)(?!\s+--requirement)(?!\s+-r\b)|\bgem\s+install\b|\bcargo\s+install\b(?!\s+--locked)/i,
+    /\bnpm\s+(?:install|i)\s+-g\b|\bgem\s+install\b|\bcargo\s+install\b(?!\s+--locked)/i,
     { skipCode: true, confidence: 'MEDIUM' }),
+  hook('HKS-007', 'Global Package Install in Hook/Script — Supply Chain Risk', 'HIGH',
+    /\bpip\d*\s+install\b/i,
+    { skipCode: true, confidence: 'MEDIUM', lineTest: hasUnpinnedPipInstall }),
   hook('HKS-008', 'Silent Error Suppression in Security-Sensitive Hook Context', 'HIGH',
     /2\s*>\s*\/dev\/null\s*[|;]|\|\|\s*true\b|\|\|\s*:\s*(?:$|\n)|2>&1.*>\/dev\/null/i,
     {

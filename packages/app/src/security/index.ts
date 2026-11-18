@@ -1,3 +1,4 @@
+export * from './rating';
 export {
   runSecurityScan,
   SECURITY_SCAN_DEFAULT_LIMITS,
