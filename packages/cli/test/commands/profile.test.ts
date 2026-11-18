@@ -203,6 +203,22 @@ profiles:
       expect(envelope.errors[0].message).toContain('list.profile.yml');
     });
 
+    it('reports a scalar that YAML turns into an object (a timestamp) as unusable', async () => {
+      const result = await publish('date.profile.yml', '2026-11-18\n', 'no-such-hub');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { errors: { code: string }[] };
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+    });
+
+    it('still accepts a profile mapping and reaches the hub lookup', async () => {
+      const result = await publish('ok.profile.yml', 'id: my-profile\nname: My profile\n', 'no-such-hub');
+
+      expect(result.exitCode).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { errors: { code: string }[] };
+      expect(envelope.errors[0].code).toBe('HUB.NOT_FOUND');
+    });
+
     it('reports malformed YAML instead of crashing', async () => {
       const result = await publish('bad.profile.yml', 'id: [unclosed\n');
 
