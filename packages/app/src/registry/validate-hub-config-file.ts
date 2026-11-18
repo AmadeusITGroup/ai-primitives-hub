@@ -233,7 +233,11 @@ const sourceTypeFrom = (value: unknown): SourceType | undefined => {
   return value as SourceType;
 };
 
-function toRegistrySource(value: Record<string, unknown>): RegistrySource | undefined {
+/**
+ * Normalize a validated Hub source into the shared registry adapter input.
+ * @param value
+ */
+export function toRegistrySource(value: Record<string, unknown>): RegistrySource | undefined {
   const id = typeof value.id === 'string' ? value.id : undefined;
   const type = sourceTypeFrom(value.type);
   const url = typeof value.url === 'string'

@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "rootDir": "."
+  },
+  "include": ["test/domain/source-adapter-compatibility.test.ts"]
+}

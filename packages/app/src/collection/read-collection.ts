@@ -307,7 +307,7 @@ function listFilesRecursively(dirPath: string, basePath: string): string[] {
 
 /**
  * Resolve all item paths referenced in a collection.
- * For skills, expands the skill directory to include all files.
+ * Always retains declared paths, including missing files. For skills, also includes directory files.
  * @param repoRoot - Repository root path
  * @param collection - Parsed collection object
  * @returns Array of normalized repo-relative paths
@@ -322,19 +322,15 @@ export function resolveCollectionItemPaths(repoRoot: string, collection: Collect
     }
 
     const normalizedPath = normalizeRepoRelativePath(item.path);
+    allPaths.push(normalizedPath);
 
     if (item.kind === 'skill') {
       // For skills, the path points to SKILL.md but we need the entire directory
       const skillDir = path.dirname(path.join(repoRoot, normalizedPath));
       if (fs.existsSync(skillDir) && fs.statSync(skillDir).isDirectory()) {
         const skillFiles = listFilesRecursively(skillDir, repoRoot);
-        allPaths.push(...skillFiles);
-      } else {
-        // Fallback: just include the path as-is if directory doesn't exist
-        allPaths.push(normalizedPath);
+        allPaths.push(...skillFiles.filter((file) => file !== normalizedPath));
       }
-    } else {
-      allPaths.push(normalizedPath);
     }
   }
 

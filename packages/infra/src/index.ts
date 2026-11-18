@@ -1,3 +1,4 @@
+export * from './governance/validate-hub-scope';
 /**
  * The `@ai-primitives-hub/infra` package.
  *
@@ -15,6 +16,7 @@ export * from './collection';
 export * from './downloaders';
 export * from './extractors';
 export * from './fs';
+export * from './governance';
 export * from './harvest';
 export * from './host-app';
 export * from './http';

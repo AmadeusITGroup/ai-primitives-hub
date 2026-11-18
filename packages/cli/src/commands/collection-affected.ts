@@ -10,10 +10,8 @@
  * @module commands/collection-affected
  */
 import {
-  listCollectionFiles,
-  readCollection,
-  resolveCollectionItemPaths,
-  resolveCollectionReadmePath,
+  type AffectedCollection,
+  affectedCollections,
 } from '@ai-primitives-hub/app';
 import {
   Command,
@@ -24,28 +22,12 @@ import {
 } from '../framework';
 
 /**
- * Affected collection record.
- */
-interface AffectedRecord {
-  id: string;
-  file: string;
-}
-
-/**
- * Normalize path for comparison.
- * @param p Path to normalize.
- * @returns Normalized path.
- */
-const normalize = (p: string): string =>
-  String(p).replaceAll('\\', '/').replaceAll(/^\/+/g, '').trim();
-
-/**
  * Render affected collections as text.
  * @param d Affected data.
  * @param d.affected
  * @returns Formatted text output.
  */
-const renderText = (d: { affected: AffectedRecord[] }): string => {
+const renderText = (d: { affected: AffectedCollection[] }): string => {
   if (d.affected.length === 0) {
     return 'no affected collections\n';
   }
@@ -77,35 +59,7 @@ export class CollectionAffectedCommand extends Command {
   public execute(): Promise<number> {
     const { ctx } = this.commandContext;
     const fmt = (this.output ?? 'text');
-    const cwd = ctx.cwd();
-    const changed = (this.changedPath ?? [])
-      .map((p) => normalize(p))
-      .filter((s) => s.length > 0);
-    const changedSet = new Set(changed);
-
-    const collectionFiles = listCollectionFiles(cwd);
-    const affected: AffectedRecord[] = [];
-    for (const file of collectionFiles) {
-      const collection = readCollection(cwd, file);
-      const itemPaths = resolveCollectionItemPaths(cwd, collection).map((p) => normalize(p));
-      const readmePath = resolveCollectionReadmePath(collection);
-      const itemPathsSet = new Set(itemPaths);
-      const normalizedFile = normalize(file);
-      if (changedSet.has(normalizedFile)) {
-        affected.push({ id: collection.id, file });
-        continue;
-      }
-      if (readmePath && changedSet.has(normalize(readmePath))) {
-        affected.push({ id: collection.id, file });
-        continue;
-      }
-      for (const c of changed) {
-        if (itemPathsSet.has(c)) {
-          affected.push({ id: collection.id, file });
-          break;
-        }
-      }
-    }
+    const affected = affectedCollections(ctx.cwd(), this.changedPath ?? []);
 
     formatOutput({
       ctx,

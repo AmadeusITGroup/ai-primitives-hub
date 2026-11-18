@@ -19,6 +19,7 @@ import type {
 import {
   MAX_ASSET_SIZE,
   parseFrontmatter,
+  validateSkillContent,
   validateSkillDescription,
   validateSkillName,
 } from '@ai-primitives-hub/core';
@@ -43,7 +44,7 @@ export function validateSkillFolder(folderPath: string, folderName: string): Ski
     };
   }
 
-  // Read and parse frontmatter
+  // Content rules are shared with governance (core), so local and fetched skills agree.
   const content = fs.readFileSync(skillFile, 'utf8');
   const metadata = parseFrontmatter(content);
   if (!metadata) {
@@ -54,22 +55,8 @@ export function validateSkillFolder(folderPath: string, folderName: string): Ski
       errors: ['Failed to parse SKILL.md frontmatter']
     };
   }
-
   skillName = metadata.name || folderName;
-
-  // Validate name field
-  const nameError = validateSkillName(metadata.name);
-  if (nameError) {
-    errors.push(`name: ${nameError}`);
-  } else if (metadata.name !== folderName) {
-    errors.push(`Folder name "${folderName}" does not match skill name "${metadata.name}"`);
-  }
-
-  // Validate description field
-  const descError = validateSkillDescription(metadata.description);
-  if (descError) {
-    errors.push(`description: ${descError}`);
-  }
+  errors.push(...validateSkillContent(folderName, content));
 
   // Check for reasonable file sizes in bundled assets
   const files = fs.readdirSync(folderPath);

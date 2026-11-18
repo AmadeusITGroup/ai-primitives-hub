@@ -56,6 +56,11 @@ export { default as AGENT_PLUGIN_MANIFEST_SCHEMA } from './public/schemas/agent-
 export { default as SECURITY_RATING_REPORT_SCHEMA } from './public/schemas/security-rating-report.schema.json';
 
 /**
+ * Schema for the optional consumer governance configuration (`hub-governance.yml`).
+ */
+export { default as HUB_GOVERNANCE_SCHEMA } from './public/schemas/hub-governance.schema.json';
+
+/**
  * Phase 1 scaffolding marker, kept until `infra`/`app`/`cli` each have real
  * code of their own to depend on instead of this placeholder re-export
  * chain (see those packages' `src/index.ts`) — removed in Phase 5 once

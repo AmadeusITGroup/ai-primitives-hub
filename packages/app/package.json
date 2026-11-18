@@ -31,6 +31,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "generate:rule-catalogue": "node scripts/generate-rule-catalogue.mjs",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
