@@ -3,6 +3,7 @@
  *
  * Score bars, risk badges, a collapsible findings table per failing bundle, and the full table
  * collapsed. GitHub renders the tables and `<details>` blocks; the text still reads without them.
+ * The layout lives in `security-rating-templates`; this module only prepares the values.
  * @module app/security/rating/security-rating-markdown
  */
 import {
@@ -15,6 +16,10 @@ import {
   type SecurityRatingRisk,
   type SecurityRatingSeverity,
 } from '@ai-primitives-hub/core';
+import {
+  fillTemplate,
+  TEMPLATES,
+} from './security-rating-templates';
 
 const ICONS: Readonly<Record<SecurityRatingRisk, string>> = { low: '🟢', medium: '🟡', high: '🟠', critical: '🔴', unknown: '⚪' };
 const RISK_ORDER = ['critical', 'high', 'medium', 'low'] as const;
@@ -32,11 +37,8 @@ export const scoreBar = (score: number | null, width = 10): string => {
   return '█'.repeat(filled) + '░'.repeat(width - filled);
 };
 
-const scoreCell = (score: number | null): string => (score === null ? '—' : `\`${scoreBar(score)}\` **${String(score)}**`);
-
-const escapeCell = (text: string): string => text.replaceAll('|', String.raw`\|`).replaceAll(/\r?\n/g, ' ').trim();
-
-const escapeHtml = (text: string): string => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+const scoreCell = (score: number | null): string =>
+  (score === null ? '—' : fillTemplate(TEMPLATES.scoreCell, { bar: scoreBar(score), score: String(score) }));
 
 const riskCounts = (bundles: readonly SecurityRatingBundle[]): string => {
   const counts = new Map<SecurityRatingRisk, number>();
@@ -52,66 +54,65 @@ const riskCounts = (bundles: readonly SecurityRatingBundle[]): string => {
 const severityCounts = (counts: Readonly<Record<SecurityRatingSeverity, number>>): string =>
   (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((severity) => `${String(counts[severity])}${severity[0]}`).join(' ');
 
-const details = (summary: string, body: readonly string[]): string[] =>
-  [`<details><summary>${summary}</summary>`, '', ...body, '', '</details>', ''];
+const details = (summary: string, body: readonly string[]): string =>
+  fillTemplate(TEMPLATES.details, { summary, body: body.join('\n') });
 
-const findingsTable = (findings: SecurityRatingBundle['findings'], limit = 5): string[] => {
-  const lines = ['| Cost | Rule | Where | How to fix |', '|---:|---|---|---|'];
-  for (const item of findings.slice(0, limit)) {
-    lines.push(`| -${String(item.points)} | \`${escapeCell(item.ruleId)}\` ${escapeCell(item.title)} | \`${escapeCell(item.file)}:${String(item.line)}\` | ${escapeCell(item.fix)} |`);
-  }
-  if (findings.length > limit) {
-    lines.push(`| | _${String(findings.length - limit)} more in the JSON report_ | | |`);
-  }
-  return lines;
-};
+const findingsTable = (findings: SecurityRatingBundle['findings'], limit = 5): string[] => [
+  TEMPLATES.findingsHeader,
+  ...findings.slice(0, limit).map((item) => fillTemplate(TEMPLATES.findingRow, {
+    points: String(item.points), ruleId: item.ruleId, title: item.title, where: `${item.file}:${String(item.line)}`, fix: item.fix
+  })),
+  ...(findings.length > limit ? [fillTemplate(TEMPLATES.findingsMore, { count: String(findings.length - limit) })] : [])
+];
 
-const bundlesTable = (bundles: readonly SecurityRatingBundle[], failOn: SecurityRatingFailOn): string[] => {
-  const lines = ['| | Bundle | Score | Risk | Findings | Costliest finding |', '|:-:|---|---|---|---|---|'];
-  const ordered = bundles.toSorted((a, b) => (a.score ?? -1) - (b.score ?? -1) || a.id.localeCompare(b.id));
-  for (const bundle of ordered) {
-    const top = bundle.findings.at(0)?.title ?? '-';
-    lines.push(
-      `| ${gateFailed(bundle.score, failOn) ? FAIL : OK} | \`${escapeCell(bundle.id)}\` ${escapeCell(bundle.version)} | ${scoreCell(bundle.score)} `
-      + `| ${riskBadge(bundle.risk)} | ${severityCounts(bundle.counts)} | ${escapeCell(top)} |`
-    );
-  }
-  return lines;
-};
+const bundlesTable = (bundles: readonly SecurityRatingBundle[], failOn: SecurityRatingFailOn): string[] => [
+  TEMPLATES.bundlesHeader,
+  ...bundles.toSorted((a, b) => (a.score ?? -1) - (b.score ?? -1) || a.id.localeCompare(b.id)).map((bundle) => fillTemplate(TEMPLATES.bundleRow, {
+    status: gateFailed(bundle.score, failOn) ? FAIL : OK,
+    id: bundle.id,
+    version: bundle.version,
+    score: scoreCell(bundle.score),
+    risk: riskBadge(bundle.risk),
+    counts: severityCounts(bundle.counts),
+    top: bundle.findings.at(0)?.title ?? '-'
+  }))
+];
 
-const bundleSections = (bundles: readonly SecurityRatingBundle[], failOn: SecurityRatingFailOn, attentionLimit = 10): string[] => {
+const bundleSections = (bundles: readonly SecurityRatingBundle[], failOn: SecurityRatingFailOn, attentionLimit = 10): string => {
   const failing = bundles.filter((bundle) => gateFailed(bundle.score, failOn));
   const lowest = bundles.filter((bundle) => bundle.penalty > 0 && bundle.score !== null)
     .toSorted((a, b) => (a.score ?? 0) - (b.score ?? 0)).slice(0, 5);
   const shown = (failing.length > 0 ? failing : lowest)
     .toSorted((a, b) => (a.score ?? 0) - (b.score ?? 0) || a.id.localeCompare(b.id)).slice(0, attentionLimit);
-  const lines: string[] = [];
+  const parts: string[] = [];
   if (shown.length > 0) {
-    lines.push(failing.length > 0 ? `#### Needs attention (${String(failing.length)} below the gate limit)` : '#### Lowest scoring bundles', '');
+    parts.push(failing.length > 0 ? fillTemplate(TEMPLATES.attentionHeading, { failing: String(failing.length) }) : TEMPLATES.lowestHeading, '');
     for (const bundle of shown.filter((item) => item.findings.length > 0)) {
-      lines.push(...details(`<b><code>${escapeHtml(bundle.id)}</code></b> &nbsp; ${String(bundle.score)}/100 &nbsp; ${riskBadge(bundle.risk)}`, findingsTable(bundle.findings)));
+      const summary = fillTemplate(TEMPLATES.bundleSummary, { id: bundle.id, score: String(bundle.score), risk: riskBadge(bundle.risk) });
+      parts.push(details(summary, findingsTable(bundle.findings)));
     }
     if (failing.length > shown.length) {
-      lines.push(`_${String(failing.length - shown.length)} more below the limit are in the full table._`, '');
+      parts.push(fillTemplate(TEMPLATES.moreBelowLimit, { count: String(failing.length - shown.length) }), '');
     }
   }
-  lines.push(...details(`All ${String(bundles.length)} bundles`, bundlesTable(bundles, failOn)));
-  return lines;
+  parts.push(details(fillTemplate(TEMPLATES.allBundles, { count: String(bundles.length) }), bundlesTable(bundles, failOn)));
+  return parts.join('\n');
 };
 
 const gateLine = (failOn: SecurityRatingFailOn, failing: number, total: number): string => {
   if (failOn === 'none') {
-    return 'Gate: off (report only).';
+    return TEMPLATES.gateOff;
   }
-  const verdict = failing > 0 ? `**${String(failing)} of ${String(total)} bundle(s) are below the limit.**` : `All ${String(total)} bundle(s) pass.`;
-  return `Gate \`${failOn}\`: a bundle fails below a score of ${String(gateScoreLimit(failOn))}. ${verdict}`;
+  const counts = { failing: String(failing), total: String(total) };
+  const verdict = fillTemplate(failing > 0 ? TEMPLATES.gateFailing : TEMPLATES.gatePassing, counts);
+  return fillTemplate(TEMPLATES.gate, { failOn, limit: String(gateScoreLimit(failOn)), verdict });
 };
 
 const howScoringWorks = (): string => {
   const { curveScale, riskBands } = DEFAULT_SCORING_WEIGHTS;
-  return `<sub>Score = 100 × exp(−penalty / ${String(curveScale)}); each finding costs points by severity, confidence, location and repetition. `
-    + `Risk: 🟢 low ≥ ${String(riskBands.low)}, 🟡 medium ≥ ${String(riskBands.medium)}, 🟠 high ≥ ${String(riskBands.high)}, 🔴 critical below. `
-    + 'Scores are advisory.</sub>';
+  return fillTemplate(TEMPLATES.scoring, {
+    scale: String(curveScale), low: String(riskBands.low), medium: String(riskBands.medium), high: String(riskBands.high)
+  });
 };
 
 /**
@@ -122,24 +123,30 @@ export const renderSecurityRatingMarkdown = (report: SecurityRatingReport): stri
   const failOn = report.gate.failOn === 'NONE' ? 'none' : report.gate.failOn;
   const failed = !report.gate.passed;
   const { repo, bundles } = report;
-  const lines = [`## ${failed ? FAIL : OK} Security scan: ${failed ? 'failed' : 'passed'}`, ''];
+  const common = {
+    title: fillTemplate(TEMPLATES.title, { icon: failed ? FAIL : OK, verdict: failed ? 'failed' : 'passed' }),
+    score: String(repo.score),
+    risk: riskBadge(repo.risk),
+    scoreCell: scoreCell(repo.score),
+    scoring: howScoringWorks()
+  };
   if (repo.basis === 'bundles-average') {
     const failing = bundles.filter((bundle) => gateFailed(bundle.score, failOn)).length;
-    lines.push(
-      `**Source score ${String(repo.score)}/100 · ${riskBadge(repo.risk)}** (average of ${String(bundles.length)} bundle${bundles.length === 1 ? '' : 's'}) &nbsp; ${scoreCell(repo.score)}`,
-      '', riskCounts(bundles), '', `> ${gateLine(failOn, failing, bundles.length)}`, '',
-      ...bundleSections(bundles, failOn)
-    );
-  } else {
-    lines.push(
-      `**Whole repository ${String(repo.score)}/100 · ${riskBadge(repo.risk)}** &nbsp; ${scoreCell(repo.score)}`, '',
-      `> ${WARN} No collections or skills were found, so the whole repository was scanned as one unit. Vendored code and changelogs can lower this score.`, '',
-      `> ${gateLine(failOn, failed ? 1 : 0, 1)}`, ''
-    );
-    if (repo.findings.length > 0) {
-      lines.push(...details('Costliest findings', findingsTable(repo.findings, 10)));
-    }
+    return fillTemplate(TEMPLATES.bundlesReport, {
+      ...common,
+      count: String(bundles.length),
+      plural: bundles.length === 1 ? '' : 's',
+      riskCounts: riskCounts(bundles),
+      gate: gateLine(failOn, failing, bundles.length),
+      sections: bundleSections(bundles, failOn)
+    });
   }
-  lines.push(howScoringWorks());
-  return `${lines.join('\n')}\n`;
+  return fillTemplate(TEMPLATES.repositoryReport, {
+    ...common,
+    warn: WARN,
+    gate: gateLine(failOn, failed ? 1 : 0, 1),
+    findings: repo.findings.length > 0
+      ? `${details(TEMPLATES.costliestFindings, findingsTable(repo.findings, 10))}\n`
+      : ''
+  });
 };
