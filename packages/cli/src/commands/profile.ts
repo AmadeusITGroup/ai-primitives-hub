@@ -1939,7 +1939,10 @@ export class ProfilePublishCommand extends BaseProfileCommand {
     } catch (err) {
       return invalidProfile(`is not valid YAML: ${err instanceof Error ? err.message : String(err)}`, err instanceof Error ? err : undefined);
     }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    // Only a plain mapping is a profile: YAML can also yield lists and typed
+    // values such as timestamps (a `Date`), which are objects too.
+    const prototype: unknown = parsed !== null && typeof parsed === 'object' ? Object.getPrototypeOf(parsed) : undefined;
+    if (!parsed || (prototype !== Object.prototype && prototype !== null)) {
       return invalidProfile('is empty or is not a YAML mapping');
     }
 
