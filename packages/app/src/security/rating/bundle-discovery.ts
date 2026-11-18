@@ -21,6 +21,7 @@ import type {
   SecurityRatingReportMode,
 } from '@ai-primitives-hub/core';
 import {
+  normalizePrimitiveKind,
   normalizeRepoRelativePath,
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
@@ -37,16 +38,6 @@ export interface DiscoveredBundles {
   bundles: BundleFiles[];
   warnings: string[];
 }
-
-const KIND_NAMES: Readonly<Record<string, string>> = {
-  prompt: 'prompt',
-  instruction: 'instruction',
-  instructions: 'instruction',
-  'chat-mode': 'chat-mode',
-  chatmode: 'chat-mode',
-  agent: 'agent',
-  skill: 'skill'
-};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -156,17 +147,17 @@ const discoverCollections = (root: string, collectionsPath: string): { bundles: 
         warnings.push(`${collectionFile}: item not found or outside the repository: ${String(reference.path)}`);
         continue;
       }
+      const kind = normalizePrimitiveKind(reference.kind);
       // A skill or plugin item brings its folder, but never the whole repository for a root-level file.
       const skillFolder = path.posix.dirname(relative);
-      if ((reference.kind === 'skill' || reference.kind === 'plugin') && skillFolder !== '.') {
+      if ((kind === 'skill' || kind === 'plugin') && skillFolder !== '.') {
         for (const file of regularFilesUnder(root, skillFolder)) {
           files.add(file);
         }
       } else {
         files.add(relative);
       }
-      const kind = typeof reference.kind === 'string' ? KIND_NAMES[reference.kind] : undefined;
-      if (kind !== undefined) {
+      if (kind !== null) {
         kinds[kind] = (kinds[kind] ?? 0) + 1;
       }
     }

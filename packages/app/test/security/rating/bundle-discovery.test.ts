@@ -148,6 +148,20 @@ describe('discoverBundles path checks', () => {
     expect(bundle.files).toEqual(['collections/p.collection.yml', 'plugins/p/lib/helper.md', 'plugins/p/plugin.json']);
   });
 
+  it('counts item kinds the way the rest of the product normalizes them', () => {
+    write(root, 'collections/k.collection.yml', [
+      'id: k', 'version: 1.0.0', 'items:',
+      '  - { path: a.md, kind: instructions }', '  - { path: b.md, kind: chatmode }', '  - { path: skills/s/SKILL.md, kind: skills }',
+      '  - { path: c.md, kind: plugin }', '  - { path: d.md, kind: unknown-kind }', ''
+    ].join('\n'));
+    for (const file of ['a.md', 'b.md', 'c.md', 'd.md', 'skills/s/SKILL.md', 'skills/s/ref.md']) {
+      write(root, file);
+    }
+    const [bundle] = discoverBundles(root, { repository: 'o/r' }).bundles;
+    expect(bundle.metadata.kind).toEqual({ 'chat-mode': 1, instruction: 1, plugin: 1, skill: 1 });
+    expect(bundle.files).toContain('skills/s/ref.md');
+  });
+
   it('ignores a reference that goes through a symlinked folder to the outside', () => {
     write(base, 'outside/SKILL.md', 'secret');
     write(root, 'skills/.keep');
