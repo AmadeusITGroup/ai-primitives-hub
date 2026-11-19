@@ -31,7 +31,7 @@ permissions:
   id-token: write # For OIDC token generation (SLSA requirement)
 
 env:
-  NODE_VERSION: "24"
+  NODE_VERSION: "26"
   EXTENSION_DIR: "apps/vscode-extension"
   EXTENSION_NAME: "prompt-registry"
 
