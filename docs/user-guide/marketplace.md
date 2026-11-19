@@ -7,10 +7,23 @@ Windows/Linux or `Cmd+Shift+P` on macOS) and run
 ## Browsing
 
 - **Search** — Filter by name, description, tags, and indexed primitive content
-- **Filter by Type** — Prompts, Instructions, Chat Modes, Agents
+- **Filter by Type** — The **Primitives** filter offers Agents, Skills, Prompts,
+  MCP Servers, Instructions and Plugins; a bundle matches if it contains any
+  selected type
 - **Filter by Tags** — Multiple tags use OR logic
 - **Filter by Source** — Show bundles from specific repositories
 - **Installed Only** — Show only installed bundles
+
+Bundle cards and the bundle details page count what a bundle contains, Agent
+Plugins included: a bundle with one plugin and one prompt shows "1 Prompt" and
+"1 Plugin". In the details page, items listed under **Included Prompts** carry
+their type, such as "(Plugin)" or "(Instruction)". Hover an installed bundle in
+the AI Primitives Hub tree view to see what it contains, for example
+"Contains: 1 prompt, 1 plugin".
+
+> Screenshot placeholder: a Marketplace card for a bundle with one Agent Plugin
+> and one prompt, showing the "1 Prompt" and "1 Plugin" counts, next to the open
+> **Primitives** filter with **Plugins** checked.
 
 If no active hub is configured, the Marketplace shows a hub setup banner
 even when a manually added source already provides skills or bundles.
