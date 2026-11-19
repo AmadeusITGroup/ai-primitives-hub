@@ -283,6 +283,32 @@ items:
   });
 
   describe('collection affected', () => {
+    it('matches a gitlink-only change to a declared skill without needing the checkout', async () => {
+      await mkdir(path.join(workspace, 'vendor', 'slidev'), { recursive: true });
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        'id: foo\nname: Foo Collection\nitems:\n  - path: vendor/slidev/skills/slidev/SKILL.md\n    kind: skill\n'
+      );
+      execFileSync('git', ['update-index', '--add', '--cacheinfo', '160000,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,vendor/slidev'], {
+        cwd: workspace
+      });
+      commitFixtureChanges();
+      execFileSync('git', ['update-index', '--cacheinfo', '160000,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,vendor/slidev'], {
+        cwd: workspace
+      });
+      commitFixtureChanges();
+      const changed = execFileSync('git', ['diff', '--name-only', 'HEAD^', 'HEAD'], {
+        cwd: workspace,
+        encoding: 'utf8'
+      }).trim();
+      expect(changed).toBe('vendor/slidev');
+      const result = await run(['collection', 'affected', '--changed-path', changed, '-o', 'json']);
+      expect(parseJson<{ affected: { id: string }[] }>(result.stdout).data.affected).toMatchObject([{ id: 'foo' }]);
+
+      const unrelated = await run(['collection', 'affected', '--changed-path', 'vendor/slid', '-o', 'json']);
+      expect(parseJson<{ affected: unknown[] }>(unrelated.stdout).data.affected).toEqual([]);
+    });
+
     it('reports the collection as affected when an item path changed', async () => {
       const result = await run([
         'collection', 'affected', '--changed-path', 'prompts/hello.prompt.md', '-o', 'json'

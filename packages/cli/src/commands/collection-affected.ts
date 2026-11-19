@@ -3,7 +3,7 @@
  *
  * Given a list of changed paths (typically produced by `git diff
  * --name-only` in a CI workflow), emits the collections whose
- * `.collection.yml` itself or any item-path is in that set.
+ * `.collection.yml`, README or an item path overlaps a changed path.
  *
  * Path normalization: backslash-to-slash, strip a leading `/`, trim.
  * Strings that normalize to empty are dropped silently.
@@ -78,10 +78,19 @@ export class CollectionAffectedCommand extends Command {
     const { ctx } = this.commandContext;
     const fmt = (this.output ?? 'text');
     const cwd = ctx.cwd();
-    const changed = (this.changedPath ?? [])
-      .map((p) => normalize(p))
-      .filter((s) => s.length > 0);
-    const changedSet = new Set(changed);
+    const changed = new Set((this.changedPath ?? []).map((p) => normalize(p)).filter(Boolean));
+    const overlaps = (file: string): boolean => {
+      if (changed.has(file)) {
+        return true;
+      }
+      // Git reports a submodule update as the gitlink path, not its child files.
+      for (let slash = file.lastIndexOf('/'); slash > 0; slash = file.lastIndexOf('/', slash - 1)) {
+        if (changed.has(file.slice(0, slash))) {
+          return true;
+        }
+      }
+      return false;
+    };
 
     const collectionFiles = listCollectionFiles(cwd);
     const affected: AffectedRecord[] = [];
@@ -89,21 +98,8 @@ export class CollectionAffectedCommand extends Command {
       const collection = readCollection(cwd, file);
       const itemPaths = resolveCollectionItemPaths(cwd, collection).map((p) => normalize(p));
       const readmePath = resolveCollectionReadmePath(collection);
-      const itemPathsSet = new Set(itemPaths);
-      const normalizedFile = normalize(file);
-      if (changedSet.has(normalizedFile)) {
+      if (overlaps(normalize(file)) || (readmePath && overlaps(normalize(readmePath))) || itemPaths.some((p) => overlaps(p))) {
         affected.push({ id: collection.id, file });
-        continue;
-      }
-      if (readmePath && changedSet.has(normalize(readmePath))) {
-        affected.push({ id: collection.id, file });
-        continue;
-      }
-      for (const c of changed) {
-        if (itemPathsSet.has(c)) {
-          affected.push({ id: collection.id, file });
-          break;
-        }
       }
     }
 
