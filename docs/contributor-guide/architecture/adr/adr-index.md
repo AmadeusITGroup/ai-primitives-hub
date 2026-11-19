@@ -15,11 +15,9 @@ focused on one decision.
 | [0006](./0006-shared-semantic-cache-and-client-owned-state.md) | Shared Semantic Cache and Client-Owned State | Accepted |
 | [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
 | [0008](./0008-artifactory-hub-tree-distribution-channel.md) | Generic Artifactory Hub Tree as an Explicit Distribution Channel | Proposed |
+| [0009](./0009-primitive-install-categories-and-per-target-plugin-semantics.md) | Primitive Install Categories and Per-Target Plugin Semantics | Accepted |
 | [0010](./0010-native-ports-and-adapters-security-scanning.md) | Native Ports-and-Adapters Security Scanning | Accepted |
 | [0011](./0011-ai-primitives-hub-install-records.md) | Shared `ai-primitives-hub` Install Records for the CLI and the Extension | Accepted |
-
-ADR-0009 is reserved for the primitive install categories referenced by the
-current domain model; security scanning uses ADR-0010.
 
 ## When to add a new ADR
 
