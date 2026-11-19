@@ -1,0 +1,77 @@
+name: Gemma 4 Action CI
+
+# Runs github-actions/gemma4 end to end with gemma4:e2b on a hosted runner.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'github-actions/gemma4/**'
+      - '.github/workflows/gemma4-action-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'github-actions/gemma4/**'
+      - '.github/workflows/gemma4-action-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Gemma 4 action (gemma4:e2b)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Plain answer
+        id: plain
+        uses: ./github-actions/gemma4
+        with:
+          prompt: What is 17 * 23? Answer with just the number.
+          temperature: '0'
+          seed: '1'
+          max-tokens: '20'
+
+      - name: Check plain answer
+        env:
+          RESPONSE: ${{ steps.plain.outputs.response }}
+          DONE: ${{ steps.plain.outputs.done-reason }}
+        run: |
+          echo "Answer: ${RESPONSE}"
+          [[ "$RESPONSE" == *391* ]] || { echo "::error::Expected 391"; exit 1; }
+          [[ "$DONE" == stop ]] || { echo "::error::Expected done-reason stop, got ${DONE}"; exit 1; }
+
+      - name: Structured answer from a file (reuses the running server)
+        id: json
+        uses: ./github-actions/gemma4
+        with:
+          prompt: Classify this commit message.
+          prompt-file: github-actions/gemma4/test/commit.txt
+          temperature: '0'
+          format: >-
+            {"type":"object","properties":{"type":{"type":"string","enum":["feat","fix","docs","chore"]},"subject":{"type":"string"}},"required":["type","subject"]}
+
+      - name: Check structured answer
+        env:
+          FILE: ${{ steps.json.outputs.response-file }}
+        run: jq -e '.type == "fix" and (.subject | length > 0)' "$FILE"
+
+      - name: Invalid input fails the step
+        id: invalid
+        continue-on-error: true
+        uses: ./github-actions/gemma4
+        with:
+          prompt: hi
+          temperature: warm
+
+      - name: Check invalid input failed
+        env:
+          OUTCOME: ${{ steps.invalid.outcome }}
+        run: '[[ "$OUTCOME" == failure ]]'

@@ -1,0 +1,1 @@
+Fixed a crash when the lockfile is missing; added a regression test.
