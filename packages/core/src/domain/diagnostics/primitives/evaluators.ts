@@ -11,8 +11,12 @@
  * Bundle checks run in the order I0, I1 (per item), I2 (per item), I3,
  * then I10 (per item with executable files) once materialised; an invalid
  * bundle has the single check I5. Case checks run in the order I4, I6,
- * I7, I8, I9 (per item when rejected), I10 (per item with executable
- * files), I11 and I12 (per plugin item), I13, I14 (per plugin item).
+ * I7, I8, I9 (per item when items were left out), I10 (per item with
+ * executable files), I11 and I12 (per plugin item), I13, I14 (per plugin
+ * item), then I15 for a `--skip-unsupported` case only. With
+ * `--skip-unsupported`, I10 to I14 judge the installed items only: those
+ * none of whose archived files were skipped. I9 judges which items should
+ * have been skipped.
  * @module domain/diagnostics/primitives/evaluators
  */
 import type {
@@ -110,10 +114,18 @@ export interface CaseObservation {
   installedText?: ReadonlyMap<string, string>;
   /** Snapshot roots of the case, to resolve labels to absolute paths. */
   roots?: readonly SnapshotRoot[];
+  /**
+   * Sorted archive paths the install's lockfile records for the bundle
+   * (`--skip-unsupported` cases only); absent when it was not read.
+   */
+  lockedFiles?: readonly string[];
 }
 
-/** Observed install status of a case. */
-export type InstallStatus = 'installed' | 'rejected' | 'error';
+/**
+ * Observed install status of a case. `partial`: a `--skip-unsupported`
+ * install succeeded and left content out.
+ */
+export type InstallStatus = 'installed' | 'partial' | 'rejected' | 'error';
 
 const cap = (detail: string): string => (detail.length > DETAIL_LIMIT ? `${detail.slice(0, DETAIL_LIMIT - 1)}…` : detail);
 
@@ -128,6 +140,9 @@ const fail = (invariant: InvariantId, observed: JsonValue, detail: string, extra
 
 const notApplicable = (invariant: InvariantId, detail: string): DiagnosticCheck =>
   ({ invariant, outcome: 'not-applicable', detail });
+
+/** Why the case-level I10 does not apply when no executable file was placed. */
+const NO_EXECUTABLE_PLACED = 'not applicable: no executable file was placed';
 
 const EMPTY_SNAPSHOT: Snapshot = new Map();
 
@@ -378,14 +393,15 @@ export function evaluateRejectedBundle(input: RejectedBundleEvaluationInput): Bu
 }
 
 /**
- * Observed install status: exit 0 → installed; `BUNDLE.UNSUPPORTED_CONTENT`
- * → rejected; anything else (including no install) → error.
+ * Observed install status: exit 0 → partial when the install listed skipped
+ * content, else installed; `BUNDLE.UNSUPPORTED_CONTENT` → rejected;
+ * anything else (including no install) → error.
  * @param install - Install command observation.
  * @returns The status.
  */
 export function observedInstallStatus(install: CommandObservation | undefined): InstallStatus {
   if (install?.exitCode === 0) {
-    return 'installed';
+    return (install.skipped?.length ?? 0) > 0 ? 'partial' : 'installed';
   }
   return install?.errorCode === UNSUPPORTED_CONTENT ? 'rejected' : 'error';
 }
@@ -401,17 +417,19 @@ export function placedLabels(observation: CaseObservation): string[] {
 }
 
 /**
- * I9, one check per item: the item is rejected exactly when the target does
- * not support its kind. An item is rejected when any of its archived files
- * is among the install's rejected paths; `rejected: null` when the install
- * did not list them. Rejected paths of no item are named in the first
- * check's detail.
+ * I9, one check per item: the item is left out exactly when the target does
+ * not support its kind. A rejected install leaves out the items it lists
+ * as rejected paths; a successful `--skip-unsupported` install leaves out
+ * the items it lists as skipped (an absent list counts as empty). An item
+ * is left out when any of its archived files is listed; `rejected: null`
+ * when a rejection did not list its paths. Listed paths of no item are
+ * named in the first check's detail.
  * @param planned - Planned case.
  * @param bundle - Its bundle.
  * @param evaluation - The bundle's evaluation (archived item files).
  * @param install - Install observation.
  * @param status - Observed install status.
- * @returns One check per item, or one not-applicable check when the install was not rejected.
+ * @returns One check per item, or one not-applicable check when no item could be left out.
  */
 const evaluateRejectedItems = (
   planned: PlannedCase,
@@ -420,10 +438,11 @@ const evaluateRejectedItems = (
   install: CommandObservation | undefined,
   status: InstallStatus
 ): DiagnosticCheck[] => {
-  if (status !== 'rejected') {
+  const skipping = planned.mode === 'skip-unsupported' && (status === 'installed' || status === 'partial');
+  if (status !== 'rejected' && !skipping) {
     return [notApplicable('I9', `not applicable: install ${status}`)];
   }
-  const rejectedPaths = install?.rejectedPaths;
+  const rejectedPaths = skipping ? (install?.skipped ?? []).map((entry) => entry.path) : install?.rejectedPaths;
   const listed = new Set(rejectedPaths);
   const owned = new Set<string>();
   const checks = bundle.items.map((item): DiagnosticCheck => {
@@ -436,15 +455,16 @@ const evaluateRejectedItems = (
     if (rejected === expected.rejected) {
       return { invariant: 'I9', outcome: 'pass', item: item.path, expected };
     }
+    const [leftOut, kept] = skipping ? ['skipped', 'did not skip'] : ['rejected', 'did not reject'];
     const reason = rejected === null
       ? 'install did not list the rejected content'
-      : `install ${rejected ? 'rejected' : 'did not reject'} ${item.kind} item ${item.path}`;
+      : `install ${rejected ? leftOut : kept} ${item.kind} item ${item.path}`;
     return fail('I9', { rejected }, reason, { item: item.path, expected });
   });
   const stray = [...listed].filter((p) => !owned.has(p)).toSorted();
   if (stray.length > 0 && checks.length > 0) {
     const [first] = checks;
-    checks[0] = { ...first, detail: cap(`${first.detail === undefined ? '' : `${first.detail}; `}rejected paths of no item: ${stray.join(', ')}`) };
+    checks[0] = { ...first, detail: cap(`${first.detail === undefined ? '' : `${first.detail}; `}${skipping ? 'skipped' : 'rejected'} paths of no item: ${stray.join(', ')}`) };
   }
   return checks;
 };
@@ -453,14 +473,66 @@ const isDiagnosticScope = (value: string | null): value is DiagnosticScope =>
   value !== null && (DIAGNOSTIC_SCOPES as readonly string[]).includes(value);
 
 /**
+ * Items a successful install placed: those none of whose archived files it
+ * listed as skipped. Every item when nothing was skipped (the default mode).
+ * @param bundle - Its bundle.
+ * @param evaluation - The bundle's evaluation (archived item files).
+ * @param install - Install observation.
+ * @returns The installed items, in bundle order.
+ */
+const installedItems = (bundle: DiagnosticBundle, evaluation: BundleEvaluation, install: CommandObservation | undefined): FixtureItem[] => {
+  const skipped = new Set((install?.skipped ?? []).map((entry) => entry.path));
+  return skipped.size === 0
+    ? [...bundle.items]
+    : bundle.items.filter((item) => !(evaluation.archivedItemFiles.get(item.path) ?? []).some((file) => skipped.has(file)));
+};
+
+/**
+ * I15, `--skip-unsupported` cases only: each skipped file is reported with
+ * the unsupported-content code and a reason, and the lockfile records
+ * exactly the archived item files that were not skipped.
+ * @param evaluation - The bundle's evaluation (archived item files).
+ * @param observation - Case observation.
+ * @param status - Observed install status.
+ * @returns The I15 check.
+ */
+const evaluateLockfile = (evaluation: BundleEvaluation, observation: CaseObservation, status: InstallStatus): DiagnosticCheck => {
+  if (status !== 'installed' && status !== 'partial') {
+    return notApplicable('I15', `not applicable: install ${status}`);
+  }
+  const skipped = observation.install?.skipped ?? [];
+  const skippedPaths = new Set(skipped.map((entry) => entry.path));
+  const unreasoned = skipped
+    .filter((entry) => entry.code !== UNSUPPORTED_CONTENT || entry.reason.trim() === '')
+    .map((entry) => entry.path)
+    .toSorted();
+  const installedFiles = new Set([...evaluation.archivedItemFiles.values()].flat().filter((file) => !skippedPaths.has(file)));
+  const locked = observation.lockedFiles === undefined ? undefined : new Set(observation.lockedFiles);
+  const missing = locked === undefined ? null : [...installedFiles].filter((file) => !locked.has(file)).toSorted();
+  const unexpected = locked === undefined ? null : [...locked].filter((file) => !installedFiles.has(file)).toSorted();
+  const expected = { unreasoned: [], missing: [], unexpected: [] };
+  if (unreasoned.length === 0 && missing?.length === 0 && unexpected?.length === 0) {
+    return { invariant: 'I15', outcome: 'pass', expected };
+  }
+  const reasons = [
+    unreasoned.length > 0 ? `skipped without the ${UNSUPPORTED_CONTENT} reason: ${unreasoned.join(', ')}` : undefined,
+    locked === undefined ? 'the install lockfile could not be read' : undefined,
+    (missing?.length ?? 0) > 0 ? `lockfile does not record ${missing!.join(', ')}` : undefined,
+    (unexpected?.length ?? 0) > 0 ? `lockfile records ${unexpected!.join(', ')}` : undefined
+  ].filter((reason): reason is string => reason !== undefined);
+  return fail('I15', { unreasoned, missing, unexpected }, reasons.join('; '), { expected });
+};
+
+/**
  * Evaluate the case-level invariants. Called only for a ready bundle's case
  * that reached install.
  * @param planned - Planned case.
  * @param bundle - Its bundle.
  * @param evaluation - The bundle's evaluation (archived item files).
  * @param observation - What the case's commands and snapshots produced.
- * @returns Checks in the order I4, I6, I7, I8, I9, I10, I11, I12, I13, I14
- * (I10 only for bundles with executable files, I11, I12 and I14 only for bundles with a plugin item).
+ * @returns Checks in the order I4, I6, I7, I8, I9, I10, I11, I12, I13, I14, I15
+ * (I10 only for bundles with executable files, I11, I12 and I14 only for bundles with a plugin item,
+ * I15 only for `--skip-unsupported` cases).
  */
 export function evaluateCase(
   planned: PlannedCase,
@@ -469,21 +541,22 @@ export function evaluateCase(
   observation: CaseObservation
 ): DiagnosticCheck[] {
   const status = observedInstallStatus(observation.install);
+  const succeeded = status === 'installed' || status === 'partial';
   const { beforeInstall = EMPTY_SNAPSHOT, afterInstall = EMPTY_SNAPSHOT, afterUninstall = EMPTY_SNAPSHOT } = observation.snapshots;
   const installDiff = diffSnapshots(beforeInstall, afterInstall);
   const placed = installDiff.added.filter((label) => !isBookkeepingLabel(label));
   const effectiveScope = observation.targetAdd.effectiveScope;
   const checks: DiagnosticCheck[] = [];
 
-  // I4 — install status matches the support matrix.
+  // I4 — install status matches the support matrix for the install mode.
   const i4Expected = { status: planned.expectedStatus };
   checks.push(status === planned.expectedStatus
     ? { invariant: 'I4', outcome: 'pass', expected: i4Expected }
-    : fail('I4', { status, errorCode: status === 'installed' ? null : (observation.install?.errorCode ?? null) },
+    : fail('I4', { status, errorCode: succeeded ? null : (observation.install?.errorCode ?? null) },
       withMessages(`install ${status}, expected ${planned.expectedStatus}`, observation.install?.errorMessages ?? []), { expected: i4Expected }));
 
   // I6 — uninstall removes every placed file.
-  if (status === 'installed') {
+  if (succeeded) {
     const exitCode = observation.uninstall?.exitCode ?? null;
     const remaining = placed.filter((label) => afterUninstall.has(label));
     checks.push(exitCode === 0 && remaining.length === 0
@@ -496,8 +569,8 @@ export function evaluateCase(
   }
 
   // I7 — a rejected (or failed) install writes nothing user-facing.
-  if (status === 'installed') {
-    checks.push(notApplicable('I7', 'not applicable: installed'));
+  if (succeeded) {
+    checks.push(notApplicable('I7', status === 'installed' ? 'not applicable: installed' : 'not applicable: install partial'));
   } else {
     const changed = [...new Set([...installDiff.added, ...installDiff.modified, ...installDiff.removed])]
       .filter((label) => !isBookkeepingLabel(label))
@@ -513,31 +586,33 @@ export function evaluateCase(
     ? { invariant: 'I8', outcome: 'pass', expected: i8Expected }
     : fail('I8', { effectiveScope }, `target add reported scope ${JSON.stringify(effectiveScope)}, requested ${planned.scope}`, { expected: i8Expected });
 
-  // I9 — a rejected install names exactly the items of the kinds the target does not support.
+  // I9 — the install leaves out exactly the items of the kinds the target does not support.
   checks.push(i8, ...evaluateRejectedItems(planned, bundle, evaluation, observation.install, status));
 
   const actual = new Set([...installDiff.added, ...installDiff.modified].filter((label) => !isBookkeepingLabel(label)));
   const scope = isDiagnosticScope(effectiveScope) ? effectiveScope : undefined;
   // Why the post-install checks (I10–I12, I14) do not apply, when they do not.
-  const skipReason = status === 'installed' ? (scope === undefined ? 'unknown effective scope' : undefined) : `not applicable: install ${status}`;
+  const skipReason = succeeded ? (scope === undefined ? 'unknown effective scope' : undefined) : `not applicable: install ${status}`;
+  // I10–I14 judge what was installed; which items should have been skipped is I9's concern.
+  const items = succeeded ? installedItems(bundle, evaluation, observation.install) : [...bundle.items];
 
   // I10 — executable files stay executable where the install places them.
-  checks.push(...evaluateInstalledModes(planned, bundle, evaluation, observation, actual, scope, skipReason));
+  checks.push(...evaluateInstalledModes(planned, bundle, items, evaluation, observation, actual, scope, skipReason));
 
   // I11, I12 (and I14 below) — plugin components are projected, and ${PLUGIN_ROOT} resolved.
-  const projection = evaluateCaseProjection(planned, bundle, evaluation, observation, actual, scope, skipReason);
+  const projection = evaluateCaseProjection(planned, bundle, items, evaluation, observation, actual, scope, skipReason);
   checks.push(...projection.skills, ...projection.servers);
 
-  // I13 — every archived installable file lands at its expected destination.
-  if (status !== 'installed') {
+  // I13 — every archived installable file of an installed item lands at its expected destination.
+  if (!succeeded) {
     checks.push(notApplicable('I13', `not applicable: install ${status}`));
-  } else if (bundle.items.every((item) => PLACEMENT_ROUTES[planned.target][item.kind] === 'config')) {
+  } else if (items.every((item) => PLACEMENT_ROUTES[planned.target][item.kind] === 'config')) {
     checks.push(notApplicable('I13', 'not applicable: merged into a config file'));
   } else if (scope === undefined) {
     checks.push(notApplicable('I13', 'unknown effective scope'));
   } else {
     const expected = new Set<string>();
-    for (const item of bundle.items) {
+    for (const item of items) {
       for (const archivePath of evaluation.archivedItemFiles.get(item.path) ?? []) {
         const destination = expectedDestination(planned.target, scope, item, archivePath);
         if (destination.kind === 'file') {
@@ -553,16 +628,22 @@ export function evaluateCase(
   }
 
   checks.push(...projection.resolution);
+
+  // I15 — a --skip-unsupported install reports what it skipped, and its lockfile records what it installed.
+  if (planned.mode === 'skip-unsupported') {
+    checks.push(evaluateLockfile(evaluation, observation, status));
+  }
   return checks;
 }
 
 /**
- * Case-level I10: each executable archive file of an item is executable
- * where the install placed it. Files that are not executable in the
- * archive (bundle-level I10) or were not placed (I13) are not counted.
+ * Case-level I10: each executable archive file of an installed item is
+ * executable where the install placed it. Files that are not executable in
+ * the archive (bundle-level I10) or were not placed (I13) are not counted.
  * Only for bundles with executable fixture files.
  * @param planned - Planned case.
  * @param bundle - Its bundle.
+ * @param installed - Items the install placed (every item unless some were skipped).
  * @param evaluation - The bundle's evaluation.
  * @param observation - Case observation.
  * @param placed - Non-bookkeeping labels the install added or modified.
@@ -573,22 +654,26 @@ export function evaluateCase(
 const evaluateInstalledModes = (
   planned: PlannedCase,
   bundle: DiagnosticBundle,
+  installed: readonly FixtureItem[],
   evaluation: BundleEvaluation,
   observation: CaseObservation,
   placed: ReadonlySet<string>,
   scope: DiagnosticScope | undefined,
   notApplicableReason: string | undefined
 ): DiagnosticCheck[] => {
-  const items = bundle.items.filter((item) => item.executable.length > 0);
-  if (items.length === 0) {
+  if (!bundle.items.some((item) => item.executable.length > 0)) {
     return [];
   }
   if (notApplicableReason !== undefined || scope === undefined) {
     return [notApplicable('I10', notApplicableReason ?? 'unknown effective scope')];
   }
+  const items = installed.filter((item) => item.executable.length > 0);
+  if (items.length === 0) {
+    return [notApplicable('I10', NO_EXECUTABLE_PLACED)];
+  }
   const inArchive = evaluation.executableArchivePaths;
-  const installed = observation.executable;
-  if (inArchive === undefined || installed === undefined) {
+  const executable = observation.executable;
+  if (inArchive === undefined || executable === undefined) {
     return [notApplicable('I10', 'not applicable: no permission bits on this platform')];
   }
   const checks: DiagnosticCheck[] = [];
@@ -600,18 +685,20 @@ const evaluateInstalledModes = (
     if (destinations.length === 0) {
       continue;
     }
-    const notExecutable = destinations.filter(([, label]) => !installed.has(label)).map(([file]) => file);
+    const notExecutable = destinations.filter(([, label]) => !executable.has(label)).map(([file]) => file);
     checks.push(notExecutable.length === 0
       ? { invariant: 'I10', outcome: 'pass', item: item.path }
       : fail('I10', { notExecutable }, `installed without the executable bit: ${notExecutable.join(', ')}`, { item: item.path }));
   }
-  return checks.length === 0 ? [notApplicable('I10', 'not applicable: no executable file was placed')] : checks;
+  return checks.length === 0 ? [notApplicable('I10', NO_EXECUTABLE_PLACED)] : checks;
 };
 
 /**
- * I11, I12 and I14 of a case: only for bundles with plugin items.
+ * I11, I12 and I14 of a case: only for bundles with plugin items, over
+ * the plugin items the install placed; not applicable when it skipped them all.
  * @param planned - Planned case.
  * @param bundle - Its bundle.
+ * @param installed - Items the install placed (every item unless some were skipped).
  * @param evaluation - The bundle's evaluation.
  * @param observation - Case observation.
  * @param changed - Non-bookkeeping labels the install added or modified.
@@ -622,18 +709,19 @@ const evaluateInstalledModes = (
 const evaluateCaseProjection = (
   planned: PlannedCase,
   bundle: DiagnosticBundle,
+  installed: readonly FixtureItem[],
   evaluation: BundleEvaluation,
   observation: CaseObservation,
   changed: ReadonlySet<string>,
   scope: DiagnosticScope | undefined,
   notApplicableReason: string | undefined
 ): PluginProjection => {
-  const items = bundle.items.filter((item) => item.plugin !== undefined);
-  if (items.length === 0) {
+  if (!bundle.items.some((item) => item.plugin !== undefined)) {
     return { skills: [], servers: [], resolution: [], projected: new Set() };
   }
-  if (notApplicableReason !== undefined || scope === undefined) {
-    const reason = notApplicableReason ?? 'unknown effective scope';
+  const items = installed.filter((item) => item.plugin !== undefined);
+  if (notApplicableReason !== undefined || scope === undefined || items.length === 0) {
+    const reason = notApplicableReason ?? (scope === undefined ? 'unknown effective scope' : 'not applicable: plugin skipped');
     return { skills: [notApplicable('I11', reason)], servers: [notApplicable('I12', reason)], resolution: [notApplicable('I14', reason)], projected: new Set() };
   }
   return evaluatePluginProjection({
