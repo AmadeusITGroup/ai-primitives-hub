@@ -1,0 +1,8 @@
+id: display-unknown-property
+name: Display Unknown Property Collection
+description: This collection has a display property the schema does not define
+display:
+  theme: dark
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

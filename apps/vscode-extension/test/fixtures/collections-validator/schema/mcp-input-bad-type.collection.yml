@@ -1,0 +1,10 @@
+id: mcp-input-bad-type
+name: MCP Input Bad Type Collection
+description: This collection has an MCP input with an unsupported type
+mcp:
+  inputs:
+    - id: api-token
+      type: secret
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

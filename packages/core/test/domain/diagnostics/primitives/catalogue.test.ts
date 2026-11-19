@@ -282,7 +282,7 @@ describe('buildPrimitiveFixture', () => {
       expect(parsed.id).toBe(bundle.id);
       expect(parsed.version).toBe(bundle.version);
       expect(parsed.items).toEqual(bundle.items.map((i) => ({ path: i.path, kind: i.kind })));
-      expect(validateCollectionObject(parsed, bundle.collectionFile)).toEqual({ ok: true, errors: [] });
+      expect(validateCollectionObject(parsed, bundle.collectionFile)).toEqual({ ok: true, errors: [], warnings: [] });
     }
   });
 

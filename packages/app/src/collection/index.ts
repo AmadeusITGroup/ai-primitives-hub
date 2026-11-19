@@ -4,6 +4,10 @@
  * @module app/collection
  */
 export {
+  addCollectionItem,
+  type NewCollectionItem,
+} from './add-collection-item';
+export {
   createPlugin,
   type CreatePluginErrorCode,
   type CreatePluginOptions,

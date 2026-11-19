@@ -1,0 +1,7 @@
+id: unknown-item-property
+name: Unknown Item Property Collection
+description: This collection has an item with the legacy name property
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt
+    name: Test Prompt
