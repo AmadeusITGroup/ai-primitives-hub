@@ -40,6 +40,7 @@ pnpm run test:coverage:unit
 
 - Put pure business logic and data transformations in unit tests.
 - Use property tests for broad invariants such as format, idempotence, or ordering guarantees.
+- When a property requires distinct files on disk, generate unique relative paths with `fc.uniqueArray` and a case-insensitive selector. Paths that differ only by case can overwrite one another on Windows.
 - Put command wiring, activation, TreeView, WebView, or QuickPick behavior in `test/suite/` when a mocked setup would be substantial.
 - E2E tests must exercise a command handler or actual VS Code command; see [E2E guidance](e2e/AGENTS.md).
 
