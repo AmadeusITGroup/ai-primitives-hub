@@ -18,6 +18,7 @@ import {
   migrateLevel,
   type MigrationReport,
   orderConfiguredSources,
+  prepareMcpServers,
   readLockfile,
   type RecordHubInput,
   recordHubsOf,
@@ -29,6 +30,7 @@ import {
   type RecordStore,
   resolveExcludeFile,
   resolveLayoutAsync,
+  resolveMcpLayoutConfig,
   resolveUserConfigPaths,
   resolveUserHome,
   selectRecord,
@@ -43,17 +45,22 @@ import {
   type InstallationScope,
   isRecordError,
   matchKindRoute,
+  type RecordedMcpServer,
   type RecordFs,
   type RecordLevel,
   type RecordLocation,
   RegistryError,
   type RegistrySource,
   type RepositoryExclusion,
+  resolveMcpConfigPath,
   type Target,
+  TARGET_TYPES,
+  type TargetType,
   type TokenProvider,
   UNKNOWN_TOOL_NAME,
 } from '@ai-primitives-hub/core';
 import {
+  defaultLayouts,
   FileSystemLayoutConfigLoader,
   GitInfoExclude,
   NodeRecordFs,
@@ -135,6 +142,123 @@ export interface RepositoryInstallToRecord {
   hub?: RecordHubInput;
   /** The writer's `written` list, absolute paths. */
   writtenPaths: readonly string[];
+  /** The installed bundle: its manifest id, recorded as the bundle name, and its files, for `integrity` and `sourcePath`. */
+  bundle?: InstalledBundleContent;
+  /** The bundle's MCP servers, written into the tool's MCP file and recorded; absent keeps the servers already recorded. */
+  mcp?: BundleMcpServers;
+}
+
+/** A bundle's MCP servers, from its deployment manifest, and what names them. */
+export interface BundleMcpServers {
+  /** The deployment manifest's `mcpServers`. */
+  servers: Readonly<Record<string, unknown>> | undefined;
+  manifestId: string;
+  /** The deployment manifest's `repository`. */
+  manifestRepository?: string;
+  /** Repository of the source the bundle came from. */
+  sourceRepository?: string;
+  /** Environment, for the home and the VS Code user folder. */
+  env: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * The MCP servers a deployment manifest declares, and what names them.
+ * @param manifest - Validated deployment manifest.
+ * @param manifest.id
+ * @param env - Environment.
+ * @param sourceRepository - Repository of the source the bundle came from.
+ */
+export const bundleMcpOf = (
+  manifest: { id: string },
+  env: Readonly<Record<string, string | undefined>>,
+  sourceRepository?: string
+): BundleMcpServers => {
+  const fields = manifest as unknown as Record<string, unknown>;
+  const servers = fields.mcpServers !== null && typeof fields.mcpServers === 'object' && !Array.isArray(fields.mcpServers)
+    ? fields.mcpServers as Record<string, unknown>
+    : undefined;
+  const repository = typeof fields.repository === 'string'
+    ? fields.repository
+    : (fields.repository !== null && typeof fields.repository === 'object' && typeof (fields.repository as { url?: unknown }).url === 'string'
+      ? (fields.repository as { url: string }).url
+      : undefined);
+  return {
+    servers,
+    manifestId: manifest.id,
+    ...(repository === undefined ? {} : { manifestRepository: repository }),
+    ...(sourceRepository === undefined ? {} : { sourceRepository }),
+    env
+  };
+};
+
+// VS Code's user folder, which holds its user-level `mcp.json`.
+const vscodeUserDirOf = (env: Readonly<Record<string, string | undefined>>, tool: string, home: string): string => {
+  const product = tool === 'vscode-insiders' ? 'Code - Insiders' : 'Code';
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', product, 'User');
+  }
+  if (process.platform === 'win32') {
+    return path.join(env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), product, 'User');
+  }
+  return path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), product, 'User');
+};
+
+/**
+ * Write a bundle's MCP servers into the tool's MCP file at the record's level.
+ * A tool with no MCP file there gets none, with a warning.
+ * @param service - Record service.
+ * @param location - Record file the install is recorded in.
+ * @param install - Tool, workspace root, bundle and its servers.
+ * @param install.tool - The target's type.
+ * @param install.workspaceRoot - Workspace root; `${bundlePath}` at repository level.
+ * @param install.bundleId - Bundle id.
+ * @param install.version - Installed version.
+ * @param install.mcp - The bundle's servers.
+ * @returns The servers to record, and warnings.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT`, `RECORD.MCP_CONFIG_UNREADABLE` or `RECORD.PATH_OUTSIDE_ROOT`.
+ */
+export const writeBundleMcpServers = async (
+  service: InstallRecordService,
+  location: RecordLocation,
+  install: { tool: string; workspaceRoot: string; bundleId: string; version: string; mcp: BundleMcpServers }
+): Promise<{ mcpServers: RecordedMcpServer[]; warnings: string[] }> => {
+  const names = Object.keys(install.mcp.servers ?? {});
+  const layout = (TARGET_TYPES as readonly string[]).includes(install.tool)
+    ? resolveMcpLayoutConfig(install.tool as TargetType, location.level, [defaultLayouts])
+    : undefined;
+  if (names.length === 0 || layout === undefined) {
+    return {
+      mcpServers: [],
+      warnings: names.length === 0 ? [] : [`${install.tool} has no MCP file at ${location.level} level; MCP servers not installed: ${names.join(', ')}.`]
+    };
+  }
+  const home = location.level === 'user' ? location.root : (install.mcp.env.HOME ?? location.root);
+  const file = {
+    path: path.normalize(resolveMcpConfigPath(layout, {
+      HOME: home,
+      USERPROFILE: home,
+      workspaceRoot: install.workspaceRoot,
+      vscodeUserDir: vscodeUserDirOf(install.mcp.env, install.tool, home)
+    })),
+    serversKey: layout.serversKey
+  };
+  const servers = prepareMcpServers({
+    servers: install.mcp.servers,
+    bundleId: install.bundleId,
+    version: install.version,
+    manifestId: install.mcp.manifestId,
+    ...(install.mcp.manifestRepository === undefined ? {} : { manifestRepository: install.mcp.manifestRepository }),
+    ...(install.mcp.sourceRepository === undefined ? {} : { sourceRepository: install.mcp.sourceRepository }),
+    bundlePath: location.level === 'user' ? home : install.workspaceRoot,
+    ...(layout.envPlaceholderStyle === undefined ? {} : { envPlaceholderStyle: layout.envPlaceholderStyle })
+  });
+  return { mcpServers: await service.writeMcpServers({ location, file, servers }), warnings: [] };
+};
+
+/** What was installed, as the record describes it: the manifest id and the bundle's files by bundle path. */
+export interface InstalledBundleContent {
+  name: string;
+  files: ReadonlyMap<string, Uint8Array>;
 }
 
 /** Outcome of `recordRepositoryInstall`. */
@@ -345,7 +469,14 @@ export const recordRepositoryInstall = async (
   install: RepositoryInstallToRecord
 ): Promise<RecordedRepositoryInstall> => {
   let change;
+  const mcpWarnings: string[] = [];
   try {
+    const mcp = install.mcp === undefined
+      ? undefined
+      : await writeBundleMcpServers(prepared.service, prepared.location, {
+        tool: install.tool, workspaceRoot: prepared.workspaceRoot, bundleId: install.bundleId, version: install.version, mcp: install.mcp
+      });
+    mcpWarnings.push(...(mcp?.warnings ?? []));
     change = await prepared.service.recordInstall({
       location: prepared.location,
       bundleId: install.bundleId,
@@ -355,7 +486,9 @@ export const recordRepositoryInstall = async (
       ...(install.hub === undefined ? {} : { hub: install.hub }),
       sourceType: install.source.type,
       writtenPaths: install.writtenPaths,
-      workspaceRoot: prepared.workspaceRoot
+      workspaceRoot: prepared.workspaceRoot,
+      ...(install.bundle === undefined ? {} : { name: install.bundle.name, bundleFiles: install.bundle.files }),
+      ...(mcp === undefined ? {} : { mcpServers: mcp.mcpServers })
     });
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error, install.writtenPaths) : error;
@@ -364,7 +497,7 @@ export const recordRepositoryInstall = async (
   return {
     lockfile: prepared.location.path,
     deleted: removal.deleted,
-    warnings: [...change.warnings, ...removal.warnings]
+    warnings: [...mcpWarnings, ...change.warnings, ...removal.warnings]
   };
 };
 
@@ -399,6 +532,8 @@ export interface RecordedRepositoryUninstall {
   removed: string[];
   /** Root-relative files kept: another entry still lists them, or they were changed or missing since the install. */
   kept: string[];
+  /** Names of the MCP servers removed from the tool's MCP file. */
+  mcpServersRemoved: string[];
   /** Non-fatal problems: skipped deletions or a record file that could not be removed. */
   warnings: string[];
 }
@@ -538,6 +673,23 @@ export const prepareRecordForTarget = async (ctx: Context, target: Target): Prom
 };
 
 /**
+ * Refuse, before any file is written, a source the record holds from another hub.
+ * @param prepared - From {@link prepareRecordForTarget}; nothing is checked without it.
+ * @param source - Source to record.
+ * @param hub - The hub named by `source.hubId`.
+ * @throws {RegistryError} `RECORD.HUB_CONFLICT`, or any `RECORD.*` load error.
+ */
+export const checkRecordSourceHub = async (
+  prepared: PreparedRepositoryRecord | undefined,
+  source: RecordSourceInput,
+  hub: RecordHubInput | undefined
+): Promise<void> => {
+  if (prepared !== undefined) {
+    await prepared.service.checkSourceHub(prepared.location, source, hub);
+  }
+};
+
+/**
  * Load and check the install record a target uninstalls from, before anything is removed.
  * @param ctx - CLI context.
  * @param target - Effective target.
@@ -615,6 +767,7 @@ export const recordRepositoryUninstall = async (
     lockfile: change.location.path,
     removed: deleted,
     kept: result.kept,
+    mcpServersRemoved: result.mcpServersRemoved.map((server) => server.name),
     warnings
   };
 };
@@ -639,6 +792,7 @@ export const recordUnknownUninstall = async (
     lockfile: result.change.location.path,
     removed: result.deleted,
     kept: result.kept,
+    mcpServersRemoved: [],
     warnings: result.warnings
   };
 };
@@ -927,29 +1081,42 @@ export interface PlannedRecordInstall {
  * @param version - Version written.
  * @param written - The writer's `written` list.
  * @param syncSiblings - Which sibling entries to sync.
+ * @param bundle - The installed bundle's manifest id and files.
+ * @param mcp
  * @throws {RegistryError} A `RECORD.*` error naming the file.
  */
-export const recordPlannedInstall = (
+export const recordPlannedInstall = async (
   service: InstallRecordService,
   item: PlannedRecordInstall,
   target: Target,
   ctx: Context,
   version: string,
   written: readonly string[],
-  syncSiblings: RecordInstallInput['syncSiblings']
-): Promise<RecordInstallResult> => service.recordInstall({
-  location: item.location,
-  bundleId: item.bundleId,
-  version,
-  tool: item.tool,
-  source: { sourceId: item.sourceId, ...item.source, ...(item.hubId === undefined ? {} : { hubId: item.hubId }) },
-  ...(item.hub === undefined ? {} : { hub: item.hub }),
-  sourceType: item.sourceType,
-  writtenPaths: written,
+  syncSiblings: RecordInstallInput['syncSiblings'],
+  bundle?: InstalledBundleContent,
+  mcp?: BundleMcpServers
+): Promise<RecordInstallResult & { mcpWarnings: string[] }> => {
   // User level: home is the workspace root, as the user-scope install records it.
-  workspaceRoot: item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd()),
-  syncSiblings
-});
+  const workspaceRoot = item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd());
+  const mcpWrite = mcp === undefined
+    ? undefined
+    : await writeBundleMcpServers(service, item.location, { tool: item.tool, workspaceRoot, bundleId: item.bundleId, version, mcp });
+  const change = await service.recordInstall({
+    location: item.location,
+    bundleId: item.bundleId,
+    version,
+    tool: item.tool,
+    source: { sourceId: item.sourceId, ...item.source, ...(item.hubId === undefined ? {} : { hubId: item.hubId }) },
+    ...(item.hub === undefined ? {} : { hub: item.hub }),
+    sourceType: item.sourceType,
+    writtenPaths: written,
+    workspaceRoot,
+    syncSiblings,
+    ...(bundle === undefined ? {} : { name: bundle.name, bundleFiles: bundle.files }),
+    ...(mcpWrite === undefined ? {} : { mcpServers: mcpWrite.mcpServers })
+  });
+  return { ...change, mcpWarnings: mcpWrite?.warnings ?? [] };
+};
 
 /**
  * End a replay or update run: remove superseded files after every save, keeping still-listed ones.
@@ -957,9 +1124,12 @@ export const recordPlannedInstall = (
  * @param changes - Every record change of the run.
  * @returns The warnings of the saves and of the removal.
  */
-export const finishRecordRun = async (service: InstallRecordService, changes: readonly RecordInstallResult[]): Promise<string[]> => {
+export const finishRecordRun = async (
+  service: InstallRecordService,
+  changes: readonly (RecordInstallResult & { mcpWarnings?: string[] })[]
+): Promise<string[]> => {
   const removal = await service.deleteSupersededAfterAll(changes);
-  return [...changes.flatMap((change) => change.warnings), ...removal.warnings];
+  return [...changes.flatMap((change) => [...(change.mcpWarnings ?? []), ...change.warnings]), ...removal.warnings];
 };
 
 /** The selected level's old `prompt-registry.*` file and the bundles only it has. */

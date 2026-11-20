@@ -1,6 +1,7 @@
 /**
  * Source trust gate for record replay and update. A record may come from a
- * cloned repository, so a configured source with the same id wins, one from the
+ * cloned repository, so a configured source that is the same source (same
+ * readable id) wins, one from the
  * recorded hub first; otherwise
  * the recorded copy is used without credentials, and a `local` folder must stay
  * inside the repository.
@@ -14,6 +15,11 @@ import {
   relativeInside,
   type SourceRecord,
 } from '@ai-primitives-hub/core';
+import {
+  isRecordSourceId,
+  recordHubIdOf,
+  recordSourceIdOf,
+} from './record-file-shape';
 import type {
   RecordHubInput,
 } from './record-hub';
@@ -138,10 +144,21 @@ export const resolveRecordSource = async (
   options: ResolveRecordSourceOptions = {}
 ): Promise<SourceDecision> => {
   const recordedHubId = fromRecord.hubId;
+  // A record names a source by its readable id; older records by the configured id.
+  const isSource = (candidate: RegistrySource): boolean =>
+    candidate.id === sourceId || (isRecordSourceId(sourceId) && recordSourceIdOf(toRecordSource(candidate, candidate.id)) === sourceId);
+  // A record names a hub by its readable id; older records by the configured id.
+  const isRecordedHub = (hubId: string | undefined): boolean => {
+    if (hubId === undefined) {
+      return false;
+    }
+    const hub = options.hubs?.get(hubId);
+    return hubId === recordedHubId || (hub !== undefined && recordHubIdOf(hub) === recordedHubId);
+  };
   const sameHub = typeof recordedHubId === 'string' && recordedHubId !== ''
-    ? options.candidates?.find((candidate) => candidate.id === sourceId && candidate.hubId === recordedHubId)
+    ? options.candidates?.find((candidate) => isSource(candidate) && isRecordedHub(candidate.hubId))
     : undefined;
-  const match = sameHub ?? configured.get(sourceId);
+  const match = sameHub ?? configured.get(sourceId) ?? [...configured.values()].find((candidate) => isSource(candidate));
   if (match !== undefined) {
     const hub = match.hubId === undefined ? undefined : options.hubs?.get(match.hubId);
     // Normalised as an install records it, so older records are re-recorded the same way.

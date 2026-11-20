@@ -15,11 +15,13 @@ import {
   type InstallRecordService,
   isAnyFileMissing,
   isLoneUnknown,
+  isRecordSourceId,
   listedPaths,
   type LocatedToolEntry,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileFs,
+  mcpServerChecksumOf,
   type MigratedEntry,
   migrateLevel,
   type MigrationReport,
@@ -29,6 +31,7 @@ import {
   type RecordHubInput,
   recordIdentityOf,
   type RecordSourceDescriptor,
+  recordSourceIdOf,
   type RecordSourceInput,
   type RecordStore,
   resolveUserHome,
@@ -74,6 +77,9 @@ import {
 import {
   createInstalledBundleFromLockfile,
 } from './installed-bundle-from-entry';
+import type {
+  McpRecordOwnership,
+} from './mcp-server-manager';
 
 /** Largest old lockfile read, in bytes. */
 const OLD_LOCKFILE_MAX_BYTES = 10 * 1024 * 1024;
@@ -425,6 +431,53 @@ export class ExtensionRecordAdapter {
    * Both repository record files of a workspace folder, committed first.
    * @param workspaceFolder - Workspace folder.
    */
+  /**
+   * The install records' view of MCP servers, for the extension's MCP writer.
+   * Repository installs are always recorded; user installs when the shared user record is used.
+   */
+  public mcpOwnership(): McpRecordOwnership {
+    const locationOf = async (level: 'user' | 'repository', workspaceRoot?: string): Promise<RecordLocation | undefined> => {
+      if (level === 'user') {
+        return this.userLocation();
+      }
+      return workspaceRoot === undefined ? undefined : (await this.locations(workspaceRoot))[0];
+    };
+    return {
+      usesRecord: (level) => level === 'repository' || this.usesSharedUserRecord(),
+      holdsConfig: async (level, configPath, workspaceRoot) => {
+        const location = await locationOf(level, workspaceRoot);
+        const relative = location === undefined ? '' : path.relative(location.root, path.resolve(configPath));
+        return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+      },
+      recordedServers: async (level, configPath, workspaceRoot) => {
+        const location = await locationOf(level, workspaceRoot);
+        return location === undefined ? new Map() : this.service.recordedMcpServersIn(location, configPath);
+      },
+      adopt: async (level, configPath, workspaceRoot, servers) => {
+        const location = await locationOf(level, workspaceRoot);
+        const relative = location === undefined ? '' : path.relative(location.root, path.resolve(configPath));
+        if (location === undefined || relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+          return [];
+        }
+        const config = relative.split(path.sep).join('/');
+        const taken: string[] = [];
+        for (const bundleId of new Set(servers.map((server) => server.bundleId))) {
+          const own = servers.filter((server) => server.bundleId === bundleId);
+          const added = await this.service.addMcpServers({
+            location,
+            bundleId,
+            tool: this.hostTool,
+            servers: own.map((server) => ({ config, name: server.name, item: server.item, checksum: mcpServerChecksumOf(server.definition) }))
+          });
+          if (added) {
+            taken.push(...own.map((server) => server.name));
+          }
+        }
+        return taken;
+      }
+    };
+  }
+
   public locations(workspaceFolder: string): Promise<[RecordLocation, RecordLocation]> {
     return this.store.resolveRepository({ start: workspaceFolder });
   }
@@ -628,6 +681,19 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * The configured id of a source a record names by its readable id; the id itself
+   * when no configured source is that source, so it still names the recorded copy.
+   * @param recordedId - The entry's `sourceId`.
+   */
+  public async configuredSourceIdOf(recordedId: string): Promise<string> {
+    if (!isRecordSourceId(recordedId)) {
+      return recordedId;
+    }
+    const sources = await this.sources.listSources();
+    return sources.find((source) => recordSourceIdOf(toRecordSource(source, source.id)) === recordedId)?.id ?? recordedId;
+  }
+
+  /**
    * The source an install records with its shareable hub, from the HubManager.
    * @param sourceId - Source id of the bundle.
    * @throws {Error} When the id is unknown or its type is not a `SourceType`.
@@ -711,6 +777,17 @@ export class ExtensionRecordAdapter {
   }
 
   /**
+   * Refuse, before any file is written, a source the record holds from another hub.
+   * @param location - Record file the install changes.
+   * @param source - Source to record, from {@link buildRecordSource}.
+   * @param hub - Its hub, from {@link buildRecordSource}.
+   * @throws {RegistryError} `RECORD.HUB_CONFLICT`, or any `RECORD.*` load error.
+   */
+  public checkSourceHub(location: RecordLocation, source: RecordSourceInput, hub?: RecordHubInput): Promise<void> {
+    return this.service.checkSourceHub(location, source, hub);
+  }
+
+  /**
    * Remap a source id in both record files; the caller migrates the old files first.
    * @param workspaceFolder - Absolute workspace folder path.
    * @param from - Source id being retired.
@@ -729,8 +806,15 @@ export class ExtensionRecordAdapter {
     } catch {
       // Not a configured source here: record the descriptor app resolved.
     }
+    // The retired source is still configured: records name it by its readable id.
+    const fromDescriptor = await this.buildRecordSource(from).then(({ source: { sourceId: _sourceId, ...fields } }) => fields, () => undefined);
     const result = await this.service.remapSource({
-      root: await this.resolveRoot(workspaceFolder), from, to, descriptor: recordDescriptor, ...(hub === undefined ? {} : { hub })
+      root: await this.resolveRoot(workspaceFolder),
+      from,
+      to,
+      descriptor: recordDescriptor,
+      ...(fromDescriptor === undefined ? {} : { fromDescriptor }),
+      ...(hub === undefined ? {} : { hub })
     });
     result.warnings.forEach((warning) => this.logger.warn(warning));
   }

@@ -1,7 +1,14 @@
 import * as path from 'node:path';
 import {
+  mcpServerChecksumOf,
+  writeMcpConfigText,
+} from '@ai-primitives-hub/app';
+import {
   isSameBundleIdentity,
 } from '@ai-primitives-hub/core';
+import {
+  NodeRecordFs,
+} from '@ai-primitives-hub/infra';
 import * as fs from 'fs-extra';
 import {
   McpConfiguration,
@@ -34,6 +41,28 @@ import {
   McpConfigService,
 } from './mcp-config-service';
 
+/** A server of the tracking file, handed to the install record. */
+export interface TrackedMcpServer {
+  name: string;
+  bundleId: string;
+  /** Server name in the bundle. */
+  item: string;
+  /** Definition as in the MCP file now. */
+  definition: unknown;
+}
+
+/** MCP servers as the install records list them, for the levels that have a record. */
+export interface McpRecordOwnership {
+  /** Whether a level's installs are kept in an install record; otherwise the tracking file is the only store. */
+  usesRecord(level: 'user' | 'repository'): boolean;
+  /** Whether the record of a level can list servers of this MCP file: the file is inside the level root. */
+  holdsConfig(level: 'user' | 'repository', configPath: string, workspaceRoot?: string): Promise<boolean>;
+  /** Server names the records list for an MCP file, with the bundle id of an entry listing each. */
+  recordedServers(level: 'user' | 'repository', configPath: string, workspaceRoot?: string): Promise<Map<string, string>>;
+  /** Give tracked servers to the record entries of their bundles; returns the names an entry took. */
+  adopt(level: 'user' | 'repository', configPath: string, workspaceRoot: string | undefined, servers: readonly TrackedMcpServer[]): Promise<string[]>;
+}
+
 export class McpServerManager {
   // ===== Repository Scope Methods =====
 
@@ -43,10 +72,38 @@ export class McpServerManager {
   private static readonly GIT_EXCLUDE_SECTION_HEADER = '# Prompt Registry (local)';
   private readonly logger: Logger;
   private readonly configService: McpConfigService;
+  private ownership: McpRecordOwnership | undefined;
 
   constructor() {
     this.logger = Logger.getInstance();
     this.configService = new McpConfigService();
+  }
+
+  // The level whose install record owns the servers; `undefined` when the tracking file does.
+  private recordLevel(level: 'user' | 'repository' | undefined): 'user' | 'repository' | undefined {
+    return level !== undefined && this.ownership?.usesRecord(level) === true ? level : undefined;
+  }
+
+  // As `recordLevel`, for an install into one MCP file: a file the record cannot list stays tracked.
+  private async recordLevelFor(level: 'user' | 'repository' | undefined, configPath: string, workspaceRoot?: string): Promise<'user' | 'repository' | undefined> {
+    const recorded = this.recordLevel(level);
+    return recorded !== undefined && await (this.ownership as McpRecordOwnership).holdsConfig(recorded, configPath, workspaceRoot) ? recorded : undefined;
+  }
+
+  // Whether a server in the file is the one this install writes: a retry after a failed record finds it there.
+  private static isSameServer(existing: unknown, written: unknown): boolean {
+    return existing !== undefined && mcpServerChecksumOf(existing) === mcpServerChecksumOf(written);
+  }
+
+  // Names an install may write over: listed by the record, or still tracked from an older install.
+  private async ownedNames(level: 'user' | 'repository', configPath: string, tracking: McpTrackingMetadata, workspaceRoot?: string): Promise<Map<string, string>> {
+    const owners = await (this.ownership as McpRecordOwnership).recordedServers(level, configPath, workspaceRoot);
+    for (const [name, metadata] of Object.entries(tracking.managedServers)) {
+      if (!owners.has(name)) {
+        owners.set(name, metadata.bundleId);
+      }
+    }
+    return owners;
   }
 
   /**
@@ -82,10 +139,12 @@ export class McpServerManager {
    * This ensures at least one server remains active when duplicates exist.
    * @param scope
    * @param removedServerNames
+   * @param owners - The bundle id owning each server, from the install record.
    */
   private async reEnableDuplicatesAfterRemoval(
     scope: 'user' | 'workspace',
-    removedServerNames: string[]
+    removedServerNames: string[],
+    owners?: ReadonlyMap<string, string>
   ): Promise<void> {
     try {
       const config = await this.configService.readMcpConfig(scope);
@@ -105,8 +164,8 @@ export class McpServerManager {
 
       if (needsUpdate) {
         // Re-run duplicate detection to ensure only one is active per identity
-        const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(scope);
-        await this.configService.writeMcpConfig(deduplicatedConfig, scope, false);
+        const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(scope, owners);
+        await this.configService.writeMcpConfig(deduplicatedConfig, scope);
 
         if (duplicatesDisabled.length > 0) {
           this.logger.info(`Re-enabled and re-evaluated duplicates: ${duplicatesDisabled.length} still disabled`);
@@ -220,34 +279,18 @@ export class McpServerManager {
    * Write MCP configuration to workspace .vscode/mcp.json
    * @param workspaceRoot
    * @param config
-   * @param createBackup
    */
-  private async writeWorkspaceMcpConfig(workspaceRoot: string, config: McpConfiguration, createBackup = true): Promise<void> {
+  private async writeWorkspaceMcpConfig(workspaceRoot: string, config: McpConfiguration): Promise<void> {
     // Resolve once: the location carries both the path and the server key.
     const location = this.getWorkspaceMcpLocation(workspaceRoot);
     const configPath = location.configPath;
-    const configDir = path.dirname(configPath);
-
-    // Ensure .vscode directory exists
-    await fs.ensureDir(configDir);
-
-    // Create backup if requested and file exists
-    if (createBackup && await fs.pathExists(configPath)) {
-      const backupPath = configPath + '.backup';
-      try {
-        await fs.copyFile(configPath, backupPath);
-        this.logger.debug(`Created backup at ${backupPath}`);
-      } catch (error) {
-        this.logger.warn(`Failed to create backup: ${(error as Error).message}`);
-      }
-    }
 
     try {
       // Serialize using the IDE-specific top-level key ('servers' for VS Code, 'mcpServers' for Kiro etc.)
       // The key comes from default-layouts.json via McpConfigLocator.
       const serialized = serializeMcpConfig(config, location.serversKey);
       const content = JSON.stringify(serialized, null, 2);
-      await fs.writeFile(configPath, content, 'utf8');
+      await writeMcpConfigText(new NodeRecordFs(), configPath, content);
       this.logger.info(`Workspace MCP configuration written to ${configPath}`);
     } catch (error) {
       this.logger.error(`Failed to write workspace mcp.json to ${configPath}`, error as Error);
@@ -501,15 +544,21 @@ export class McpServerManager {
 
       this.logger.info(`Installing ${Object.keys(serversManifest).length} MCP servers for bundle ${bundleId}`);
 
-      const tracking = await this.configService.readTrackingMetadata(options.scope);
-      const existingConfig = this.removeSupersededServers(
-        await this.configService.readMcpConfig(options.scope), tracking, bundleId
-      );
-
-      const serversToInstall: Record<string, any> = {};
       const location = McpConfigLocator.getMcpConfigLocation(
         options.scope === 'workspace' ? 'repository' : 'user'
       );
+      const level = location === undefined ? undefined : await this.recordLevelFor(options.scope === 'user' ? 'user' : undefined, location.configPath);
+      if (level !== undefined) {
+        await this.migrateTrackingToRecord(level);
+      }
+      const tracking = await this.configService.readTrackingMetadata(options.scope);
+      // With a record, the record's update removes servers a new version dropped.
+      const owned = level === undefined || location === undefined ? undefined : await this.ownedNames(level, location.configPath, tracking);
+      const existingConfig = owned === undefined
+        ? this.removeSupersededServers(await this.configService.readMcpConfig(options.scope), tracking, bundleId)
+        : await this.configService.readMcpConfig(options.scope);
+
+      const serversToInstall: Record<string, any> = {};
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
         const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName, options);
@@ -524,15 +573,21 @@ export class McpServerManager {
         );
 
         serversToInstall[prefixedName] = serverConfig;
+        if (owned !== undefined && (owned.has(prefixedName) || McpServerManager.isSameServer(existingConfig.servers[prefixedName], serverConfig))) {
+          // Its own server, from this bundle or an earlier version: written over.
+          delete existingConfig.servers[prefixedName];
+        }
 
-        tracking.managedServers[prefixedName] = {
-          bundleId,
-          bundleVersion,
-          originalName: serverName,
-          originalConfig: definition,
-          installedAt: new Date().toISOString(),
-          scope: options.scope
-        };
+        if (owned === undefined) {
+          tracking.managedServers[prefixedName] = {
+            bundleId,
+            bundleVersion,
+            originalName: serverName,
+            originalConfig: definition,
+            installedAt: new Date().toISOString(),
+            scope: options.scope
+          };
+        }
       }
 
       // See the note in installServersToWorkspace: hosts that cannot resolve
@@ -560,13 +615,19 @@ export class McpServerManager {
         return result;
       }
 
-      await this.configService.writeMcpConfig(mergeResult.config, options.scope, options.createBackup !== false);
-      await this.configService.writeTrackingMetadata(tracking, options.scope);
+      await this.configService.writeMcpConfig(mergeResult.config, options.scope);
+      if (owned === undefined) {
+        await this.configService.writeTrackingMetadata(tracking, options.scope);
+      }
+      if (location !== undefined) {
+        result.config = { path: location.configPath, serversKey: location.serversKey };
+      }
 
       // Detect and disable duplicate servers across all bundles
-      const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(options.scope);
+      const owners = owned === undefined ? undefined : new Map([...owned, ...Object.keys(serversToInstall).map((name): [string, string] => [name, bundleId])]);
+      const { duplicatesDisabled, config: deduplicatedConfig } = await this.configService.detectAndDisableDuplicates(options.scope, owners);
       if (duplicatesDisabled.length > 0) {
-        await this.configService.writeMcpConfig(deduplicatedConfig, options.scope, false);
+        await this.configService.writeMcpConfig(deduplicatedConfig, options.scope);
         const duplicateNames = duplicatesDisabled.map((d) => d.serverName).join(', ');
         result.warnings?.push(`Disabled ${duplicatesDisabled.length} duplicate server(s): ${duplicateNames}`);
         this.logger.info(`Disabled ${duplicatesDisabled.length} duplicate MCP servers: ${duplicateNames}`);
@@ -659,20 +720,37 @@ export class McpServerManager {
 
       this.logger.info(`Installing ${Object.keys(serversManifest).length} MCP servers for bundle ${bundleId} to workspace`);
 
+      const workspaceLocation = this.getWorkspaceMcpLocation(workspaceRoot);
+      const level = await this.recordLevelFor('repository', workspaceLocation.configPath, workspaceRoot);
+      if (level !== undefined) {
+        await this.migrateTrackingToRecord(level, workspaceRoot);
+      }
       const tracking = await this.readWorkspaceTrackingMetadata(workspaceRoot);
-      const existingConfig = this.removeSupersededServers(
-        await this.readWorkspaceMcpConfig(workspaceRoot), tracking, bundleId
-      );
+      // With a record, the record's update removes servers a new version dropped.
+      const owned = level === undefined ? undefined : await this.ownedNames(level, workspaceLocation.configPath, tracking, workspaceRoot);
+      const existingConfig = owned === undefined
+        ? this.removeSupersededServers(await this.readWorkspaceMcpConfig(workspaceRoot), tracking, bundleId)
+        : await this.readWorkspaceMcpConfig(workspaceRoot);
 
       const serversToInstall: Record<string, any> = {};
       const conflicts: string[] = [];
-      const workspaceLocation = this.getWorkspaceMcpLocation(workspaceRoot);
 
       for (const [serverName, definition] of Object.entries(serversManifest)) {
         const prefixedName = this.configService.generatePrefixedServerName(bundleId, serverName, options);
 
-        // Check for conflicts
-        if (existingConfig.servers[prefixedName]) {
+        const serverConfig = this.configService.processServerDefinition(
+          serverName,
+          definition,
+          bundleId,
+          bundleVersion,
+          workspaceRoot,
+          workspaceLocation.envPlaceholderStyle
+        );
+
+        // Check for conflicts; a server the record or the tracking lists, or one already as written, is this bundle's
+        const isOwn = owned !== undefined
+          && (owned.has(prefixedName) || McpServerManager.isSameServer(existingConfig.servers[prefixedName], serverConfig));
+        if (existingConfig.servers[prefixedName] && !isOwn) {
           if (options.overwrite) {
             result.warnings?.push(`Overwriting existing server: ${prefixedName}`);
           } else if (options.skipOnConflict) {
@@ -684,25 +762,18 @@ export class McpServerManager {
           }
         }
 
-        const serverConfig = this.configService.processServerDefinition(
-          serverName,
-          definition,
-          bundleId,
-          bundleVersion,
-          workspaceRoot,
-          workspaceLocation.envPlaceholderStyle
-        );
-
         serversToInstall[prefixedName] = serverConfig;
 
-        tracking.managedServers[prefixedName] = {
-          bundleId,
-          bundleVersion,
-          originalName: serverName,
-          originalConfig: definition,
-          installedAt: new Date().toISOString(),
-          scope: 'workspace'
-        };
+        if (owned === undefined) {
+          tracking.managedServers[prefixedName] = {
+            bundleId,
+            bundleVersion,
+            originalName: serverName,
+            originalConfig: definition,
+            installedAt: new Date().toISOString(),
+            scope: 'workspace'
+          };
+        }
       }
 
       // Check for unresolved conflicts
@@ -754,8 +825,11 @@ export class McpServerManager {
       };
 
       // Write config and tracking
-      await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig, options.createBackup !== false);
-      await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
+      await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig);
+      if (owned === undefined) {
+        await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
+      }
+      result.config = { path: workspaceLocation.configPath, serversKey: workspaceLocation.serversKey };
 
       // Handle git exclude for local-only mode
       if (options.commitMode === 'local-only') {
@@ -812,7 +886,7 @@ export class McpServerManager {
 
       if (removedServers.length > 0) {
         const cleanedConfig = this.configService.removeOrphanedInputs(config);
-        await this.writeWorkspaceMcpConfig(workspaceRoot, cleanedConfig, true);
+        await this.writeWorkspaceMcpConfig(workspaceRoot, cleanedConfig);
         await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
         this.logger.info(`Removed ${removedServers.length} MCP servers for bundle ${bundleId} from workspace`);
       } else {
@@ -836,5 +910,93 @@ export class McpServerManager {
     }
 
     return result;
+  }
+
+  /**
+   * After the install record removed a bundle's servers: re-enable duplicates
+   * they disabled, and drop the git exclude once no server of the file is left.
+   * @param serverNames - Names the record removed.
+   * @param level - Record level of the MCP file.
+   * @param workspaceRoot - Workspace root, at repository level.
+   */
+  public async afterRecordRemoval(serverNames: readonly string[], level: 'user' | 'repository', workspaceRoot?: string): Promise<void> {
+    if (this.ownership === undefined || this.recordLevel(level) === undefined) {
+      return;
+    }
+    try {
+      if (level === 'repository' && workspaceRoot !== undefined) {
+        const location = this.getWorkspaceMcpLocation(workspaceRoot);
+        const tracking = await this.readWorkspaceTrackingMetadata(workspaceRoot);
+        const owners = await this.ownedNames(level, location.configPath, tracking, workspaceRoot);
+        if (owners.size === 0) {
+          await this.removeFromGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
+        }
+        return;
+      }
+      if (level === 'user' && serverNames.length > 0) {
+        const location = McpConfigLocator.getMcpConfigLocation('user');
+        const owners = location === undefined
+          ? undefined
+          : await this.ownedNames(level, location.configPath, await this.configService.readTrackingMetadata('user'));
+        await this.reEnableDuplicatesAfterRemoval('user', [...serverNames], owners);
+      }
+    } catch (error) {
+      this.logger.warn(`[McpServerManager] Could not finish removing MCP servers: ${error}`);
+    }
+  }
+
+  /**
+   * Keep server ownership in the install records: installs then neither read
+   * nor write the tracking file, which is migrated into the records and removed.
+   * @param ownership - The install records' view of MCP servers.
+   */
+  public setRecordOwnership(ownership: McpRecordOwnership): void {
+    this.ownership = ownership;
+  }
+
+  /**
+   * Hand the servers of the tracking file to the install record entries of their
+   * bundles, and remove the file once nothing is left in it. Servers no entry
+   * takes stay tracked, so an older install still uninstalls them.
+   * @param level - Record level of the MCP file.
+   * @param workspaceRoot - Workspace root, at repository level.
+   */
+  public async migrateTrackingToRecord(level: 'user' | 'repository', workspaceRoot?: string): Promise<void> {
+    if (this.ownership === undefined || this.recordLevel(level) === undefined || (level === 'repository' && workspaceRoot === undefined)) {
+      return;
+    }
+    try {
+      const location = level === 'repository'
+        ? this.getWorkspaceMcpLocation(workspaceRoot as string)
+        : McpConfigLocator.getMcpConfigLocation('user');
+      if (location === undefined || !await fs.pathExists(location.trackingPath)) {
+        return;
+      }
+      const tracking = level === 'repository'
+        ? await this.readWorkspaceTrackingMetadata(workspaceRoot as string)
+        : await this.configService.readTrackingMetadata('user');
+      const config = level === 'repository'
+        ? await this.readWorkspaceMcpConfig(workspaceRoot as string)
+        : await this.configService.readMcpConfig('user');
+      const present = Object.entries(tracking.managedServers)
+        .filter(([name]) => Object.hasOwn(config.servers, name))
+        .map(([name, metadata]) => ({ name, bundleId: metadata.bundleId, item: metadata.originalName, definition: config.servers[name] }));
+      const taken = new Set(await this.ownership.adopt(level, location.configPath, workspaceRoot, present));
+      for (const name of Object.keys(tracking.managedServers)) {
+        if (taken.has(name) || !Object.hasOwn(config.servers, name)) {
+          delete tracking.managedServers[name];
+        }
+      }
+      if (Object.keys(tracking.managedServers).length === 0) {
+        await fs.remove(location.trackingPath);
+        this.logger.info(`[McpServerManager] Moved the MCP tracking of ${location.configPath} into the install record`);
+      } else if (level === 'repository') {
+        await this.writeWorkspaceTrackingMetadata(workspaceRoot as string, tracking);
+      } else {
+        await this.configService.writeTrackingMetadata(tracking, 'user');
+      }
+    } catch (error) {
+      this.logger.warn(`[McpServerManager] Could not move the MCP tracking into the install record: ${error}`);
+    }
   }
 }

@@ -186,6 +186,21 @@ const CATALOG: Record<string, CatalogEntry> = {
       + '(ai-primitives-hub.lock.json or ai-primitives-hub.local.lock.json). Nothing was removed.',
     remediation: 'Check the bundle id and the target with `ai-primitives-hub list`, then run the uninstall again.'
   },
+  'RECORD.HUB_CONFLICT': {
+    summary: 'An install recorded a source through a hub, but the install record already has that source from another hub. '
+      + 'A source belongs to one hub, so every bundle traces to exactly one hub. Nothing was recorded.',
+    remediation: 'Install the bundle through the hub already recorded, or uninstall the source\'s bundles first and install them again.'
+  },
+  'RECORD.MCP_CONFLICT': {
+    summary: 'A bundle installs an MCP server under a name the tool\'s MCP file already has, and no install record lists that server, '
+      + 'so it was added by hand or by another tool. The MCP file was left unchanged.',
+    remediation: 'Rename or remove that server in the MCP file, then run the install again.'
+  },
+  'RECORD.MCP_CONFIG_UNREADABLE': {
+    summary: 'The tool\'s MCP file could not be read as plain JSON (for example it has comments or trailing commas), '
+      + 'so its servers were not added or removed.',
+    remediation: 'Remove comments and trailing commas from the MCP file, or fix it, then run the command again.'
+  },
   'USAGE.MISSING_FLAG': {
     summary: 'A required CLI flag or argument was not provided.',
     remediation: 'Re-run with --help on the subcommand to see the required flags.'

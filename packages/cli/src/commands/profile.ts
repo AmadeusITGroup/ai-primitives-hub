@@ -76,12 +76,15 @@ import {
 } from '@ai-primitives-hub/infra';
 import * as yaml from 'js-yaml';
 import {
+  bundleMcpOf,
+  type BundleMcpServers,
   Command,
   type Context,
   createHttpClientAndTokens,
   createHubManager,
   failWith,
   formatOutput,
+  type InstalledBundleContent,
   loadTargets,
   lockfilePathForTarget,
   Option,
@@ -411,7 +414,11 @@ export class ProfileCurrentCommand extends BaseProfileCommand {
  * Result of activating a single profile bundle against a single target.
  */
 type ActivateBundleOutcome =
-  | { ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry; source: RecordSourceInput; hub?: RecordHubInput }
+  | {
+    ok: true; written: string[]; entry: LockfileBundleEntry; sourceEntry: LockfileSourceEntry; source: RecordSourceInput; hub?: RecordHubInput;
+    bundle: InstalledBundleContent;
+    mcp: BundleMcpServers;
+  }
   | { ok: false; reason: string };
 
 /**
@@ -490,7 +497,10 @@ async function activateBundleForTarget(
     if (target.scope === 'repository') {
       entry.commitMode = target.commitMode ?? 'commit';
     }
-    return { ok: true, written: result.written, entry, sourceEntry, source, ...(hub === undefined ? {} : { hub }) };
+    return {
+      ok: true, written: result.written, entry, sourceEntry, source, ...(hub === undefined ? {} : { hub }), bundle: { name: manifest.id, files },
+      mcp: bundleMcpOf(manifest, ctx.env, src.type === 'github' ? src.url : undefined)
+    };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -987,7 +997,9 @@ async function installProfileBundles(
           tool: target.type,
           source: outcome.source,
           ...(outcome.hub === undefined ? {} : { hub: outcome.hub }),
-          writtenPaths: outcome.written
+          writtenPaths: outcome.written,
+          bundle: outcome.bundle,
+          mcp: outcome.mcp
         });
         if (!report.records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {
           report.records.push({ target: target.name, level: record.location.level, path: recorded.lockfile });
@@ -1398,7 +1410,9 @@ async function runProfileInstall(
           tool: target.type,
           source: outcome.source,
           ...(outcome.hub === undefined ? {} : { hub: outcome.hub }),
-          writtenPaths: outcome.written
+          writtenPaths: outcome.written,
+          bundle: outcome.bundle,
+          mcp: outcome.mcp
         });
         if (!records.some((file) => file.target === target.name && file.path === recorded.lockfile)) {
           records.push({ target: target.name, level: record.location.level, path: recorded.lockfile });

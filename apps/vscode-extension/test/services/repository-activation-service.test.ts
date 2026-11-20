@@ -7,8 +7,10 @@
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type {
-  RecordSourceInput,
+import {
+  recordHubIdOf,
+  recordSourceIdOf,
+  type RecordSourceInput,
 } from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
@@ -59,6 +61,8 @@ suite('RepositoryActivationService', () => {
     hubs: { 'old-hub': { name: 'Old Hub', url: 'https://example.com/hub.yml' } }
   });
 
+  const idOf = (type: string, url: string): string => recordSourceIdOf({ type, url });
+
   const createService = (setupStateManager?: SetupStateManager): RepositoryActivationService =>
     new RepositoryActivationService(adapter, hubManager, storage, root, undefined, setupStateManager);
 
@@ -100,7 +104,10 @@ suite('RepositoryActivationService', () => {
     const recorded = await createService().readRepositorySources();
 
     assert.ok(recorded);
-    assert.deepStrictEqual(Object.keys(recorded.sources).toSorted(), ['acme-github', 'inside-local', 'local-only-src', 'old-src']);
+    // The record names its sources by readable id; the old lockfile by configured id.
+    assert.deepStrictEqual(Object.keys(recorded.sources).toSorted(), [
+      'old-src', idOf('github', 'https://github.com/acme/private'), idOf('github', 'https://github.com/acme/tools'), idOf('local', 'bundles/inside')
+    ].toSorted());
     assert.deepStrictEqual(Object.keys(recorded.hubs ?? {}), ['old-hub']);
   });
 
@@ -114,8 +121,8 @@ suite('RepositoryActivationService', () => {
     const recorded = await createService().readRepositorySources();
 
     assert.ok(recorded);
-    assert.ok(!Object.hasOwn(recorded.sources, 'link-local'));
-    assert.ok(Object.hasOwn(recorded.sources, 'inside-local'));
+    assert.ok(!Object.hasOwn(recorded.sources, idOf('local', 'bundles/link')));
+    assert.ok(Object.hasOwn(recorded.sources, idOf('local', 'bundles/inside')));
   });
 
   test('lists the unconfigured sources and hubs with credentialRef by name, and changes no config or record', async () => {
@@ -126,7 +133,10 @@ suite('RepositoryActivationService', () => {
 
     assert.strictEqual(showInfo.callCount, 1);
     const message = String(showInfo.firstCall.args[0]);
-    assert.ok(message.startsWith('4 sources and hubs from the install records are not configured: acme-github, local-only-src, old-src, old-hub.'), message);
+    const listed = [idOf('github', 'https://github.com/acme/tools'), idOf('github', 'https://github.com/acme/private'), 'old-src', 'old-hub'];
+    assert.ok(message.startsWith('4 sources and hubs from the install records are not configured: '), message);
+    assert.ok(listed.every((id) => message.includes(id)), message);
+    assert.ok(!message.includes('bundles/inside'), 'a configured source is not listed');
     assert.ok(message.includes('acme-github-token'), message);
     assert.strictEqual(showInfo.firstCall.args.length, 1, 'no action that does nothing');
     for (const write of ['addSource', 'updateSource', 'removeSource', 'saveConfig'] as const) {
@@ -154,14 +164,28 @@ suite('RepositoryActivationService', () => {
       const recorded = await createService().readRepositorySources();
       const result = await createService().checkAndOfferMissingSources(recorded!);
 
-      assert.deepStrictEqual({ ...recorded?.hubs?.['acme-hub'] as object }, { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' });
+      const hubId = recordHubIdOf({ type: 'github', location: 'acme/hub', ref: 'main' });
+      assert.deepStrictEqual({ ...recorded?.hubs?.[hubId] as object }, { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' });
       const prompts = importPrompts();
       assert.strictEqual(prompts.length, 1);
-      assert.ok(String(prompts[0].args[0]).includes('"Acme Hub" (acme-hub)'), String(prompts[0].args[0]));
+      assert.ok(String(prompts[0].args[0]).startsWith('The install records use hub "Acme Hub", which is not configured.'), String(prompts[0].args[0]));
       assert.ok(String(prompts[0].args[0]).includes('github acme/hub @ main'), String(prompts[0].args[0]));
-      assert.ok(hubManager.importHub.calledOnceWithExactly({ type: 'github', location: 'acme/hub', ref: 'main' }, 'acme-hub'));
-      assert.deepStrictEqual(result.importedHubs, ['acme-hub']);
+      // The hub gets its own configured id; the record's id names it on every machine.
+      assert.ok(hubManager.importHub.calledOnceWithExactly({ type: 'github', location: 'acme/hub', ref: 'main' }, undefined));
+      assert.deepStrictEqual(result.importedHubs, [hubId]);
       assert.ok(!String(showInfo.firstCall.args[0]).includes('hub-src'), 'a source of the offered hub is not listed again');
+    });
+
+    test('is known when this editor has the same hub under another id', async () => {
+      await recordHub({ name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' });
+      hubManager.listHubs.resolves([{ id: 'acme-hub-196473', name: 'Acme Hub', description: '', reference: { type: 'github', location: 'acme/hub', ref: 'main' } }]);
+      showInfo.resolves(IMPORT_HUB_ACTION);
+
+      const result = await createService().checkAndOfferMissingSources((await createService().readRepositorySources())!);
+
+      assert.ok(!result.missingHubs.includes(recordHubIdOf({ type: 'github', location: 'acme/hub', ref: 'main' })), result.missingHubs.join(', '));
+      assert.strictEqual(importPrompts().length, 0);
+      assert.ok(hubManager.importHub.notCalled);
     });
 
     test('is not imported when the user does not confirm', async () => {
@@ -187,7 +211,7 @@ suite('RepositoryActivationService', () => {
 
         assert.strictEqual(importPrompts().length, 0);
         assert.ok(hubManager.importHub.notCalled);
-        assert.ok(String(showInfo.firstCall.args[0]).includes('acme-hub'), String(showInfo.firstCall.args[0]));
+        assert.ok(String(showInfo.firstCall.args[0]).includes(recordHubIdOf({ type: testCase.hub.type, location: testCase.hub.location })), String(showInfo.firstCall.args[0]));
       });
     });
   });

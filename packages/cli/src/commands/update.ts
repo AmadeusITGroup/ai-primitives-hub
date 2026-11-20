@@ -76,6 +76,7 @@ import {
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
+  bundleMcpOf,
   CLI_RECORD_GENERATED_BY,
   Command,
   configuredRecordSources,
@@ -953,7 +954,8 @@ async function applyRecordUpdate(
   const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
     recordPlannedInstall(
       prepared.service, { ...item, bundleId, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
-      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings
+      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings, { name: manifest.id, files },
+      bundleMcpOf(manifest, ctx.env, item.source.type === 'github' ? item.source.url : undefined)
     );
   const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
   const changes = [change];

@@ -132,6 +132,11 @@ const KIRO_PATHS = [
   'steering/sample-rules.instructions.md',
   'steering/copilot-instructions.instructions.md'
 ];
+/** Kiro's MCP file, which gets the manifest's `mcpServers`. */
+const KIRO_MCP = 'settings/mcp.json';
+/** Everything an install of the bundle writes under `.kiro`. */
+const KIRO_INSTALLED = [...KIRO_PATHS, KIRO_MCP].toSorted();
+const SERVER_KEY = 'ai-primitives-hub:sample-skills:sample-server';
 
 interface JsonEnvelope<T> {
   status: string;
@@ -250,8 +255,11 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     const installed = await run(['install', '--from', bundleDir, '--target', 'kiro-ide', '-o', 'json']);
 
     expect(installed.exitCode, installed.stdout).toBe(0);
-    expect(await listFiles(kiroDir)).toEqual(KIRO_PATHS.toSorted());
+    expect(await listFiles(kiroDir)).toEqual(KIRO_INSTALLED);
     expect(await readFile(path.join(kiroDir, 'skills', 'sample-skill', 'references', 'notes.md'), 'utf8')).toBe('# Notes\n');
+    expect(JSON.parse(await readFile(path.join(kiroDir, KIRO_MCP), 'utf8'))).toEqual({
+      mcpServers: { [SERVER_KEY]: { type: 'http', url: 'https://example.invalid/sse' } }
+    });
     // User scope records in the user record: one entry per tool, each file at
     // its install location relative to home.
     const recordPath = (JSON.parse(installed.stdout) as JsonEnvelope<{ lockfile: string }>).data.lockfile;
@@ -260,6 +268,8 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     const entry = record.bundles['sample-skills'].tools.kiro;
     expect(entry.files.map((f) => f.path).toSorted()).toEqual(KIRO_PATHS.map((p) => `.kiro/${p}`).toSorted());
     expect(entry.files.every((f) => /^sha256:[a-f0-9]{64}$/.test(f.checksum))).toBe(true);
+    // The MCP file is shared, so the entry owns its server, not the file.
+    expect(entry.mcpServers).toEqual([{ config: `.kiro/${KIRO_MCP}`, name: SERVER_KEY, item: 'sample-server', checksum: expect.stringMatching(/^sha256:/) }]);
 
     const removed = await run(['uninstall', '--bundle', 'sample-skills', '--target', 'kiro-ide', '-o', 'json']);
 
@@ -324,6 +334,25 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     expect(await listFiles(kiroDir)).toEqual(['steering/keep.prompt.md', 'steering/x.prompt.md']);
   });
 
+  it('keeps the user\'s own MCP servers through install and uninstall, and refuses a server name it did not install', async () => {
+    await mkdir(path.join(kiroDir, 'settings'), { recursive: true });
+    const own = { mcpServers: { mine: { command: 'my-server' } }, other: true };
+    await writeFile(path.join(kiroDir, KIRO_MCP), JSON.stringify(own));
+
+    expect((await run(['install', '--from', bundleDir, '--target', 'kiro-ide', '-o', 'json'])).exitCode).toBe(0);
+    expect(Object.keys((JSON.parse(await readFile(path.join(kiroDir, KIRO_MCP), 'utf8')) as typeof own).mcpServers).toSorted())
+      .toEqual([SERVER_KEY, 'mine']);
+    expect((await run(['uninstall', '--bundle', 'sample-skills', '--target', 'kiro-ide', '-o', 'json'])).exitCode).toBe(0);
+    expect(JSON.parse(await readFile(path.join(kiroDir, KIRO_MCP), 'utf8'))).toEqual(own);
+
+    await writeFile(path.join(kiroDir, KIRO_MCP), JSON.stringify({ mcpServers: { [SERVER_KEY]: { command: 'hand-written' } } }));
+    const refused = await run(['install', '--from', bundleDir, '--target', 'kiro-ide', '-o', 'json']);
+
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stdout).toContain('RECORD.MCP_CONFLICT');
+    expect(JSON.parse(await readFile(path.join(kiroDir, KIRO_MCP), 'utf8'))).toEqual({ mcpServers: { [SERVER_KEY]: { command: 'hand-written' } } });
+  });
+
   it('installs to a Kiro repository target under the workspace .kiro directory', async () => {
     const project = path.join(workspace, 'project');
     await mkdir(project, { recursive: true });
@@ -334,7 +363,7 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     const installed = await run(['install', '--from', bundleDir, '--target', 'kiro-repo', '-o', 'json']);
 
     expect(installed.exitCode, installed.stdout).toBe(0);
-    expect(await listFiles(path.join(project, '.kiro'))).toEqual(KIRO_PATHS.toSorted());
+    expect(await listFiles(path.join(project, '.kiro'))).toEqual(KIRO_INSTALLED);
   });
 
   it('rejects the install, writing nothing, when allowedKinds excludes a listed item', async () => {
@@ -393,7 +422,7 @@ profiles:
 
     const activated = await run(['profile', 'activate', 'sample-developer', '--target', 'kiro-ide', '-o', 'json']);
     expect(activated.exitCode, activated.stdout).toBe(0);
-    expect(await listFiles(kiroDir)).toEqual(KIRO_PATHS.toSorted());
+    expect(await listFiles(kiroDir)).toEqual(KIRO_INSTALLED);
     // Profile activation records into the shared user record, like `install`.
     const userRecord = userRecordPath(env());
     const recordCopy = await readFile(userRecord, 'utf8');
@@ -405,7 +434,7 @@ profiles:
     await writeFile(userRecord, recordCopy);
     const replayed = await run(['install', '--lockfile', userRecord, '--target', 'kiro-ide', '-o', 'json']);
     expect(replayed.exitCode, replayed.stdout).toBe(0);
-    expect(await listFiles(kiroDir)).toEqual(KIRO_PATHS.toSorted());
+    expect(await listFiles(kiroDir)).toEqual(KIRO_INSTALLED);
 
     // The record lists where each file landed, so it removes them again.
     const removed = await run(['uninstall', '--lockfile', userRecord, '--target', 'kiro-ide', '-o', 'json']);

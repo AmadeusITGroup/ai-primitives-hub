@@ -8,6 +8,7 @@ import {
 import * as path from 'node:path';
 import {
   emptyLockfile,
+  fromRecordFile,
   type LockfileSourceEntry,
   upsertBundleEntry,
   upsertSource,
@@ -157,11 +158,12 @@ export const readRecord = <T = InstallRecord>(dir: string, fileName?: string): P
   readInstallRecord<T>(recordPathIn(dir, fileName));
 
 /**
- * Read and parse a record file at any path, e.g. the shared user record.
+ * Read a record file at any path, e.g. the shared user record, as the services
+ * see it: bundles keyed by bundle id, each entry with its `sourceId`.
  * @param file - Absolute record path.
  */
 export const readInstallRecord = async <T = InstallRecord>(file: string): Promise<T> =>
-  JSON.parse(await readFile(file, 'utf8')) as T;
+  fromRecordFile(JSON.parse(await readFile(file, 'utf8')) as InstallRecord) as T;
 
 /**
  * Path of the shared user record for an environment.
