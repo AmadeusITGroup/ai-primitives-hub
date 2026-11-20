@@ -34,6 +34,20 @@ ai-primitives-hub bundle build --collection-file collections/example.collection.
 ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0 --layout apm
 ```
 
+For a governed build, commit the collection manifest and its source files before
+building. If a referenced item lives in a Git submodule, the build reads it and
+its bundled resources from the exact commit pinned by the parent revision,
+not from the submodule's current checkout. Initialize submodules with
+`git submodule update --init --recursive` (or use `submodules: recursive` with
+`actions/checkout`). Missing required submodules or pinned commits fail the
+build; unrelated submodules do not need to be initialized. A submodule does
+not replace the collection repository's root license evidence.
+
+For CI, pass the paths from `git diff --name-only` to `collection affected`
+using repeated `--changed-path` flags. A changed gitlink marks collections
+that reference paths below it or bundle it as a skill resource as affected.
+Detection does not require checking out or diffing the submodule itself.
+
 `--layout aph` is the unchanged default. The experimental `--layout apm` keeps
 source collection files and original Hub paths unchanged, adds installable
 primitive mirrors under `.apm/`, and emits root `deployment-manifest.yml` and `apm.yml`. Both manifests

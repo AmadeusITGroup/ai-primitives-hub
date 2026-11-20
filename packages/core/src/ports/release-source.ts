@@ -18,11 +18,13 @@ export interface ReleaseSourceTree {
    */
   readFile(repositoryPath: string): Promise<Uint8Array>;
   /**
-   * Recursively list files under a repo-relative directory.
+   * List files under a repo-relative directory.
    * @param repositoryDirectory Repo-relative directory (`'.'` for the root).
+   * @param options Listing options; recursive by default.
+   * @param options.recursive Set to false to list only direct files.
    * @returns Normalized repo-relative file paths, in no guaranteed order.
    */
-  listFiles(repositoryDirectory: string): Promise<string[]>;
+  listFiles(repositoryDirectory: string, options?: { recursive?: boolean }): Promise<string[]>;
   /**
    * Report whether one file is recorded as executable: Git mode `100755`
    * for a revision, the owner execute bit for a working tree. Symlinks and

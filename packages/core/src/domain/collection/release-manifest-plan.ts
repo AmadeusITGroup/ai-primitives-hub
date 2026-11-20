@@ -580,7 +580,7 @@ const collectionLicense = (_collection: Collection, packageMetadata: PackageMeta
   packageMetadata.license || 'SEE LICENSE IN LICENSE';
 
 const findLicensePath = async (sourceTree: ReleaseSourceTree): Promise<string | null> => {
-  const candidate = (await sourceTree.listFiles('.'))
+  const candidate = (await sourceTree.listFiles('.', { recursive: false }))
     .filter((entry) => !entry.includes('/'))
     .find((name) => /^(license|copying|notice)(\.[^.]*)?$/i.test(name));
   return candidate ?? null;
