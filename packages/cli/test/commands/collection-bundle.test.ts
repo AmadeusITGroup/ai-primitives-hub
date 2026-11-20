@@ -283,6 +283,38 @@ items:
   });
 
   describe('collection affected', () => {
+    it('matches a gitlink-only change inside a skill directory without needing the checkout', async () => {
+      const skillDir = 'skills/demo';
+      const gitlink = `${skillDir}/resources/upstream`;
+      await mkdir(path.join(workspace, skillDir), { recursive: true });
+      await writeFile(path.join(workspace, skillDir, 'SKILL.md'), '# Demo\n');
+      await writeFile(
+        path.join(workspace, 'collections', 'foo.collection.yml'),
+        `id: foo\nname: Foo Collection\nitems:\n  - path: ${skillDir}/SKILL.md\n    kind: skill\n`
+      );
+      execFileSync('git', ['add', '.'], { cwd: workspace });
+      execFileSync('git', ['update-index', '--add', '--cacheinfo', `160000,${'a'.repeat(40)},${gitlink}`], {
+        cwd: workspace
+      });
+      execFileSync('git', ['commit', '-m', 'add resource gitlink'], { cwd: workspace, stdio: 'ignore' });
+      execFileSync('git', ['update-index', '--cacheinfo', `160000,${'b'.repeat(40)},${gitlink}`], {
+        cwd: workspace
+      });
+      execFileSync('git', ['commit', '-m', 'update resource gitlink'], { cwd: workspace, stdio: 'ignore' });
+      const changed = execFileSync('git', ['diff', '--name-only', 'HEAD^', 'HEAD'], {
+        cwd: workspace,
+        encoding: 'utf8'
+      }).trim();
+      expect(changed).toBe(gitlink);
+      expect(existsSync(path.join(workspace, gitlink))).toBe(false);
+      const result = await run(['collection', 'affected', '--changed-path', changed, '-o', 'json']);
+      expect(result.exitCode).toBe(0);
+      expect(parseJson<{ affected: { id: string }[] }>(result.stdout).data.affected).toMatchObject([{ id: 'foo' }]);
+
+      const unrelated = await run(['collection', 'affected', '--changed-path', 'skills/demo-other/resources/upstream', '-o', 'json']);
+      expect(parseJson<{ affected: unknown[] }>(unrelated.stdout).data.affected).toEqual([]);
+    });
+
     it('matches a gitlink-only change to a declared skill without needing the checkout', async () => {
       await mkdir(path.join(workspace, 'vendor', 'slidev'), { recursive: true });
       await writeFile(

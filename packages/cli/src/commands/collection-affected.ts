@@ -10,11 +10,17 @@
  * @module commands/collection-affected
  */
 import {
+  posix,
+} from 'node:path';
+import {
   listCollectionFiles,
   readCollection,
-  resolveCollectionItemPaths,
   resolveCollectionReadmePath,
 } from '@ai-primitives-hub/app';
+import {
+  normalizePrimitiveKind,
+  normalizeRepoRelativePath,
+} from '@ai-primitives-hub/core';
 import {
   Command,
   type Context,
@@ -96,9 +102,26 @@ export class CollectionAffectedCommand extends Command {
     const affected: AffectedRecord[] = [];
     for (const file of collectionFiles) {
       const collection = readCollection(cwd, file);
-      const itemPaths = resolveCollectionItemPaths(cwd, collection).map((p) => normalize(p));
+      const items = Array.isArray(collection.items) ? collection.items : [];
+      const itemChanged = items.some((item) => {
+        if (!item?.path) {
+          return false;
+        }
+        const itemPath = normalizeRepoRelativePath(item.path);
+        if (overlaps(itemPath)) {
+          return true;
+        }
+        if (normalizePrimitiveKind(item.kind) !== 'skill') {
+          return false;
+        }
+        // A skill ships its entire directory, including absent or deleted resources.
+        const directory = posix.dirname(itemPath);
+        return directory === '.'
+          ? changed.size > 0
+          : [...changed].some((changedPath) => changedPath.startsWith(`${directory}/`));
+      });
       const readmePath = resolveCollectionReadmePath(collection);
-      if (overlaps(normalize(file)) || (readmePath && overlaps(normalize(readmePath))) || itemPaths.some((p) => overlaps(p))) {
+      if (overlaps(normalize(file)) || (readmePath && overlaps(normalize(readmePath))) || itemChanged) {
         affected.push({ id: collection.id, file });
       }
     }

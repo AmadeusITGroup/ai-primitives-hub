@@ -45,8 +45,8 @@ not replace the collection repository's root license evidence.
 
 For CI, pass the paths from `git diff --name-only` to `collection affected`
 using repeated `--changed-path` flags. A changed gitlink marks collections
-that reference paths below it as affected; there is no need to diff the
-submodule itself.
+that reference paths below it or bundle it as a skill resource as affected.
+Detection does not require checking out or diffing the submodule itself.
 
 `--layout aph` is the unchanged default. The experimental `--layout apm` keeps
 source collection files and original Hub paths unchanged, adds installable
