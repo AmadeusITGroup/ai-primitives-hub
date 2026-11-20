@@ -348,6 +348,12 @@ export interface InstallOptions {
   /** Reuse source-aware preflight and token providers across bundle requests. */
   sourceAwareDependencyCache?: SourceAwareInstallDependencyCache;
   /**
+   * Called with the installed version instead of printing the install's
+   * own result, when one command installs several bundles and prints a
+   * single summary (the interactive hub install).
+   */
+  onInstalled?: (installed: { version: string }) => void;
+  /**
    * Verbose mode: show detailed progress and error messages.
    */
   verbose?: boolean;
@@ -909,23 +915,36 @@ async function interactiveBundleSelection(
       return 0;
     }
 
-    previewInstallation(selectedBundles, target.name, ctx);
+    previewInstallation(selectedBundles, target.name, ctx, fmt);
     const confirmed = await confirmInstallation(ctx);
     if (!confirmed) {
       return 0;
     }
 
-    const installedCount = await installSelectedBundles(selectedBundles, sourceMap, opts, target, ctx, fmt);
+    const { installed, failures } = await installSelectedBundles(selectedBundles, sourceMap, opts, target, ctx, fmt);
+    const failureLines = failures.map((f) => `${f.bundleId}: ${f.reason}`);
+    if (installed.length === 0 && failures.length > 0) {
+      return failWith(ctx, fmt, 'install', new RegistryError({
+        code: 'HUB.INSTALL_FAILED',
+        message: `install: none of the selected bundles from hub "${hubId}" could be installed: ${failureLines.join('; ')}`,
+        hint: 'Check that each bundle\'s source is configured, reachable, and authenticated, then try again.',
+        context: { hubId, failures }
+      }));
+    }
 
     formatOutput({
       ctx,
       command: 'install',
       output: fmt,
-      status: 'ok',
-      data: { installed: installedCount, total: selectedBundles.length },
+      status: failures.length === 0 ? 'ok' : 'warning',
+      data: { installed: installed.length, total: selectedBundles.length, bundles: installed, failures },
+      warnings: failures.length > 0 ? failureLines : undefined,
       textRenderer: (d) => `Installed ${d.installed}/${d.total} bundles\n`
+        + (d.failures.length > 0
+          ? `Failures:\n${d.failures.map((f) => `  - ${f.bundleId}: ${f.reason}\n`).join('')}`
+          : '')
     });
-    return 0;
+    return failures.length === 0 ? 0 : 1;
   } catch (err) {
     return failWith(ctx, fmt, 'install', buildInstallError(hubId, err));
   }
@@ -980,10 +999,17 @@ async function promptBundleSelection(
   return bundles.filter((b) => selectedBundleIds.includes(b.id)) as { id: string; version: string; source: string }[];
 }
 
-function previewInstallation(bundles: { id: string; version: string; source: string }[], targetName: string, ctx: Context): void {
-  ctx.stdout.write(`\nPreview: Installing ${bundles.length} bundle${bundles.length === 1 ? '' : 's'} to target "${targetName}"\n`);
+function previewInstallation(
+  bundles: { id: string; version: string; source: string }[],
+  targetName: string,
+  ctx: Context,
+  fmt: OutputFormat
+): void {
+  // Keep stdout a single document for structured output; the preview still shows on stderr.
+  const out = fmt === 'text' ? ctx.stdout : ctx.stderr;
+  out.write(`\nPreview: Installing ${bundles.length} bundle${bundles.length === 1 ? '' : 's'} to target "${targetName}"\n`);
   for (const b of bundles) {
-    ctx.stdout.write(`  - ${b.id}@${b.version} (source: ${b.source})\n`);
+    out.write(`  - ${b.id}@${b.version} (source: ${b.source})\n`);
   }
 }
 
@@ -1005,6 +1031,18 @@ async function confirmInstallation(ctx: Context): Promise<boolean> {
   return true;
 }
 
+/**
+ * Install the bundles picked in the interactive hub install, one by one.
+ * A failed bundle is recorded and the rest are still installed; nothing is
+ * printed per bundle, so the caller reports one summary.
+ * @param bundles Selected bundles.
+ * @param sourceMap Hub sources by id and name.
+ * @param opts Install options.
+ * @param target Target to install onto.
+ * @param ctx CLI context.
+ * @param fmt Output format.
+ * @returns The installed bundles with their version, and the failures with their reason.
+ */
 async function installSelectedBundles(
   bundles: { id: string; version: string; source: string }[],
   sourceMap: Map<string, RegistrySource>,
@@ -1012,34 +1050,37 @@ async function installSelectedBundles(
   target: Target,
   ctx: Context,
   fmt: OutputFormat
-): Promise<number> {
-  let installedCount = 0;
+): Promise<{ installed: { bundleId: string; version: string }[]; failures: { bundleId: string; reason: string }[] }> {
+  const installed: { bundleId: string; version: string }[] = [];
+  const failures: { bundleId: string; reason: string }[] = [];
   const sourceAwareDependencyCache = isGitHubAppAuthEnabled(ctx.env)
     ? createSourceAwareInstallDependencyCache(opts.http ?? new NodeHttpClient(), ctx)
     : undefined;
   for (const bundle of bundles) {
     const source = sourceMap.get(bundle.source);
     if (!source) {
-      ctx.stderr.write(`Failed to install ${bundle.id}@${bundle.version}: source "${bundle.source}" not found in hub\n`);
+      failures.push({ bundleId: bundle.id, reason: `source "${bundle.source}" not found in hub` });
       continue;
     }
-    const bundleOpts = {
+    let version: string | undefined;
+    const bundleOpts: InstallOptions = {
       ...opts,
       bundle: bundle.id,
       source: source.url,
       sourceConfig: source,
-      sourceAwareDependencyCache
+      sourceAwareDependencyCache,
+      onInstalled: (result) => {
+        version = result.version;
+      }
     };
     try {
-      const result = await performRemoteInstall(bundleOpts, target, ctx, fmt);
-      if (result === 0) {
-        installedCount++;
-      }
+      await performRemoteInstall(bundleOpts, target, ctx, fmt);
+      installed.push({ bundleId: bundle.id, version: version ?? bundle.version });
     } catch (err) {
-      ctx.stderr.write(`Failed to install ${bundle.id}@${bundle.version}: ${err instanceof Error ? err.message : String(err)}\n`);
+      failures.push({ bundleId: bundle.id, reason: err instanceof Error ? err.message : String(err) });
     }
   }
-  return installedCount;
+  return { installed, failures };
 }
 
 /**
@@ -1629,6 +1670,10 @@ async function performRemoteInstall(
       return legacyLockPath;
     });
 
+    if (opts.onInstalled !== undefined) {
+      opts.onInstalled({ version: manifest.version });
+      return 0;
+    }
     formatOutput({
       ctx,
       command: 'install',
