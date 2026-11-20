@@ -855,11 +855,23 @@ async function listSourceBundles(
   }
 }
 
-function buildInstallError(err: unknown): RegistryError {
+/**
+ * The error an interactive install from a hub reports: a `RegistryError`
+ * as thrown, anything else wrapped with the hub it was installing from.
+ * @param hubId Hub the bundles were being selected from.
+ * @param err What the interactive install threw.
+ * @returns The error to report.
+ */
+function buildInstallError(hubId: string, err: unknown): RegistryError {
+  if (err instanceof RegistryError) {
+    return err;
+  }
   return new RegistryError({
-    code: 'INSTALL.ERROR',
-    message: err instanceof Error ? err.message : String(err),
-    hint: 'Check the hub configuration and try again.'
+    code: 'HUB.INSTALL_FAILED',
+    message: `install: interactive install from hub "${hubId}" failed: ${err instanceof Error ? err.message : String(err)}`,
+    hint: 'Check the hub id (`ai-primitives-hub hub list`) and the hub configuration, then try again.',
+    context: { hubId },
+    cause: err instanceof Error ? err : undefined
   });
 }
 
@@ -915,7 +927,7 @@ async function interactiveBundleSelection(
     });
     return 0;
   } catch (err) {
-    return failWith(ctx, fmt, 'install', buildInstallError(err));
+    return failWith(ctx, fmt, 'install', buildInstallError(hubId, err));
   }
 }
 
