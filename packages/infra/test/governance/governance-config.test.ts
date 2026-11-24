@@ -4,11 +4,11 @@ import {
   it,
 } from 'vitest';
 import {
-  AjvSchemaValidator,
-} from '../../src/governance/ajv-schema-validator';
-import {
   parseGovernanceConfig,
 } from '../../src/governance/governance-config';
+import {
+  JsonSchemaValidator,
+} from '../../src/governance/json-schema-validator';
 
 describe('parseGovernanceConfig', () => {
   it('accepts an empty file as all defaults', () => {
@@ -32,9 +32,9 @@ describe('parseGovernanceConfig', () => {
   });
 });
 
-describe('AjvSchemaValidator', () => {
+describe('JsonSchemaValidator', () => {
   it('validates with formats and caches compiled schemas by identity', () => {
-    const validator = new AjvSchemaValidator();
+    const validator = new JsonSchemaValidator();
     const schema = { type: 'object', required: ['version'], properties: { version: { type: 'string', format: 'semver' } } };
     expect(validator.validate(schema, { version: '1.2.3' })).toEqual({ valid: true, issues: [] });
     expect(validator.validate(schema, { version: 'one' })).toMatchObject({ valid: false, issues: [{ instancePath: '/version', keyword: 'format' }] });

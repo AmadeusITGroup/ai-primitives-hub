@@ -10,10 +10,10 @@ import {
 } from '@ai-primitives-hub/core';
 import * as yaml from 'js-yaml';
 import {
-  AjvSchemaValidator,
-} from './ajv-schema-validator';
+  JsonSchemaValidator,
+} from './json-schema-validator';
 
-const validator = new AjvSchemaValidator({ strict: true });
+const validator = new JsonSchemaValidator({ strict: true });
 
 export interface ParsedGovernanceConfig {
   policy?: GovernancePolicy;
