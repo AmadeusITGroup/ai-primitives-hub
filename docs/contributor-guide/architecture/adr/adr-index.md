@@ -10,12 +10,13 @@ focused on one decision.
 | [0001](./0001-ports-and-adapters-for-cli-and-extension.md) | Ports & Adapters Across the CLI and the VS Code Extension | Accepted |
 | [0002](./0002-clipanion-cli-framework-with-pinned-rc.md) | Clipanion as the CLI Framework, RC Pin Accepted | Accepted |
 | [0003](./0003-primitive-index-search-and-multi-target-in-scope.md) | Primitive Index/Search/Harvest and Full Multi-Target Support In Scope | Accepted |
-| [0004](./0004-cli-only-rebrand-keep-lockfile-and-extension-identity-stable.md) | CLI-Only Rebrand — Keep Lockfile and Extension Identity Stable | Accepted |
-| [0005](./0005-universal-xdg-based-app-storage.md) | Universal, XDG-Based Application Storage Port | Accepted |
+| [0004](./0004-cli-only-rebrand-keep-lockfile-and-extension-identity-stable.md) | CLI-Only Rebrand — Keep Lockfile and Extension Identity Stable | Accepted; partly superseded by [0011](./0011-ai-primitives-hub-install-records.md) |
+| [0005](./0005-universal-xdg-based-app-storage.md) | Universal, XDG-Based Application Storage Port | Accepted; partly superseded by [0011](./0011-ai-primitives-hub-install-records.md) |
 | [0006](./0006-shared-semantic-cache-and-client-owned-state.md) | Shared Semantic Cache and Client-Owned State | Accepted |
 | [0007](./0007-source-aware-github-app-authentication.md) | Source-Aware GitHub App Authentication for CLI Workflows | Accepted |
 | [0008](./0008-artifactory-hub-tree-distribution-channel.md) | Generic Artifactory Hub Tree as an Explicit Distribution Channel | Proposed |
 | [0010](./0010-native-ports-and-adapters-security-scanning.md) | Native Ports-and-Adapters Security Scanning | Accepted |
+| [0011](./0011-ai-primitives-hub-install-records.md) | Shared `ai-primitives-hub` Install Records for the CLI and the Extension | Accepted |
 
 ADR-0009 is reserved for the primitive install categories referenced by the
 current domain model; security scanning uses ADR-0010.

@@ -12,7 +12,7 @@ github-actions/         Collection-validation action
 docs/ and website/      Markdown source and Docusaurus site
 ```
 
-The extension lives in `apps/vscode-extension/src/`: adapters fetch sources, services orchestrate VS Code workflows, commands wire actions, storage persists state, and UI provides marketplace/tree views. Repository scope uses `prompt-registry.lock.json` as its source of truth.
+The extension lives in `apps/vscode-extension/src/`: adapters fetch sources, services orchestrate VS Code workflows, commands wire actions, storage persists state, and UI provides marketplace/tree views. Repository and user scope are recorded in the shared install records (`ai-primitives-hub.lock.json`, `.local.lock.json`, `.user.lock.json`; ADR-0011).
 
 ## Commands
 
@@ -45,7 +45,7 @@ New domain or use-case logic belongs in `packages/`, not in a delivery layer. Se
 ### Migration & naming rules
 
 - **Strangler-fig migration (ADR-0001):** the extension's `src/services/*` are becoming thin delegators to `app`. Extract logic into `app` and delegate; don't add new business rules to a service, and don't duplicate what `app` already does.
-- **Dual naming is deliberate, not a bug (ADR-0004):** new artifacts use `ai-primitives-hub` / `@ai-primitives-hub/*`; existing machine identifiers stay as-is — the repo lockfile (`prompt-registry.lock.json`), the extension `package.json` name/publisher (`AmadeusITGroup.prompt-registry`), and command IDs (`promptregistry.*`). Do not "unify" these.
+- **Dual naming is deliberate, not a bug (ADR-0004, ADR-0011):** new artifacts use `ai-primitives-hub` / `@ai-primitives-hub/*`, including the install records (`ai-primitives-hub.lock.json`, `.local.lock.json`, `.user.lock.json`); existing machine identifiers stay as-is — the extension `package.json` name/publisher (`AmadeusITGroup.prompt-registry`) and command IDs (`promptregistry.*`). Do not "unify" these. `prompt-registry.lock.json` is only an older file the records migrate from.
 - **Storage (ADR-0005):** resolve on-disk roots through the injected `AppStorage` port (XDG default in `infra`), never `vscode.ExtensionContext.globalStorageUri` directly in new `app` code.
 
 ## Working Rules

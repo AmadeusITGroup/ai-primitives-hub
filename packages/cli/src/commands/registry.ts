@@ -125,6 +125,7 @@ import {
   ProfileCurrentCommand,
   ProfileDeactivateCommand,
   ProfileEditCommand,
+  ProfileInstallCommand,
   ProfileListCommand,
   ProfilePublishCommand,
   ProfileShowCommand,
@@ -132,6 +133,9 @@ import {
 import {
   PromptCreateCommand,
 } from './prompt-create';
+import {
+  SecurityRateCommand,
+} from './security-rate';
 import {
   SecurityScanCommand,
 } from './security-scan';
@@ -184,6 +188,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   ProfileListCommand,
   ProfileActivateCommand,
   ProfileDeactivateCommand,
+  ProfileInstallCommand,
   ProfileShowCommand,
   ProfileCurrentCommand,
   ProfileCreateCommand,
@@ -219,6 +224,7 @@ export const ALL_COMMAND_CLASSES: CommandClass[] = [
   ConfigGetCommand,
   ConfigListCommand,
   ApplyCommand,
+  SecurityRateCommand,
   SkillNewCommand,
   BundleBuildCommand,
   BundleManifestCommand,

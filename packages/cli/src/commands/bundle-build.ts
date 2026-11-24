@@ -63,6 +63,7 @@ interface BundleBuildData {
   outDir: string;
   manifestAsset: string;
   zipAsset: string;
+  apmManifestAsset?: string;
   readmeAsset?: string;
   bundleId: string;
 }
@@ -174,14 +175,16 @@ export class BundleBuildCommand extends Command {
         --version <version>         Bundle version (e.g. 1.0.0)
         --out-dir <dir>             Output directory (default: dist)
         --repo-slug <slug>          Repo slug (owner-repo, or GITHUB_REPOSITORY env var, or cwd dirname)
+        --layout <aph|apm>          Archive layout (default: aph; apm is experimental)
     `
   });
 
-  public output = Option.String('-o', '--output') as OutputFormat | undefined;
+  public output = Option.String<OutputFormat>('-o,--output');
   public collectionFile = Option.String('--collection-file');
   public version = Option.String('--version');
   public outDir = Option.String('--out-dir');
   public repoSlug = Option.String('--repo-slug');
+  public layout = Option.String('--layout', 'aph');
   public commandContext!: { ctx: Context };
 
   public async execute(): Promise<number> {
@@ -190,6 +193,12 @@ export class BundleBuildCommand extends Command {
     const version = this.version ?? '0.0.0-dev';
 
     try {
+      if (this.layout !== 'aph' && this.layout !== 'apm') {
+        throw new RegistryError({
+          code: 'USAGE.INVALID_ARGUMENT',
+          message: `Unknown bundle layout "${this.layout}"; expected aph or apm`
+        });
+      }
       const cwd = ctx.cwd();
       const collectionFile = await resolveCollectionFile(ctx, cwd, this.collectionFile);
       const repoSlug = (this.repoSlug
@@ -202,7 +211,8 @@ export class BundleBuildCommand extends Command {
       const { plan: releasePlan, warnings } = await planBundleRelease({
         repoRoot: cwd,
         collectionFile,
-        version
+        version,
+        layout: this.layout
       });
       const collectionId = String(releasePlan.manifest.id);
       if (typeof collectionId !== 'string' || collectionId.length === 0) {
@@ -219,6 +229,11 @@ export class BundleBuildCommand extends Command {
       const standaloneManifestPath = path.join(collectionOutDir, 'deployment-manifest.yml');
       const manifestYaml = serializeReleaseManifest(releasePlan.manifest);
       await ctx.fs.writeFile(standaloneManifestPath, manifestYaml);
+      const apmEntry = releasePlan.entries.find((entry) => entry.path === 'apm.yml');
+      const apmManifestPath = apmEntry === undefined ? undefined : path.join(collectionOutDir, 'apm.yml');
+      if (apmEntry !== undefined && apmManifestPath !== undefined) {
+        await ctx.fs.writeFile(apmManifestPath, new TextDecoder().decode(apmEntry.bytes));
+      }
       const zipPath = path.join(collectionOutDir, `${collectionId}.bundle.zip`);
       await createDeterministicZip({
         zipPath,
@@ -233,6 +248,7 @@ export class BundleBuildCommand extends Command {
         outDir: collectionOutDir.replaceAll('\\', '/'),
         manifestAsset: standaloneManifestPath.replaceAll('\\', '/'),
         zipAsset: zipPath.replaceAll('\\', '/'),
+        ...(apmManifestPath === undefined ? {} : { apmManifestAsset: apmManifestPath.replaceAll('\\', '/') }),
         ...(releasePlan.readmeSourcePath ? { readmeAsset: releasePlan.readmeSourcePath.replaceAll('\\', '/') } : {}),
         bundleId
       };

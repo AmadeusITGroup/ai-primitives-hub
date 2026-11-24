@@ -1,25 +1,31 @@
 /**
  * `update` command — checks installed bundles for newer versions and upgrades them.
  *
- * Reference's version keys each lockfile entry by its own `target` field and
- * resolves a target per-entry. Our `LockfileBundleEntry` has no `target`
- * field (see `app/stores/json-lockfile-store.ts`'s module doc — repository
- * scope always writes to `.github/`, invariant of target), so `update`
- * instead resolves a single target for the whole run — same
- * flag/auto-detect pattern as `install`/`uninstall` — and updates every
- * bundle tracked by that target's lockfile.
+ * `update` selects one install record level and updates every (bundle, tool)
+ * entry there through the target mapped to its tool; `--target` narrows it to
+ * one tool. Bundles only an older 2.0.0 file lists are updated on that file.
  */
 import * as path from 'node:path';
 import {
   checksumFiles,
   FileTreeTargetWriter,
+  githubRepoSlugForSource,
   type Lockfile,
   type LockfileBundleEntry,
   type LockfileSourceEntry,
+  type MigrationReport,
+  planRecordEntries,
   readLockfile,
+  type RecordHubInput,
+  recordIdentityOf,
+  type RecordInstallResult,
+  recordKeyForVersion,
   removeSupersededFiles,
   resolveUserConfigPaths,
+  type TargetMapping,
   type TargetWriter,
+  toLockfileBundleEntry,
+  toLockfileSourceEntry,
   TransformerRegistry,
   upsertBundleEntry,
   upsertSource,
@@ -27,18 +33,26 @@ import {
   writeLockfile,
 } from '@ai-primitives-hub/app';
 import type {
+  ExtractedFiles,
   GitHubApi,
   GitHubRepositoryTarget,
   GitHubSourceAuthCategory,
   HttpClient,
   HubSourceSpec,
   Installable,
+  RecordLevel,
+  RecordLocation,
   RegistrySource,
+  RepositoryExclusion,
   SourceType,
   Target,
   TokenProvider,
+  ToolEntry,
+  ValidatedManifest,
 } from '@ai-primitives-hub/core';
 import {
+  IMPORTED_USER_LOCKFILE_FIELD,
+  isRecordError,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -49,7 +63,6 @@ import {
   ArtifactoryHttpClient,
   createGitHubSourceAuthRuntime,
   defaultTokenProvider,
-  FileSystemLayoutConfigLoader,
   GitHubApiClient,
   HttpsBundleDownloader,
   isGitHubAppAuthEnabled,
@@ -58,31 +71,44 @@ import {
   type RepositoryCommitMode,
   RepositoryScopeWriter,
   RepositoryScopeWriterAdapter,
-  resolveUserConfigDir,
   SourceDispatcher,
   StaticTokenProvider,
-  TargetStateStore,
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
+  CLI_RECORD_GENERATED_BY,
   Command,
+  configuredRecordSources,
+  type Context,
   createHubManager,
+  createLayoutLoader,
   failWith,
   findProjectLockfile,
+  finishRecordRun,
+  formatOutput,
+  inferTargetName,
   loadInquirer,
   loadTargets,
   lockfilePathForTarget,
+  migrateDecision,
   Option,
-  resolveEffectiveTarget,
-} from '../framework';
-import {
-  type Context,
-  formatOutput,
   type OutputFormat,
+  type PreparedRecordSelection,
+  prepareOldFileOnly,
+  prepareRecordDecision,
   readTargetsSafely,
+  type RecordDecision,
+  recordOutputFields,
+  recordPlannedInstall,
+  type RecordSelectionInput,
   RegistryError,
-  resolveTarget,
-  resolveTargetName,
+  renderMigration,
+  renderRecordLine,
+  resolveCommandTarget,
+  resolveEffectiveTarget,
+  type TargetOverrides,
+  tokensForRecordSource,
+  writerEnv,
 } from '../framework';
 
 /**
@@ -188,8 +214,8 @@ export class UpdateCommand extends BaseUpdateCommand {
     details: `
       Usage: ai-primitives-hub update [options]
 
-      Reads the lockfile, checks each remote bundle against its upstream source,
-      and installs available upgrades.
+      Reads the install record, checks each remote bundle against its upstream
+      source, and installs available upgrades.
 
       Options:
         --lockfile <path>       Path to a lockfile
@@ -236,9 +262,39 @@ export class UpdateCommand extends BaseUpdateCommand {
     await detectUpdateContext(opts, ctx);
 
     try {
-      const targetName = await resolveTargetName(opts.target, 'update', ctx, () => loadTargets(ctx));
-      const configuredTarget = await resolveTarget(targetName, 'update', ctx, () => loadTargets(ctx));
-      const target = resolveEffectiveTarget(ctx, configuredTarget, opts);
+      // Without an inferred target the record decides; read-only first, so a failing run changes nothing.
+      const input = { command: 'update', lockfile: this.lockfile, scope: opts.scope };
+      const run: RecordUpdateBase = {
+        ctx, fmt, http, tokens, overrides: opts, dryRun: this.dryRun, interactive: this.interactive, noHubSync: this.noHubSync
+      };
+      const targetName = await inferTargetName(ctx, opts.target);
+      if (targetName === undefined) {
+        const decided = await runRecordUpdate(run, await prepareRecordWithoutTarget(ctx, input, this.dryRun));
+        if (decided !== undefined) {
+          return decided;
+        }
+      }
+
+      const target = await resolveCommandTarget(ctx, 'update', targetName, opts);
+
+      // Select the record first, so a bad record stops before anything is fetched or written; a dry run never migrates.
+      const decision = await prepareRecordDecision(ctx, input, { write: this.dryRun !== true, target });
+      const recorded = await runRecordUpdate(run, decision, this.target !== undefined && this.target.length > 0 ? target : undefined);
+      if (recorded !== undefined) {
+        return recorded;
+      }
+      // Once the user record imported the old user lockfile, an empty record never falls back to that file;
+      // a workspace-scope target and an explicit --lockfile still use it.
+      const prepared = decision?.prepared;
+      if (prepared !== undefined && prepared.selection.level === 'user' && prepared.selection.locations.length > 0
+        && target.scope === 'user' && !(this.lockfile?.length)
+        && (await prepared.store.load(prepared.selection.locations[0])).record[IMPORTED_USER_LOCKFILE_FIELD] !== undefined) {
+        return failWith(ctx, fmt, 'update', new RegistryError({
+          code: 'USAGE.MISSING_FLAG',
+          message: 'update: nothing is installed at the user level',
+          hint: 'Install a bundle first; the old user lockfile was imported and is no longer read.'
+        }));
+      }
 
       const commitMode = target.commitMode ?? 'commit';
       const scope = target.scope;
@@ -260,11 +316,7 @@ export class UpdateCommand extends BaseUpdateCommand {
       }
 
       const bundleIds = Object.keys(lock.bundles);
-      const remoteBundleIds = bundleIds.filter((id) => {
-        const src = lock.sources[lock.bundles[id].sourceId];
-        return src !== undefined && isRemoteSource(src.type);
-      });
-      const { candidates, skipped, failures: discoveryFailures } = await findUpdateCandidates(remoteBundleIds, lock, ctx, http, tokens);
+      const { candidates, skipped, failures: discoveryFailures } = await findUpdateCandidates(remoteBundleIds(lock, bundleIds), lock, ctx, http, tokens);
 
       if (this.dryRun) {
         return renderDryRun(ctx, fmt, lockPath, bundleIds.length, skipped.length, candidates, discoveryFailures);
@@ -307,7 +359,7 @@ export class UpdateCommand extends BaseUpdateCommand {
 
 /**
  * Detect update context from the project environment (symmetric with install/uninstall).
- * Fills in `opts.target` when it can be inferred.
+ * Fills in `opts.lockfile` when it can be inferred; the target is inferred later.
  * @param opts Update options (mutated in-place).
  * @param ctx CLI context.
  */
@@ -318,16 +370,57 @@ async function detectUpdateContext(opts: UpdateOptions, ctx: Context): Promise<v
       opts.lockfile = found;
     }
   }
-  if (!opts.target || opts.target.length === 0) {
-    const targets = await readTargetsSafely(loadTargets(ctx));
-    if (targets.length === 1) {
-      opts.target = targets[0].name;
-    }
-  }
 }
 
 function isRemoteSource(type: string): boolean {
   return type === 'github' || type === 'awesome-copilot' || type === 'skills' || type === 'artifactory';
+}
+
+const remoteBundleIds = (lock: Lockfile, bundleIds: readonly string[]): string[] => bundleIds.filter((bundleId) => {
+  const src = lock.sources[lock.bundles[bundleId].sourceId];
+  return src !== undefined && isRemoteSource(src.type);
+});
+
+/**
+ * The record `update` acts on with no inferred target, migrated unless `--dry-run`;
+ * `undefined` when it has no entries.
+ * @param ctx CLI context.
+ * @param input Command name and the typed `--lockfile` / `--scope`.
+ * @param dryRun `true` for `--dry-run`.
+ * @throws {RegistryError} A `RECORD.*` error naming the file.
+ */
+async function prepareRecordWithoutTarget(
+  ctx: Context,
+  input: Omit<RecordSelectionInput, 'write'>,
+  dryRun: boolean
+): Promise<RecordDecision | undefined> {
+  const decision = await prepareRecordDecision(ctx, input);
+  return decision.rows.length === 0 ? undefined : migrateDecision(ctx, decision, { dryRun });
+}
+
+/** What every record-driven update run shares, whatever its target. */
+type RecordUpdateBase = Omit<RecordUpdateRun, 'prepared' | 'explicit'> & { noHubSync: boolean };
+
+/**
+ * Sync the active hub unless `--no-hub-sync`, then update from the record.
+ * @param run Context, clients, overrides and flags of the update.
+ * @param decision The selected record and its entries, if any.
+ * @param explicit The target named by `--target`.
+ * @returns Exit code, or `undefined` when the record has no entry.
+ */
+async function runRecordUpdate(
+  run: RecordUpdateBase,
+  decision: RecordDecision | undefined,
+  explicit?: Target
+): Promise<number | undefined> {
+  if (decision === undefined || decision.rows.length === 0) {
+    return undefined;
+  }
+  const { noHubSync, ...base } = run;
+  if (!noHubSync) {
+    await syncActiveHub(base.ctx);
+  }
+  return updateFromRecord({ ...base, ...(explicit === undefined ? {} : { explicit }), prepared: decision.prepared });
 }
 
 /**
@@ -411,12 +504,14 @@ async function findUpdateCandidates(
   lock: Lockfile,
   ctx: Context,
   http: HttpClient,
-  tokens: TokenProvider
+  tokens: TokenProvider,
+  anonymous = false
 ): Promise<{ candidates: UpdateCandidate[]; skipped: string[]; failures: string[] }> {
   const candidates: UpdateCandidate[] = [];
   const skipped: string[] = [];
   const failures: string[] = [];
-  const sourceAware = isGitHubAppAuthEnabled(ctx.env);
+  // A source taken from the record runs without credentials.
+  const sourceAware = !anonymous && isGitHubAppAuthEnabled(ctx.env);
   const githubApi = new GitHubApiClient(http, { tokenProvider: tokens });
   const dispatcher = new SourceDispatcher({ githubApi, fs: ctx.fs });
   const sourceDependencies = new Map<string, SourceAwareUpdateDependencies>();
@@ -542,25 +637,23 @@ function renderNoUpdates(ctx: Context, fmt: OutputFormat, checked: number, skipp
  * @param target Target being updated.
  * @param scope Effective scope (may override `target.scope`).
  * @param commitMode Effective commit mode (repository scope only).
+ * @param exclusion Where a local-only write lists its files; `<workspace>/.git/info/exclude` by default.
  * @returns A TargetWriter.
  */
-function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode): TargetWriter {
+function writerFor(ctx: Context, target: Target, scope: string, commitMode: RepositoryCommitMode, exclusion?: RepositoryExclusion): TargetWriter {
   const effectiveScope = scope as Target['scope'];
   if (effectiveScope === 'repository' && new Set(['vscode', 'vscode-insiders', 'copilot-cli']).has(target.type)) {
     const writer = new RepositoryScopeWriter({
       fs: ctx.fs,
       workspaceRoot: target.rootPath ?? ctx.cwd(),
-      commitMode
+      commitMode,
+      exclusion
     });
     return new RepositoryScopeWriterAdapter(writer);
   }
   const transformer = TransformerRegistry.withBuiltIns().getTransformer(target.type);
-  const layoutLoader = new FileSystemLayoutConfigLoader({
-    cwd: ctx.cwd(),
-    fs: ctx.fs,
-    userConfigDir: resolveUserConfigDir(ctx.env)
-  });
-  return new FileTreeTargetWriter({ fs: ctx.fs, env: ctx.env, transformer, layoutLoader });
+  const layoutLoader = createLayoutLoader(ctx);
+  return new FileTreeTargetWriter({ fs: ctx.fs, env: writerEnv(ctx.env, effectiveScope), transformer, layoutLoader });
 }
 
 async function applyUpdates(
@@ -619,20 +712,8 @@ async function applyUpdate(
   http: HttpClient,
   tokens: TokenProvider
 ): Promise<void> {
-  const downloader = candidate.source.type === 'artifactory' && candidate.artifactoryClient !== undefined
-    ? new ArtifactoryBundleDownloader(candidate.artifactoryClient)
-    : new HttpsBundleDownloader(
-      http,
-      candidate.downloadTokens ?? tokens,
-      candidate.repositoryTarget,
-      candidate.authenticationCategory
-    );
-  const extractor = new ZipBundleExtractor();
-
-  const dl = await downloader.download(candidate.installable);
-  const files = await extractor.extract(dl.bytes);
+  const { dl, files, manifest } = await downloadCandidate(candidate, http, tokens);
   const isArtifactory = candidate.source.type === 'artifactory';
-  const manifest = validateManifest(files, { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined });
 
   const writer = writerFor(ctx, target, scope, commitMode);
   const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
@@ -659,16 +740,414 @@ async function applyUpdate(
   nextLock = upsertSource(nextLock, candidate.entry.sourceId, candidate.source);
   await writeLockfile(lockPath, nextLock, ctx.fs);
   await removeSupersededFiles(writer, target, previousFiles, entry.files);
+}
 
-  const stateStore = new TargetStateStore({ fs: ctx.fs, statePath: path.join(ctx.cwd(), '.ai-primitives-hub', 'target-state.json') });
-  const existingState = await stateStore.load(target.name);
-  const bundles = existingState?.lastInstalledBundles ?? [];
-  const idx = bundles.findIndex((b) => b.bundleId === lockKey);
-  const bundleState = { bundleId: lockKey, version: manifest.version, installedAt: new Date().toISOString() };
-  if (idx === -1) {
-    bundles.push(bundleState);
-  } else {
-    bundles[idx] = bundleState;
+async function downloadCandidate(
+  candidate: UpdateCandidate,
+  http: HttpClient,
+  tokens: TokenProvider,
+  expect?: { bundleId: string; source: LockfileSourceEntry }
+): Promise<{ dl: { bytes: Uint8Array; sha256: string }; files: ExtractedFiles; manifest: ValidatedManifest }> {
+  const downloader = candidate.source.type === 'artifactory' && candidate.artifactoryClient !== undefined
+    ? new ArtifactoryBundleDownloader(candidate.artifactoryClient)
+    : new HttpsBundleDownloader(
+      http,
+      candidate.downloadTokens ?? tokens,
+      candidate.repositoryTarget,
+      candidate.authenticationCategory
+    );
+  const extractor = new ZipBundleExtractor();
+
+  const dl = await downloader.download(candidate.installable);
+  const files = await extractor.extract(dl.bytes);
+  const isArtifactory = candidate.source.type === 'artifactory';
+  // A record update checks the archive is the recorded bundle at the candidate version, as replay does.
+  const manifest = validateManifest(files, expect === undefined
+    ? { expectedId: undefined, expectedVersion: isArtifactory ? candidate.installable.ref.bundleVersion : undefined }
+    : {
+      expectedId: isArtifactory ? undefined : expect.bundleId,
+      expectedVersion: candidate.installable.ref.bundleVersion,
+      sourceRepoSlug: githubRepoSlugForSource(expect.source)
+    });
+  return { dl, files, manifest };
+}
+
+// ---------------------------------------------------------------------------
+// Repository install record update.
+// ---------------------------------------------------------------------------
+
+/** One (bundle, tool) entry to update, with its mapped target and decided source. */
+interface RecordPlanItem {
+  bundleId: string;
+  tool: string;
+  /** The file that holds the entry. */
+  location: RecordLocation;
+  entry: ToolEntry;
+  sourceId: string;
+  /** Source decided by the trust gate, in the legacy lockfile shape. */
+  source: LockfileSourceEntry;
+  /** Mapped target, made effective. */
+  target: Target;
+  /** `true` when no configured source matched, so the source came from the record. */
+  fromRecord: boolean;
+  /** The decided source's hub id. */
+  hubId?: string;
+  /** The hub named by `hubId`, from the configured hubs. */
+  hub?: RecordHubInput;
+}
+
+/** A (bundle, tool) entry that was not updated, and why. */
+interface SkippedRecordEntry {
+  bundleId: string;
+  tool: string;
+  reason: string;
+}
+
+/** Inputs of {@link updateFromRecord}. */
+interface RecordUpdateRun {
+  ctx: Context;
+  fmt: OutputFormat;
+  http: HttpClient;
+  tokens: TokenProvider;
+  prepared: PreparedRecordSelection;
+  /** The target named by `--target`; only it narrows the plan to one tool. */
+  explicit?: Target;
+  /** `--scope` / `--commit-mode` for the target inferred for old-file-only bundles. */
+  overrides: TargetOverrides;
+  dryRun: boolean;
+  interactive: boolean;
+}
+
+/** What {@link updateFromRecord} reports. */
+interface RecordUpdateData {
+  dryRun?: true;
+  level: RecordLevel;
+  records: string[];
+  checked: number;
+  updated: number;
+  updates: { bundleId: string; tool: string; from: string; to: string }[];
+  alsoUpdated: { bundleId: string; tool: string }[];
+  skipped: SkippedRecordEntry[];
+  failures: string[];
+  /** Bundles only in the old `prompt-registry.*` file, handled with the old code. */
+  oldFile?: OldFileUpdate;
+  /** What the migration run before the update did. */
+  migration?: MigrationReport;
+}
+
+/** What {@link updateOldFileOnly} reports for the old `prompt-registry.*` file. */
+interface OldFileUpdate {
+  lockfile: string;
+  checked: number;
+  updated: number;
+  updates: UpdateEntry[];
+  /** Old-file-only bundles that could not be looked up or are not remote. */
+  skipped: number;
+  failures: string[];
+}
+
+/**
+ * Key of a (bundle, tool) entry that matches the entry at any version of a versioned id.
+ * @param bundleId Recorded key.
+ * @param version Version recorded for it.
+ * @param tool Tool key.
+ */
+const entryKey = (bundleId: string, version: string, tool: string): string => `${recordIdentityOf(bundleId, version)}\u0000${tool}`;
+
+/**
+ * A one-bundle legacy lockfile for `findUpdateCandidates`, built only from the entry and the decided source.
+ * @param item Plan item.
+ */
+const lookupLockfile = (item: RecordPlanItem): Lockfile => ({
+  $schema: '',
+  version: '2.0.0',
+  generatedAt: '',
+  generatedBy: CLI_RECORD_GENERATED_BY,
+  bundles: { [item.bundleId]: toLockfileBundleEntry(item.entry) },
+  sources: { [item.sourceId]: item.source }
+});
+
+async function writeForTarget(
+  ctx: Context,
+  target: Target,
+  files: ExtractedFiles,
+  manifest: ValidatedManifest,
+  exclusion?: RepositoryExclusion
+): Promise<string[]> {
+  const writer = writerFor(ctx, target, target.scope, target.commitMode ?? 'commit', exclusion);
+  const { result } = await writeBundleSafely(writer, target, files, manifest);
+  return [...result.written];
+}
+
+/**
+ * Build the update plan, mapping and gating every entry before any lookup, also under `--dry-run`.
+ * @param run Update inputs.
+ */
+async function planRecordUpdates(
+  run: RecordUpdateRun
+): Promise<{ items: RecordPlanItem[]; skipped: SkippedRecordEntry[]; notes: string[]; mapTool: (tool: string) => Promise<TargetMapping> }> {
+  const { ctx, prepared, explicit } = run;
+  const { selection, store, service, fs } = prepared;
+  const plan = await planRecordEntries({
+    service,
+    store,
+    fs,
+    selection,
+    targets: await readTargetsSafely(loadTargets(ctx)),
+    ...await configuredRecordSources(ctx),
+    explicit,
+    cwd: ctx.cwd(),
+    holdingFile: 'listed'
+  });
+  return {
+    items: plan.items.map((item) => ({
+      bundleId: item.bundleId,
+      tool: item.tool,
+      location: item.location,
+      entry: item.entry,
+      sourceId: item.entry.sourceId,
+      source: toLockfileSourceEntry(item.source),
+      target: resolveEffectiveTarget(ctx, item.target),
+      fromRecord: item.fromRecordOnly,
+      ...(item.source.hubId === undefined ? {} : { hubId: item.source.hubId }),
+      ...(item.hub === undefined ? {} : { hub: item.hub })
+    })),
+    skipped: [
+      ...plan.skipped,
+      // An entry whose tool is unknown cannot be updated in place.
+      ...plan.needsReinstall.map((row) => ({
+        bundleId: row.bundleId, tool: row.tool, reason: `needs reinstall (tool unknown, still ${row.version}): install it for a tool`
+      }))
+    ],
+    notes: plan.notes,
+    mapTool: plan.mapTool
+  };
+}
+
+/**
+ * Apply one update and run each synced sibling's own writer at the new version; deletes nothing.
+ * @param run Update inputs.
+ * @param item Plan item.
+ * @param candidate Its update candidate, looked up from the decided source.
+ * @param siblingTargets Mapped targets of the bundle's other tools.
+ * @returns The record changes and the siblings synced or left out of date.
+ */
+async function applyRecordUpdate(
+  run: RecordUpdateRun,
+  item: RecordPlanItem,
+  candidate: UpdateCandidate,
+  siblingTargets: ReadonlyMap<string, Target>
+): Promise<{
+  version: string;
+  changes: RecordInstallResult[];
+  synced: string[];
+  outOfDate: { tool: string; version: string }[];
+  failed: { tool: string; reason: string }[];
+}> {
+  const { ctx, http, prepared } = run;
+  // A versioned id moves to the new version's key; the record then drops the old one.
+  const bundleId = recordKeyForVersion(item.bundleId, item.entry.version, candidate.to);
+  const { files, manifest } = await downloadCandidate(
+    candidate, http, tokensForRecordSource(run.tokens, item.fromRecord), { bundleId, source: item.source }
+  );
+  const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
+    recordPlannedInstall(
+      prepared.service, { ...item, bundleId, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
+      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings
+    );
+  const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
+  const changes = [change];
+  const synced: string[] = [];
+  const outOfDate: { tool: string; version: string }[] = [];
+  const failed: { tool: string; reason: string }[] = [];
+  for (const sibling of change.siblings) {
+    const siblingTarget = siblingTargets.get(sibling.tool);
+    if (!sibling.synced || siblingTarget === undefined) {
+      outOfDate.push({ tool: sibling.tool, version: sibling.version });
+      continue;
+    }
+    // A failed sibling is reported; the changes already made are still finished by the caller.
+    try {
+      changes.push(await record(sibling.tool, sibling.location, siblingTarget, false));
+      synced.push(sibling.tool);
+    } catch (error) {
+      if (isRecordError(error)) {
+        throw error;
+      }
+      failed.push({ tool: sibling.tool, reason: error instanceof Error ? error.message : String(error) });
+    }
   }
-  await stateStore.save({ targetName: target.name, lastInstalledBundles: bundles, lastUsedAt: new Date().toISOString() });
+  return { version: manifest.version, changes, synced, outOfDate, failed };
+}
+
+function renderRecordUpdateOutput(d: RecordUpdateData & { recordLine: string }): string {
+  const lines: string[] = [];
+  const updateLines = d.updates.map((u) => `  ${u.bundleId} (${u.tool}): ${u.from} → ${u.to}`);
+  if (d.dryRun === true) {
+    lines.push(...(updateLines.length > 0 ? [`Available updates (${String(updateLines.length)}):`, ...updateLines] : []));
+  } else if (updateLines.length > 0) {
+    lines.push(`Updated ${String(updateLines.length)} entr${updateLines.length === 1 ? 'y' : 'ies'}:`, ...updateLines);
+  }
+  if (lines.length === 0 && d.failures.length === 0) {
+    lines.push(`All bundles are up to date. (checked ${String(d.checked)})`);
+  }
+  lines.push(...d.alsoUpdated.map((a) => `Also updated ${a.bundleId} for ${a.tool}.`),
+    ...d.skipped.map((s) => `Skipped ${s.bundleId} (${s.tool}): ${s.reason}`));
+  if (d.oldFile !== undefined) {
+    const old = d.oldFile;
+    const verb = d.dryRun === true ? 'available' : 'updated';
+    lines.push(`Old file ${old.lockfile}: ${String(old.updates.length)} of ${String(old.checked)} bundle${old.checked === 1 ? '' : 's'} ${verb}.`,
+      ...old.updates.map((u) => `  ${u.bundleId}: ${u.from} → ${u.to}`));
+  }
+  if (d.failures.length > 0) {
+    lines.push(`${String(d.failures.length)} update check${d.failures.length === 1 ? '' : 's'} or installation${d.failures.length === 1 ? '' : 's'} failed. Review the reported failures.`);
+  }
+  if (d.dryRun === true && updateLines.length > 0) {
+    lines.push('Re-run without --dry-run to apply.');
+  }
+  return lines.join('\n') + '\n' + renderMigration(d.migration) + d.recordLine;
+}
+
+/**
+ * Update every tool entry of the selected repository record.
+ * @param run Update inputs.
+ * @returns Exit code.
+ */
+async function updateFromRecord(run: RecordUpdateRun): Promise<number> {
+  const { ctx, fmt, http, prepared } = run;
+  const { selection, service, fs } = prepared;
+  const { items, skipped, notes, mapTool } = await planRecordUpdates(run);
+  const checked = items.length + skipped.length;
+  const failures: string[] = [];
+  const found: { item: RecordPlanItem; candidate: UpdateCandidate }[] = [];
+  for (const item of items.filter((planned) => isRemoteSource(planned.source.type))) {
+    const lookup = await findUpdateCandidates([item.bundleId], lookupLockfile(item), ctx, http, tokensForRecordSource(run.tokens, item.fromRecord), item.fromRecord);
+    failures.push(...lookup.failures);
+    found.push(...lookup.candidates.map((candidate) => ({ item, candidate })));
+    // A lookup that found no installable release is reported, not taken as up to date.
+    if (lookup.skipped.includes(item.bundleId) && lookup.failures.length === 0) {
+      skipped.push({ bundleId: item.bundleId, tool: item.tool, reason: `no installable release found at ${item.source.url}` });
+    }
+  }
+
+  const data: RecordUpdateData = {
+    ...await recordOutputFields(selection, fs),
+    checked,
+    updated: 0,
+    updates: [],
+    alsoUpdated: [],
+    skipped,
+    failures,
+    ...(prepared.migration === undefined ? {} : { migration: prepared.migration })
+  };
+  const warnings = [...notes];
+  if (run.dryRun) {
+    data.dryRun = true;
+    data.updates = found.map(({ item, candidate }) => ({ bundleId: item.bundleId, tool: item.tool, from: candidate.from, to: candidate.to }));
+  } else {
+    const chosen = new Set(await selectUpdatesInteractively(run.interactive, found.map(({ candidate }) => candidate)));
+    const rows = await service.listEntries(selection.locations);
+    const done = new Set<string>();
+    const changes: RecordInstallResult[] = [];
+    for (const { item, candidate } of found.filter((pair) => chosen.has(pair.candidate))) {
+      const key = entryKey(item.bundleId, item.entry.version, item.tool);
+      if (done.has(key)) {
+        continue;
+      }
+      const identity = recordIdentityOf(item.bundleId, item.entry.version);
+      const siblingTargets = new Map<string, Target>();
+      const sameBundle = (other: { bundleId: string; version: string }): boolean => other.bundleId === item.bundleId || recordIdentityOf(other.bundleId, other.version) === identity;
+      for (const row of rows.filter((other) => sameBundle(other) && other.tool !== item.tool && !other.needsReinstall)) {
+        const mapping = await mapTool(row.tool);
+        if ('target' in mapping) {
+          siblingTargets.set(row.tool, resolveEffectiveTarget(ctx, mapping.target));
+        }
+      }
+      try {
+        const applied = await applyRecordUpdate(run, item, candidate, siblingTargets);
+        changes.push(...applied.changes);
+        done.add(key);
+        data.updates.push({ bundleId: item.bundleId, tool: item.tool, from: candidate.from, to: applied.version });
+        for (const tool of applied.synced) {
+          done.add(entryKey(item.bundleId, item.entry.version, tool));
+          data.alsoUpdated.push({ bundleId: item.bundleId, tool });
+        }
+        for (const sibling of applied.failed) {
+          failures.push(`Failed to update ${item.bundleId} for ${sibling.tool}: ${sibling.reason}`);
+        }
+        for (const stale of applied.outOfDate) {
+          const mapping = await mapTool(stale.tool);
+          const why = 'skip' in mapping ? mapping.skip : 'not updated';
+          const existing = skipped.find((s) => s.bundleId === item.bundleId && s.tool === stale.tool);
+          const reason = `out of date (still ${stale.version}): ${existing?.reason ?? why}`;
+          if (existing === undefined) {
+            skipped.push({ bundleId: item.bundleId, tool: stale.tool, reason });
+          } else {
+            existing.reason = reason;
+          }
+        }
+      } catch (error) {
+        failures.push(`Failed to update ${item.bundleId} for ${item.tool}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    warnings.push(...await finishRecordRun(service, changes));
+    data.updated = data.updates.length;
+  }
+
+  // Bundles only in the old file are updated with the old code; the record wins for the others.
+  const oldFile = await updateOldFileOnly(run);
+  if (oldFile !== undefined) {
+    data.oldFile = oldFile;
+    failures.push(...oldFile.failures);
+  }
+
+  // Exit 1 when every planned entry was skipped.
+  const nothingProcessed = checked > 0 && items.length === 0 && (oldFile === undefined || oldFile.checked === oldFile.skipped);
+  formatOutput({
+    ctx,
+    command: 'update',
+    output: fmt,
+    status: failures.length > 0 || skipped.length > 0 ? 'warning' : 'ok',
+    data,
+    warnings: [...warnings, ...failures],
+    textRenderer: (d) => renderRecordUpdateOutput({ ...d, recordLine: renderRecordLine({ level: d.level, records: d.records }) })
+  });
+  return failures.length > 0 || nothingProcessed ? 1 : 0;
+}
+
+/**
+ * Update the bundles only the old `prompt-registry.*` file has, with the old code and on that file.
+ * They go to the `--target` or only configured target, with the overrides applied, else fail per bundle.
+ * @param run Update inputs.
+ * @returns `undefined` when there is no old-file-only bundle.
+ */
+async function updateOldFileOnly(run: RecordUpdateRun): Promise<OldFileUpdate | undefined> {
+  const { ctx, http, tokens } = run;
+  const old = await prepareOldFileOnly(ctx, run.prepared, { command: 'update', target: run.explicit, overrides: run.overrides });
+  if (old === undefined) {
+    return undefined;
+  }
+  const { lockPath, lock, bundleIds } = old;
+  if ('reason' in old) {
+    return {
+      lockfile: lockPath, checked: bundleIds.length, updated: 0, updates: [], skipped: 0,
+      failures: bundleIds.map((bundleId) => `Failed to update ${bundleId}: ${old.reason}`)
+    };
+  }
+  const { target } = old;
+  const { candidates, skipped, failures } = await findUpdateCandidates(remoteBundleIds(lock, bundleIds), lock, ctx, http, tokens);
+  const checkedOnly: OldFileUpdate = {
+    lockfile: lockPath,
+    checked: bundleIds.length,
+    updated: 0,
+    updates: candidates.map((c) => ({ bundleId: c.bundleId, from: c.from, to: c.to })),
+    skipped: skipped.length,
+    failures
+  };
+  if (run.dryRun) {
+    return checkedOnly;
+  }
+  const toInstall = await selectUpdatesInteractively(run.interactive, candidates);
+  const applied = await applyUpdates(toInstall, target, target.scope, target.commitMode ?? 'commit', lockPath, ctx, http, tokens);
+  return { ...checkedOnly, updated: applied.updatedCount, updates: applied.updateResults, failures: [...failures, ...applied.failures] };
 }

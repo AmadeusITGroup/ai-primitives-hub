@@ -46,6 +46,9 @@ import {
   BundleIdentityMatcher,
 } from '../utils/bundle-identity-matcher';
 import {
+  showCliManagedWarning,
+} from '../utils/cli-managed';
+import {
   UI_CONSTANTS,
 } from '../utils/constants';
 import {
@@ -1132,6 +1135,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
       vscode.window.showInformationMessage(`✅ Bundle uninstalled successfully!`);
     } catch (error) {
+      if (showCliManagedWarning(error)) {
+        return;
+      }
       this.logger.error('Failed to uninstall bundle from marketplace', error as Error);
       vscode.window.showErrorMessage(`Failed to uninstall bundle: ${(error as Error).message}`);
     }
@@ -1174,6 +1180,9 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
 
       vscode.window.showInformationMessage(`✅ Bundle updated successfully!`);
     } catch (error) {
+      if (showCliManagedWarning(error)) {
+        return;
+      }
       this.logger.error('Failed to update bundle from marketplace', error as Error);
       vscode.window.showErrorMessage(`Failed to update bundle: ${(error as Error).message}`);
     }

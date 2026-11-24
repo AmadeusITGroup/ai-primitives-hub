@@ -19,7 +19,15 @@ export interface ReplicationCandidate {
 export interface ReplicationRequest { sourceId: string; bundleId: string; versions: Set<string> }
 export interface ReplicationSelection { selected: ReplicationCandidate[]; unresolved: string[] }
 export interface ReplicationCandidateDiscovery { candidates: ReplicationCandidate[]; warnings: string[] }
-export interface ReplicationResult { index: ArtifactorySourceIndex; hubConfig: HubConfig; warnings: string[]; selected: ReplicationCandidate[] }
+export interface ReplicationRepository { key: string; packageType: string; rclass: string }
+export interface ReplicationRepositoryInspector {
+  inspect(targetRoot: string): Promise<ReplicationRepository>;
+}
+export interface ReplicationResult { index: ArtifactorySourceIndex; hubConfig: HubConfig; warnings: string[]; selected: ReplicationCandidate[]; targetRepository?: ReplicationRepository }
+export interface PreparedReplicationArchive { bytes: Uint8Array; packageName: string; translated: boolean; warnings: string[] }
+export interface ReplicationArchivePreparer {
+  prepare(candidate: ReplicationCandidate, archive: Uint8Array): Promise<PreparedReplicationArchive>;
+}
 export interface ReplicationSourcePort {
   getHubConfig(ownerRepo: string, ref: string): Promise<Record<string, unknown>>;
   listReleaseCandidates(owner: string, repo: string, sourceId: string): Promise<ReplicationCandidateDiscovery>;
@@ -28,6 +36,19 @@ export interface ReplicationSourcePort {
 export interface ReplicationPublishOptions { replaceExisting?: boolean }
 export interface ReplicationPublisherPort {
   publish(path: string, data: Uint8Array, mediaType: string, options?: ReplicationPublishOptions): Promise<'uploaded' | 'skipped-existing' | 'skipped-unverified'>;
+}
+
+/**
+ * Require the detected native repository contract before transition writes.
+ * @param repository
+ */
+export function requireAgentPackagesRepository(repository: ReplicationRepository): void {
+  if (repository.packageType.toLowerCase() !== 'agentpackages') {
+    throw new RegistryError({
+      code: 'ARTIFACTORY.CONFIG_INVALID',
+      message: `APM transition requires an Agent Packages repository. Repository "${repository.key}" reports packageType "${repository.packageType}". No artifacts were published.`
+    });
+  }
 }
 
 export const stableReplicatedBundleId = (repo: string, manifest: Record<string, unknown>): string => {

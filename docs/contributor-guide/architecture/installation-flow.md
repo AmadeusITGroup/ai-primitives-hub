@@ -35,9 +35,11 @@ your-repo/
 │           └── skill.md
 ├── .vscode/
 │   └── mcp.json                      # MCP server configurations
-├── prompt-registry.lock.json         # Main lockfile for committed bundles
-└── prompt-registry.local.lock.json   # Local lockfile for local-only bundles (git-excluded)
+├── ai-primitives-hub.lock.json         # Install record for committed bundles
+└── ai-primitives-hub.local.lock.json   # Install record for local-only bundles (git-excluded)
 ```
+
+User-scope installs are recorded in `ai-primitives-hub.user.lock.json` in the user config folder (see [Install Records](#install-records)).
 
 ## Installation Steps
 
@@ -75,7 +77,7 @@ flowchart TD
     R -->|Repository| T[Copy to .github/ directories]
     
     S --> U[Sync to Copilot directory]
-    T --> V[Update Lockfile]
+    T --> V[Record in install record]
     V --> W{Commit Mode?}
     W -->|local-only| X[Add to .git/info/exclude]
     W -->|commit| Y[Skip git exclude]
@@ -99,9 +101,9 @@ Bundle files are copied to the target byte-for-byte and verified after every wri
 
 - **Binary-safe writes** — writers use the `FileSystem` port's `readFileBytes`/`writeFileBytes` for all payloads. Text payloads (strict UTF-8) may additionally pass through a target-specific `ResourceTransformer`; binary payloads (images, archives, office documents) are never decoded as text — a lossy UTF-8 round-trip replaces invalid sequences with U+FFFD and corrupts them.
 - **Post-write verification** — after each write, the installed file is re-read and compared against the bytes the writer intended to write (`verifyWrittenBytes` in `core`'s `domain/install/integrity`). A mismatch throws `FileIntegrityError` (`BUNDLE.INTEGRITY_MISMATCH`) instead of leaving a silently corrupted artifact.
-- **Executable bits** (issue #577) — extractors tag each file's bytes with the permission bits its source recorded, using `withFileMode` (`ExtractedFile.mode`, `rwxrwxrwx` only): `ZipBundleExtractor` from the zip entry's Unix mode, `readLocalBundle` from `FileSystem.stat`. Map copies keep the mode; a byte copy drops it, which means "default mode". Both writers (`FileTreeTargetWriter`, `RepositoryScopeWriter`) call `applyFileMode` (`core`'s `domain/install/file-mode`) after each verified write; it calls the optional `FileSystem.setExecutable`. `NodeFileSystem.setExecutable` adds execute where read is granted (or clears every execute bit for a non-executable entry), never adds write or special bits, and does nothing on Windows. It is best effort: a `chmod` rejected with `EPERM`, `ENOTSUP`, `EOPNOTSUPP` or `EINVAL` (vfat/exFAT mounts, files owned by another user) leaves the mode unchanged instead of failing the install; other errors still propagate. Archives that resolvers synthesize with `buildZip` (`skills`, `awesome-copilot`) record `0644` for every entry. Filesystems without `setExecutable` (in-memory test doubles, the VS Code extension's writer filesystem) keep today's behaviour. The lockfile records no mode.
+- **Executable bits** (issue #577) — extractors tag each file's bytes with the permission bits its source recorded, using `withFileMode` (`ExtractedFile.mode`, `rwxrwxrwx` only): `ZipBundleExtractor` from the zip entry's Unix mode, `readLocalBundle` from `FileSystem.stat`. Map copies keep the mode; a byte copy drops it, which means "default mode". Both writers (`FileTreeTargetWriter`, `RepositoryScopeWriter`) call `applyFileMode` (`core`'s `domain/install/file-mode`) after each verified write; it calls the optional `FileSystem.setExecutable`. `NodeFileSystem.setExecutable` adds execute where read is granted (or clears every execute bit for a non-executable entry), never adds write or special bits, and does nothing on Windows. It is best effort: a `chmod` rejected with `EPERM`, `ENOTSUP`, `EOPNOTSUPP` or `EINVAL` (vfat/exFAT mounts, files owned by another user) leaves the mode unchanged instead of failing the install; other errors still propagate. Archives that resolvers synthesize with `buildZip` (`skills`, `awesome-copilot`) record `0644` for every entry. Filesystems without `setExecutable` (in-memory test doubles, the VS Code extension's writer filesystem) keep today's behaviour. Install records store no mode.
 - **Upstream layers already verified** — zip entry CRC-32 is checked during extraction, and governed (`formatVersion: 1`) deployment manifests carry per-file `size` + `sha256` validated against the extracted bytes.
-- **Lockfile checksums** — `checksumFiles` hashes the extracted (archive) bytes, not the optionally transformed on-disk result. For untransformed files those values match; for transformed files a later user-modification check that compares on-disk hashes to the lockfile will currently report a mismatch. Recording a separate `installedChecksum` in `LockfileFileEntry` is a follow-up (issue #357 Stage 2) and is not part of this binary-safety change.
+- **Record checksums** — `InstallRecordService.recordInstall` hashes each file as written on disk, so a transformed file matches the local-modification check. The older 2.0.0 lockfile hashes the extracted bytes.
 
 ## Scope Selection
 
@@ -175,51 +177,68 @@ For local-only mode, paths are added to `.git/info/exclude`. The repository-scop
 # Prompt Registry (local)
 .github/prompts/my-prompt.prompt.md
 .github/agents/my-agent.agent.md
-prompt-registry.local.lock.json
+ai-primitives-hub.local.lock.json
 ```
 
-The local lockfile (`prompt-registry.local.lock.json`) is automatically added to `.git/info/exclude` when created and removed when deleted.
+The local-only record (`ai-primitives-hub.local.lock.json`) is added to `.git/info/exclude` when it is created and removed from it when it is deleted.
 
 This file is local to the user's machine and not committed to Git.
 
-## Lockfile Management
+## Install Records
 
-The `LockfileManager` singleton manages repository-scoped bundles using a dual-lockfile architecture:
+Repository and user installs are recorded in format `3.0.0` install records shared by the CLI and the extension ([ADR-0011](./adr/0011-ai-primitives-hub-install-records.md)). Types and file names are in `packages/core/src/domain/install/record-types.ts`, the schema in `packages/core/src/public/schemas/install-record.schema.json`.
 
-| Lockfile | Purpose | Git Tracking |
-|----------|---------|--------------|
-| `prompt-registry.lock.json` | Committed bundles | Tracked (commit to Git) |
-| `prompt-registry.local.lock.json` | Local-only bundles | Excluded via `.git/info/exclude` |
+| Level | File | Paths relative to |
+|-------|------|-------------------|
+| Repository, commit mode | `ai-primitives-hub.lock.json` at the git root | git root |
+| Repository, local-only mode | `ai-primitives-hub.local.lock.json` at the git root (in `.git/info/exclude`) | git root |
+| User | `ai-primitives-hub.user.lock.json` in the user config folder (`AppStoragePaths.userRecord`) | home folder |
 
-### Dual-Lockfile Architecture
+Each bundle has one entry per tool under `bundles.<id>.tools.<tool>`, with its version, source and `sha256:` file checksums. The file an entry is in gives its commit mode. Migrated entries with no known tool use the tool `unknown`. The older 2.0.0 lockfile store (`packages/app/src/stores/json-lockfile-store.ts`) remains for migration and the CLI's workspace scope.
 
-Bundles are stored in separate lockfiles based on their commit mode:
+### Components
 
-- **Committed bundles** → `prompt-registry.lock.json` (shared with team)
-- **Local-only bundles** → `prompt-registry.local.lock.json` (personal, git-excluded)
+| Component | Location | Responsibility |
+|-----------|----------|----------------|
+| `RecordStore` | `packages/app/src/records/record-store.ts` | Load, validate and atomically save record files |
+| `InstallRecordService` | `packages/app/src/records/install-record-service.ts` | Record installs, superseded files, `status` rows, entry moves, source remaps |
+| `selectRecord` | `packages/app/src/records/select-record.ts` | Choose the record a command acts on |
+| `migrateRecords` | `packages/app/src/records/record-migration.ts` | Move a level's older files into the record |
+| `NodeRecordFs`, `RecordSchemaValidator` | `packages/infra/src/records/` | Disk access and schema validation |
+| CLI record wiring | `packages/cli/src/framework/install-record.ts` | CLI composition and the `Record:` output line |
+| `ExtensionRecordAdapter` | `apps/vscode-extension/src/services/extension-record-adapter.ts` | Extension composition (host tool, user record) |
+| Install record listing | `apps/vscode-extension/src/services/install-record-listing.ts` | Repository and user items for the extension's views |
 
-The commit mode is **implicit** based on which lockfile contains the bundle—no `commitMode` field is stored in bundle entries.
+### Writing a Record
 
 ```mermaid
 flowchart TD
-    A[Install Bundle] --> B{Commit Mode?}
-    B -->|commit| C[Write to prompt-registry.lock.json]
-    B -->|local-only| D[Write to prompt-registry.local.lock.json]
-    D --> E[Add local lockfile to .git/info/exclude]
-    C --> F[Done]
-    E --> F
+    A[Install, update or uninstall] --> B[Select the record and load every selected file]
+    B --> C{Loaded?}
+    C -->|No| X[Stop with a RECORD error, nothing written]
+    C -->|Yes| D[Migrate older files at this level]
+    D --> E[Write bundle files]
+    E --> F[Record the tool entry with checksums from disk]
+    F --> G[Save: temp file, then rename]
+    G --> H[Delete superseded files]
 ```
+
+Text version: load the record (a bad file stops the command before any write), migrate the level, write the bundle files, record the tool's entry, save through a temp file and rename, then delete files the previous install wrote and the new one does not. A repository record with no bundles left is deleted.
+
+### Migration
+
+Before the first change at a level, `migrateRecords` moves the older files in, all or nothing (see [Migrating older records](../../reference/commands.md#migrating-older-records)):
+
+- Repository: `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are merged under `unknown` into the record of the same mode, then deleted.
+- User: the CLI's 2.0.0 user lockfile is imported once (`importedUserLockfileAt`); the extension moves the current profile's user entries under the editor's tool.
 
 ### Single Source of Truth
 
-The lockfile is the **single source of truth** for repository-scoped bundles:
+The install record is the source of truth for repository and user installs:
 
-- `RegistryManager.listInstalledBundles('repository')` queries both lockfiles
-- Repository-scoped installations only update the appropriate lockfile, not `RegistryStorage`
-- User/workspace-scoped bundles continue to use `RegistryStorage`
-- When listing bundles, `LockfileManager` merges entries from both lockfiles and annotates each with its commit mode
-
-This prevents inconsistencies when lockfile or bundle files are manually deleted.
+- `RegistryManager.listInstalledBundles` lists items from the records, plus bundles only an older file lists until it is migrated
+- Workspace scope, user scope in a WSL remote window and linked `local-skills` installs keep using `RegistryStorage`
+- The extension changes only its own tool's entries; others are read-only (`RECORD.CLI_MANAGED`)
 
 ### File Existence Validation
 
@@ -227,73 +246,18 @@ When listing repository bundles, the extension validates that bundle files exist
 
 - If files are missing, the bundle is marked with `filesMissing: true`
 - The UI shows a warning indicator for bundles with missing files
-- Use the "Clean Up Stale Repository Bundles" command to remove stale entries
-
-### Creation/Update
-
-```mermaid
-flowchart TD
-    A[Bundle Installed] --> B[Read existing lockfile]
-    B --> C{Exists?}
-    C -->|No| D[Create new lockfile]
-    C -->|Yes| E[Parse existing]
-    D --> F[Add bundle entry]
-    E --> F
-    F --> G[Add source entry]
-    G --> H[Calculate file checksums]
-    H --> I[Write atomically]
-    I --> J[Emit onLockfileUpdated event]
-```
-
-### Atomic Write
-
-Lockfile writes use a temp file + rename pattern to prevent corruption:
-
-1. Write to `prompt-registry.lock.json.tmp`
-2. Rename to `prompt-registry.lock.json`
-
-### Lockfile Schema
-
-Both lockfiles use the same schema structure. The `commitMode` field is deprecated—commit mode is now implicit based on file location:
-
-```json
-{
-  "$schema": "...",
-  "version": "1.0.0",
-  "generatedAt": "2026-01-14T10:30:00.000Z",
-  "generatedBy": "prompt-registry@1.0.0",
-  "bundles": {
-    "bundle-id": {
-      "version": "1.0.0",
-      "sourceId": "github-a1b2c3d4e5f6",
-      "sourceType": "github",
-      "installedAt": "...",
-      "files": [
-        { "path": ".github/prompts/...", "checksum": "sha256..." }
-      ]
-    }
-  },
-  "sources": {
-    "github-a1b2c3d4e5f6": { "type": "github", "url": "..." }
-  },
-  "hubs": {
-    "b5c6d7e8a9f0": { "name": "My Hub", "url": "https://example.com/hub.json" }
-  }
-}
-```
-
-> **Note:** Existing lockfiles with `commitMode` field continue to work for backward compatibility. The field is ignored on read (file location determines mode) and not included in new entries.
+- Use the "Clean Up Stale Repository Bundles" command to remove stale entries; it never offers `unknown` entries
 
 ### SourceId Generation
 
-SourceIds uniquely identify sources in the lockfile. The format depends on the source origin:
+SourceIds uniquely identify sources in the install record. The format depends on the source origin:
 
 | Source Origin | Format | Example |
 |---------------|--------|---------|
 | Hub source | `{type}-{12-char-hash}` | `github-a1b2c3d4e5f6` |
 | Non-hub source | `{source.id}` | `my-local-source` |
 
-For hub sources, the sourceId is generated using `generateHubSourceId(type, url)` from `src/utils/sourceIdUtils.ts`:
+For hub sources, the sourceId is generated using `generateHubSourceId(type, url)` from `apps/vscode-extension/src/utils/source-id-utils.ts`:
 
 1. Normalize the URL (lowercase, remove protocol, remove trailing slashes)
 2. Hash `{type}:{normalizedUrl}` using SHA256
@@ -307,7 +271,7 @@ This ensures:
 
 **Legacy format**: Older lockfiles may contain hub-prefixed sourceIds (`hub-{hubId}-{sourceId}`). These continue to work for backward compatibility—sources are resolved by matching the sourceId in the `sources` section.
 
-**Case normalization (v2)**: Source IDs generated after this version use fully case-insensitive URL normalization (host + path lowercased). Older source IDs preserved path case. The extension uses dual-read: when matching source IDs, it checks both current and legacy formats. Lockfile entries with old-format IDs continue to work and migrate organically when bundles are updated. Local data (config.json, cache) is migrated automatically on activation via `MigrationRegistry`. All migration-related code is tagged with `@migration-cleanup(sourceId-normalization-v2)` for future removal.
+**Case normalization (v2)**: Source IDs generated after this version use fully case-insensitive URL normalization (host + path lowercased). Older source IDs preserved path case. The extension uses dual-read: when matching source IDs, it checks both current and legacy formats. Record entries with old-format IDs continue to work and migrate organically when bundles are updated. Local data (config.json, cache) is migrated automatically on activation via `MigrationRegistry`. All migration-related code is tagged with `@migration-cleanup(sourceId-normalization-v2)` for future removal.
 
 ### Orphaned Hub Source Pruning
 
@@ -318,13 +282,13 @@ When syncing a hub, `loadHubSources` (in `@ai-primitives-hub/app`, `registry/loa
 Orphan handling depends on whether installed bundles reference the orphan:
 
 - **No consumers:** the orphan is removed via `HubSourceSync.removeSource`.
-- **Has consumers + `remapBundleSource` provided:** lockfile entries and installation records are remapped to the replacement source (the new sourceId from the renamed URL), then the orphan is removed. This ensures bundles continue receiving updates from the new source seamlessly.
+- **Has consumers + `remapBundleSource` provided:** install record entries and installation records are remapped to the replacement source (the new sourceId from the renamed URL), then the orphan is removed. This ensures bundles continue receiving updates from the new source seamlessly.
 - **Has consumers + no `remapBundleSource`:** the orphan is kept alive with a warning, preventing bundles from becoming unmanaged.
 - **Any `addSource` failure this sync:** pruning is skipped entirely to avoid deleting an old source before its replacement lands.
 
 ### Hub Key Generation
 
-Hub entries in the lockfile use URL-based keys instead of user-defined hub IDs:
+Hub entries in the older 2.0.0 lockfiles use URL-based keys instead of user-defined hub IDs:
 
 ```json
 "hubs": {
@@ -337,55 +301,37 @@ The key is generated using `generateHubKey(url, branch?)`:
 - Take the first 12 characters
 - Append `-{branch}` if branch is not `main` or `master`
 
-This makes lockfiles portable across different hub configurations.
+The install record does not write `hubs`; a migrated `hubs` map is kept as is.
 
 ### Commit Mode Switching
 
-When switching a bundle between commit and local-only modes:
+When switching a bundle between commit and local-only modes, `InstallRecordService.moveEntry` moves the editor's tool entry between the two repository files:
 
 ```mermaid
 flowchart TD
     A[Switch Commit Mode] --> B{New Mode?}
-    B -->|local-only| C[Remove from main lockfile]
-    B -->|commit| D[Remove from local lockfile]
-    C --> E[Add to local lockfile]
-    D --> F[Add to main lockfile]
+    B -->|local-only| C[Remove from ai-primitives-hub.lock.json]
+    B -->|commit| D[Remove from ai-primitives-hub.local.lock.json]
+    C --> E[Add to ai-primitives-hub.local.lock.json]
+    D --> F[Add to ai-primitives-hub.lock.json]
     E --> G[Update git exclude]
     F --> G
-    G --> H{Local lockfile empty?}
-    H -->|Yes| I[Delete local lockfile]
+    G --> H{A record file is empty?}
+    H -->|Yes| I[Delete that file]
     H -->|No| J[Done]
-    I --> K[Remove from git exclude]
+    I --> K[Remove a deleted local-only file from git exclude]
     K --> J
 ```
 
-All bundle metadata (version, sourceId, files, etc.) is preserved during the move.
+Text version: the entry moves to the other file unchanged, the git-exclude lines are updated, and an emptied record file is deleted. A bundle whose only entry is `unknown` cannot be moved.
 
-### Backward Compatibility and Migration
+### Conflict Detection
 
-The dual-lockfile architecture maintains backward compatibility with existing lockfiles:
-
-| Scenario | Behavior |
-|----------|----------|
-| Read lockfile with `commitMode` field | Field is ignored; file location determines mode |
-| Write new bundle entry | `commitMode` field is not included |
-| Update existing entry | Entry is rewritten without `commitMode` field |
-| Local-only bundle in main lockfile | Continues to work; migrates on next modification |
-
-**Migration path for existing lockfiles:**
-
-1. Existing lockfiles with `commitMode` field continue to function normally
-2. When a bundle is modified (updated, mode switched), the entry is rewritten without `commitMode`
-3. Local-only bundles in the main lockfile remain there until explicitly switched to local-only mode
-4. No automatic migration is performed—changes happen gradually as bundles are modified
-
-**Conflict detection:**
-
-If a bundle ID exists in both lockfiles (should not happen in normal operation), `LockfileManager.getInstalledBundles()` displays an error to the user and skips the duplicate entry from the local lockfile.
+A bundle and tool in both repository files, or an unreadable record, is reported once in the extension's listing. Commands that change a record stop with a `RECORD.*` error and write nothing.
 
 ## Repository Activation
 
-When a workspace with a lockfile is opened, the extension checks for missing sources and hubs. This detection is **deferred until first-run setup is complete** to avoid confusing users with source configuration prompts before they've configured the extension.
+When a workspace with an install record (or an older `prompt-registry` lockfile) is opened, `RepositoryActivationService` checks for sources and hubs the records name but the user has not configured. This detection is **deferred until first-run setup is complete** to avoid confusing users with source configuration prompts before they've configured the extension.
 
 ### Setup Timing
 
@@ -393,10 +339,10 @@ When a workspace with a lockfile is opened, the extension checks for missing sou
 flowchart TD
     A[Extension Activated] --> B{First-run setup complete?}
     B -->|No| C[Defer source/hub detection]
-    B -->|Yes| D[Check for lockfile]
+    B -->|Yes| D[Read install records and older lockfiles]
     C --> E[Wait for setup completion]
     E --> D
-    D --> F{Lockfile exists?}
+    D --> F{Any found?}
     F -->|No| Z[Done]
     F -->|Yes| G[Check missing sources/hubs]
 ```
@@ -410,22 +356,19 @@ The `RepositoryActivationService` accepts a `SetupStateManager` dependency:
 
 ```mermaid
 flowchart TD
-    A[Workspace Opened] --> B[Check for lockfile]
-    B --> C{Lockfile exists?}
+    A[Workspace Opened] --> B[Read install records and older lockfiles]
+    B --> C{Any found?}
     C -->|No| Z[Done]
     C -->|Yes| D{Previously declined?}
     D -->|Yes| Z
     D -->|No| E[Check missing sources/hubs]
-    E --> F{Missing sources?}
-    F -->|Yes| G[Offer to add sources]
-    F -->|No| H[Verify bundles installed]
-    G --> H
-    H --> I{Missing bundles?}
-    I -->|Yes| J[Download and install]
-    I -->|No| K[Sync to Copilot]
-    J --> K
-    K --> Z
+    E --> F{Missing sources or hubs?}
+    F -->|Yes| G[Notify with the count and the credential names they need]
+    F -->|No| Z
+    G --> Z
 ```
+
+Text version: on workspace open, unless the repository was declined before, the records are read and unconfigured sources and hubs are reported in one notification, naming any `credentialRef` without resolving it.
 
 ## AwesomeCopilot Flow
 
@@ -458,9 +401,9 @@ prompts:
 | `ScopeServiceFactory` | Returns appropriate scope service based on `InstallationScope` |
 | `UserScopeService` | Handles user-level file placement and Copilot sync |
 | `RepositoryScopeService` | Handles repository-level file placement and git exclude |
-| `LockfileManager` | Manages lockfile CRUD operations |
+| `ExtensionRecordAdapter` | Composes the shared install record for the extension (host tool, user record, migration before writes) |
 | `ScopeConflictResolver` | Detects and handles scope conflicts |
-| `RepositoryActivationService` | Handles lockfile detection on workspace open |
+| `RepositoryActivationService` | Reports unconfigured sources and hubs from the install records on workspace open |
 | `LocalModificationWarningService` | Detects local file changes before updates |
 | `BundleScopeCommands` | Context menu commands for scope management |
 

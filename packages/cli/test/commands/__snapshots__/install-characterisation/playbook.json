@@ -122,7 +122,6 @@
     },
     "devin-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -134,12 +133,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -152,10 +149,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -175,16 +173,13 @@
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -197,10 +192,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -210,7 +206,6 @@
     },
     "devin/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -222,12 +217,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -240,10 +233,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -263,16 +257,13 @@
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -285,10 +276,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -680,7 +672,6 @@
     },
     "devin-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -692,12 +683,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -710,10 +699,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -733,16 +723,13 @@
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -755,10 +742,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -768,7 +756,6 @@
     },
     "devin/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -780,12 +767,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -798,10 +783,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -821,16 +807,13 @@
         "$HOME/.devin/playbooks",
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/playbooks/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -843,10 +826,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "playbooks/x.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/playbooks/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

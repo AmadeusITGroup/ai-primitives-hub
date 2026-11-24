@@ -233,7 +233,7 @@ export class RepositoryScopeWriter {
   ): Promise<void> {
     const sourceId = this.extractDirectoryId(p.file, subdirectory);
     // Match whole path segments: item `foo` must not pick up `foo-bar/` files.
-    const sourcePrefix = `${subdirectory}/${sourceId}/`;
+    const sourcePrefix = `${path.posix.dirname(p.file)}/`;
     const targetId = p.id ?? sourceId;
     const directory = path.join(this.workspaceRoot, '.github', `${subdirectory}/${targetId}`);
     for (const [bundlePath, bytes] of files) {

@@ -5,6 +5,7 @@ import {
   type BundleSpec,
   compareSemVer,
   type Installable,
+  parseGitHubOwnerRepo,
   RegistryError,
   type RegistrySource,
   validateArtifactorySourceIndex,
@@ -49,6 +50,8 @@ export class ArtifactoryBundleResolver implements BundleResolver {
     }
     candidates.sort((a, b) => compareSemVer(b.version, a.version));
     const selected = candidates[0];
-    return { ref: { sourceId: this.source.id, sourceType: 'artifactory', bundleId: selected.id, bundleVersion: selected.version, installed: false }, downloadUrl: this.client.urlFor(selected.archive.path), integrity: `sha256:${selected.archive.sha256}` };
+    const repository = selected.canonicalSource ?? selected.repository;
+    const parsed = repository === undefined ? null : parseGitHubOwnerRepo(repository);
+    return { ref: { sourceId: this.source.id, sourceType: 'artifactory', bundleId: selected.id, bundleVersion: selected.version, installed: false }, downloadUrl: this.client.urlFor(selected.archive.path), integrity: `sha256:${selected.archive.sha256}`, ...(parsed === null ? {} : { sourceRepoSlug: `${parsed.owner}/${parsed.repo}` }) };
   }
 }

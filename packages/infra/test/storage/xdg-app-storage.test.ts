@@ -38,11 +38,16 @@ describe('XdgAppStorage.getPaths', () => {
     expect(paths.sourcesCache).toBe(path.join(tmp, 'cache', 'ai-primitives-hub', 'sources'));
     expect(paths.bundlesCache).toBe(path.join(tmp, 'cache', 'ai-primitives-hub', 'bundles'));
     expect(paths.root).toBe(path.join(tmp, 'data', 'ai-primitives-hub'));
-    expect(paths.installed).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'installed'));
-    expect(paths.userInstalled).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'installed', 'user'));
-    expect(paths.profilesInstalled).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'installed', 'profiles'));
     expect(paths.profiles).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'profiles'));
     expect(paths.logs).toBe(path.join(tmp, 'data', 'ai-primitives-hub', 'logs'));
+    expect(paths.userRecord).toBe(path.join(tmp, 'config', 'ai-primitives-hub', 'ai-primitives-hub.user.lock.json'));
+  });
+
+  it('advertises the user record as its only installed-record location (no per-profile record folders)', () => {
+    const paths = new XdgAppStorage({ XDG_DATA_HOME: tmp }).getPaths();
+    for (const key of ['installed', 'userInstalled', 'profilesInstalled']) {
+      expect(paths).not.toHaveProperty(key);
+    }
   });
 
   it('getPaths returns a fresh copy each call (callers cannot mutate internal state)', () => {

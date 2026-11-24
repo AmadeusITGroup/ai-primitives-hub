@@ -37,3 +37,4 @@ export * from './repository-exclusion';
 export * from './security-scan-engine';
 export * from './security-scan-input';
 export * from './security-report-store';
+export * from './record-fs';

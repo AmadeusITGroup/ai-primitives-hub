@@ -38,6 +38,15 @@ pnpm run test:coverage:integration # integration only
 
 Use `LOG_LEVEL=ERROR` to suppress debug output.
 
+### Opt-in live replica consumers
+
+From the repository root, `pnpm run test:live:replica-consumers` runs the live
+Artifactory CLI and VS Code consumer campaign with isolated install directories.
+The optional `APH_LIVE_ARTIFACTORY_CREDENTIAL_REF` setting must be an uppercase
+environment-variable name and cannot be `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`
+or `XDG_CACHE_HOME`. The runner rejects these names before token resolution so
+credential injection cannot replace its isolated storage roots.
+
 ## Test Directory Layout
 
 ```

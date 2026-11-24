@@ -5,6 +5,7 @@
  */
 import * as path from 'node:path';
 import {
+  normalizePrimitiveKind,
   normalizeRepoRelativePath,
 } from '@ai-primitives-hub/core';
 import {
@@ -33,19 +34,33 @@ const normalize = (p: string): string => String(p).replaceAll('\\', '/').replace
 export function affectedCollections(repoRoot: string, changedPaths: readonly string[]): AffectedCollection[] {
   const changed = changedPaths.map((p) => normalize(p)).filter((p) => p.length > 0);
   const changedSet = new Set(changed);
+  const overlaps = (file: string): boolean => {
+    if (changedSet.has(file)) {
+      return true;
+    }
+    // Git reports a submodule update as the gitlink path, not its child files.
+    for (let slash = file.lastIndexOf('/'); slash > 0; slash = file.lastIndexOf('/', slash - 1)) {
+      if (changedSet.has(file.slice(0, slash))) {
+        return true;
+      }
+    }
+    return false;
+  };
   const affected: AffectedCollection[] = [];
   for (const file of listCollectionFiles(repoRoot)) {
     const collection = readCollection(repoRoot, file);
     const readmePath = resolveCollectionReadmePath(collection);
-    const itemPaths = new Set(resolveCollectionItemPaths(repoRoot, collection).map((p) => normalize(p)));
+    const items = Array.isArray(collection.items) ? collection.items : [];
+    const itemPaths = resolveCollectionItemPaths(repoRoot, collection).map((p) => normalize(p));
     // Git includes deleted files that the current on-disk skill expansion cannot see.
-    const skillDirectories = (Array.isArray(collection.items) ? collection.items : [])
-      .filter((item) => item?.kind === 'skill' && item.path)
+    const skillDirectories = items
+      .filter((item) => item?.path && normalizePrimitiveKind(item.kind) === 'skill')
       .map((item) => path.posix.dirname(normalizeRepoRelativePath(item.path)))
       .map((dir) => dir === '.' ? '' : `${dir}/`);
-    if (changedSet.has(normalize(file))
-      || (readmePath !== null && changedSet.has(normalize(readmePath)))
-      || changed.some((p) => itemPaths.has(p) || skillDirectories.some((dir) => p.startsWith(dir)))) {
+    if (overlaps(normalize(file))
+      || (readmePath !== null && overlaps(normalize(readmePath)))
+      || itemPaths.some((p) => overlaps(p))
+      || changed.some((p) => skillDirectories.some((dir) => p.startsWith(dir)))) {
       affected.push({ id: collection.id, file });
     }
   }

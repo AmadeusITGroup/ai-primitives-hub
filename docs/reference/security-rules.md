@@ -1,7 +1,7 @@
 # Security Detection Rules
 
 This catalogue describes the native scanner's detection policy for rule pack
-`1.10.9-compatible.2` (engine `1.1.1`). It lists implemented IDs, including
+`1.10.9-compatible.3` (engine `1.1.2`). It lists implemented IDs, including
 structural checks, rather than assuming every number in a family exists.
 Multiple signatures can share an ID and have different severities.
 
@@ -13,9 +13,11 @@ or safety. It does not execute hook commands, tools or artifact instructions.
 
 - Directory scans select Markdown and supported Claude settings. Explicit
   Markdown files are scanned even when they are README or CHANGELOG files.
-- Skill and agent classification enables artifact-specific checks. The
+- Skill and agent classification enables artifact-specific checks. A file named
+  `SKILL.md` is always classified as a skill. The
   `description` frontmatter field is matched as a field, not a substring.
-- Example headings and fenced code affect applicability. Some contextual rules
+- Example headings and fenced code affect applicability. A `#` line inside a
+  fenced block is code, not a heading. Some contextual rules
   skip them; generic secret matches in examples become MEDIUM, and generic
   prompt-injection matches become INFO. Documentation can also lower severity.
   The base severities below are therefore not guaranteed reported severities.
@@ -26,6 +28,9 @@ or safety. It does not execute hook commands, tools or artifact instructions.
   prompt-level controls are not checks of actual runtime enforcement.
 - Secret and MCP argument evidence is redacted. Placeholder exceptions apply
   to the placeholder itself, not unrelated credentials on the same line.
+- A finding carries the remediation text of its rule (`recommended_fix`).
+  `security rate` uses the same text for findings from a scan report that have
+  none.
 
 All other checks are enabled, subject to their artifact/context conditions.
 `C`, `H`, `M`, `L`, and `I` below mean CRITICAL, HIGH, MEDIUM, LOW, and INFO.
@@ -132,7 +137,7 @@ commands. Markdown example/code guards do not exempt executable settings.
 | HKS-004 | Clipboard utility | H |
 | HKS-005 | Log tampering/anti-forensics | H |
 | HKS-006 | Privileged container/host namespaces | C |
-| HKS-007 | Global/unpinned package installation | H |
+| HKS-007 | Global/unpinned package installation (a `pip install` is flagged when any package is not pinned with `==`) | H |
 | HKS-008 | Security-sensitive error suppression | H |
 | HKS-009 | Cron/init persistence | C |
 | HKS-010 | Shell-profile modification | C |
@@ -211,7 +216,7 @@ for loopback/local exemptions, not substrings in paths or queries.
 | SKL-010 | Client-specific permissions | M |
 | LLM-002 | Insecure output handling | H |
 | LLM-004 | Unbounded model work | H |
-| LLM-005 | Unpinned package installation | H |
+| LLM-005 | Unpinned package installation (every package argument must be pinned, for example `name@1.2.3`) | H |
 | LLM-008 | Destructive autonomous action | H |
 | ASI-003 | Agent identity/privilege abuse | H |
 | ASI-004 | Dynamic/unverified tool loading | H |

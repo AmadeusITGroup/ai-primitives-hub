@@ -618,7 +618,7 @@ export class HubValidateCommand extends BaseHubCommand {
         --governance            Enable offline governance verdict
         --policy <path>         Apply committed governance policy (enables governance)
         --report-path <path>    Write provider Markdown report (enables governance)
-        --check-sources          Contact sources and resolve hub profile references
+        --check-sources          Contact/scan enabled sources and resolve profiles
         --github-app-id <id>     App ID for automatic source-aware setup
         --github-app-key-file <path>
                                  PEM path for automatic source-aware setup

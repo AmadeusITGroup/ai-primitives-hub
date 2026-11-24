@@ -92,8 +92,8 @@ export async function installRegistryBundle(
 
   // Record installation FIRST (before cleanup) to ensure metadata is safe.
   // If anything fails here, old versions remain and can be used as fallback.
-  // Note: Repository scope bundles are tracked via LockfileManager, not RegistryStorage;
-  // the lockfile is already updated by the installer during installation.
+  // Note: Repository scope bundles are tracked in the install record, not RegistryStorage;
+  // the record is already updated by the installer during installation.
   if (options.scope !== 'repository') {
     await ports.recordInstallation(installation);
   }
@@ -125,6 +125,7 @@ async function checkExistingInstallation(
 ): Promise<InstallOptions> {
   const existing = await ports.getInstalledBundle(bundleId, options.scope);
 
+  // Repository installs are not in installation storage, so they always proceed; the install record replaces the old version.
   if (!existing || options.force) {
     return options;
   }
@@ -225,7 +226,7 @@ async function cleanupOldVersions(
   ports: InstallRegistryBundlePorts,
   onLog: OnLogEvent | undefined
 ): Promise<void> {
-  // Repository scope cleanup is handled by LockfileManager
+  // Repository scope: the install record keeps one version per bundle and tool (recordInstall).
   if (scope === 'repository') {
     return;
   }
