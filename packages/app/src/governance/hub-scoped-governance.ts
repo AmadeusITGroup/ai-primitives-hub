@@ -1,0 +1,155 @@
+/**
+ * PR-scoped hub governance: validate only the sources and profiles a PR changed, plus their dependencies.
+ * Composes pure scope selection (core), Git/parse boundaries (infra) and the existing validators.
+ * @module app/governance/hub-scoped-governance
+ */
+import * as path from 'node:path';
+import {
+  type ArgvProcessRunner,
+  computeHubScope,
+  evaluateGovernance,
+  type FileSystem,
+  type GovernanceFinding,
+  type GovernanceReport,
+  type HubScope,
+  type HubScopeDocument,
+  hubScopeLocationMapper,
+  selectHubScope,
+} from '@ai-primitives-hub/core';
+import {
+  HttpSnapshot,
+  hubScopeFileSystem,
+  parseHubScopeDocument,
+  parseHubScopeFile,
+  readGitBlob,
+  readGitHubScope,
+  validateHubScopeDocument,
+} from '@ai-primitives-hub/infra';
+import type {
+  SourceAdapterFactoryDeps,
+} from '../registry/create-source-adapter';
+import {
+  type HubValidationProgress,
+  validateHubConfigFile,
+} from '../registry/validate-hub-config-file';
+import {
+  GOVERNANCE_CONFIG_FILE,
+  governanceConfigFromContent,
+  type LoadedGovernanceConfig,
+  loadGovernanceConfig,
+  withDisplayPaths,
+} from './load-config';
+
+export interface HubScopedGovernanceRequest {
+  repoRoot: string;
+  config?: string;
+  baseRef?: string;
+  headRef?: string;
+  scopeFile?: string;
+  processRunner: ArgvProcessRunner;
+  /** Governance configuration path. Git mode reads explicit and default policies from the merge base. */
+  policy?: string;
+  checkSources?: boolean;
+  sourceAdapterDeps?: SourceAdapterFactoryDeps;
+  onProgress?: (event: HubValidationProgress) => void;
+}
+export interface HubScopedGovernanceReport extends GovernanceReport {
+  scope?: HubScope & { baseRef?: string; headRef?: string; mergeBase?: string; origin: 'git' | 'file' };
+}
+
+const REMOTE_SOURCE_TYPES = new Set(['github', 'awesome-copilot', 'skills']);
+
+/**
+ * In Git mode the configuration comes from the merge base, so a PR cannot relax its own gate.
+ * @param fs
+ * @param request
+ * @param mergeBase
+ */
+async function scopedConfig(fs: FileSystem, request: HubScopedGovernanceRequest, mergeBase?: string): Promise<LoadedGovernanceConfig> {
+  if (mergeBase === undefined) {
+    return loadGovernanceConfig(fs, request.repoRoot, request.policy);
+  }
+  const relative = path.relative(request.repoRoot, path.resolve(request.repoRoot, request.policy ?? GOVERNANCE_CONFIG_FILE));
+  const file = relative.split(path.sep).join('/');
+  try {
+    if (!file || path.isAbsolute(relative) || file.split('/').includes('..') || file.includes('\\') || file.includes(':')
+      || [...file].some((char) => char.codePointAt(0)! < 32)) {
+      throw new Error('Policy must be a safe repository-relative path.');
+    }
+    const content = await readGitBlob(request.processRunner, request.repoRoot, mergeBase, file);
+    if (content === undefined && request.policy !== undefined) {
+      throw new Error('Explicit policy is missing from the merge base.');
+    }
+    return governanceConfigFromContent(content, file);
+  } catch {
+    const displayFile = file.startsWith('../') || path.isAbsolute(relative) ? path.basename(file) : file;
+    return { policy: {}, file: displayFile,
+      findings: [{ ruleId: 'CFG001', severity: 'error', file: displayFile,
+        message: 'Unable to read governance configuration from the PR base. Explicit policies must exist at the merge base within the repository.' }] };
+  }
+}
+
+/**
+ * Validate only semantic PR changes and dependencies using shared validators.
+ * @param fs Filesystem port.
+ * @param request Refs or scope file, configuration and options.
+ */
+export async function runHubScopedGovernance(fs: FileSystem, request: HubScopedGovernanceRequest): Promise<HubScopedGovernanceReport> {
+  const findings: GovernanceFinding[] = [];
+  let scope: HubScopedGovernanceReport['scope'];
+  let config: LoadedGovernanceConfig = { policy: {}, findings: [] };
+  const mode = request.checkSources ? 'sources' : 'offline';
+  const errors = (ruleId: string, messages: string[], map: (message: string) => string = (message) => message) =>
+    findings.push(...messages.map((message) => ({ ruleId, severity: 'error' as const, message: map(message) })));
+  try {
+    if (request.scopeFile !== undefined && (request.baseRef !== undefined || request.headRef !== undefined)) {
+      throw new Error('--scope-file cannot be combined with --base-ref/--head-ref.');
+    }
+    const configFile = request.config ?? 'hub-config.yml';
+    const configPath = path.resolve(request.repoRoot, configFile);
+    let head: HubScopeDocument;
+    if (request.scopeFile === undefined) {
+      if (request.baseRef === undefined || request.headRef === undefined) {
+        throw new Error('Both --base-ref and --head-ref are required.');
+      }
+      const snapshot = await readGitHubScope(request.processRunner, request.repoRoot, configFile, request.baseRef, request.headRef);
+      head = snapshot.head;
+      scope = { ...computeHubScope(snapshot.base, head), origin: 'git', baseRef: snapshot.baseRef, headRef: snapshot.headRef, mergeBase: snapshot.mergeBase };
+    } else {
+      head = parseHubScopeDocument(await fs.readFile(configPath));
+      const explicit = parseHubScopeFile(await fs.readFile(path.resolve(request.repoRoot, request.scopeFile)));
+      scope = { ...computeHubScope(head, head, explicit), origin: 'file' };
+    }
+    config = await scopedConfig(fs, request, scope.mergeBase);
+    findings.push(...config.findings);
+
+    const selected = selectHubScope(head, scope);
+    const staticErrors = validateHubScopeDocument(head, selected).errors;
+    errors('HUB001', staticErrors, hubScopeLocationMapper(selected, head));
+    const shouldCheckSources = config.findings.length === 0 && staticErrors.length === 0 && request.checkSources
+      && !scope.noOp && (scope.sourceIds.length > 0 || scope.references.length > 0);
+    if (shouldCheckSources) {
+      // Scoped Git validation must never execute APM/PR code or read checkout-local sources.
+      if (selected.sources.some((s) => s.enabled && !REMOTE_SOURCE_TYPES.has(String(s.type)))) {
+        throw new Error('Scoped deep validation supports remote github, awesome-copilot and skills sources only; local/APM execution is prohibited.');
+      }
+      if (!request.sourceAdapterDeps) {
+        throw new Error('Scoped deep validation requires source adapter dependencies.');
+      }
+      // Reuse authenticated GET evidence across deep validation and governance.
+      // The snapshot belongs to this invocation, never a global/checkout cache.
+      const deps = { ...request.sourceAdapterDeps, httpClient: new HttpSnapshot(request.sourceAdapterDeps.httpClient) };
+      const deepDocument = { ...selected, profiles: selected.profiles.filter((p) => !Array.isArray(p.bundles) || p.bundles.length > 0) };
+      const deep = await validateHubConfigFile(hubScopeFileSystem(fs, configPath, deepDocument), configPath,
+        { deep: true, sourceAdapterDeps: deps, onProgress: request.onProgress });
+      const locate = hubScopeLocationMapper(deepDocument, head);
+      errors('HUB001', deep.errors, locate);
+      findings.push(...(deep.warnings ?? []).map((message) => ({ ruleId: 'HUB002', severity: 'warning' as const, message: locate(message) })));
+    }
+  } catch (error) {
+    errors('HUB001', [error instanceof Error ? error.message : 'Scoped validation could not complete.']);
+  }
+  const policy = config.findings.length > 0 ? {} : config.policy;
+  return { ...evaluateGovernance('hub', withDisplayPaths(findings, request.repoRoot), policy,
+    { mode, configFile: config.file }), scope };
+}

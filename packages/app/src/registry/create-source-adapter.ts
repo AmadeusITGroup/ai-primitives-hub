@@ -46,6 +46,7 @@ import {
   CompositeTokenProvider,
   GitHubAdapter,
   GitHubApiClient,
+  type GitHubClientEvent,
   LocalAdapter,
   LocalApmAdapter,
   LocalAwesomeCopilotAdapter,
@@ -71,6 +72,8 @@ export interface SourceAdapterFactoryDeps {
   artifactoryCredentialFactory?: (source: RegistrySource) => HttpCredentialProvider;
   /** Optional preflight authentication decisions, keyed by source id. */
   sourceAuthentication?: ReadonlyMap<string, SourceAuthenticationContext>;
+  /** Optional request/retry diagnostics; callers must redact raw event URLs. */
+  onGitHubEvent?: (sourceId: string, event: GitHubClientEvent) => void;
 }
 
 export interface SourceAuthenticationContext {
@@ -153,7 +156,8 @@ function buildGitHubApi(
   return new GitHubApiClient(deps.httpClient, {
     tokenProvider,
     repositoryTarget,
-    authenticationCategory: authentication?.category
+    authenticationCategory: authentication?.category,
+    onEvent: deps.onGitHubEvent === undefined ? undefined : (event) => deps.onGitHubEvent?.(source.id, event)
   });
 }
 

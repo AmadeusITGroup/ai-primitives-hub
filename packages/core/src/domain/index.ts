@@ -46,6 +46,7 @@ export * from './hub/validate';
 export * from './hub/diagnostics';
 export * from './hub/replicate';
 export * from './hub/profile-requirements';
+export * from './governance';
 export * from './primitive/types';
 export * from './skill/validate';
 export * from './plugin/agent-plugin-spec';

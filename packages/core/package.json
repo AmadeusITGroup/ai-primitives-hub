@@ -24,7 +24,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/assert-schemas.mjs",
     "watch": "tsc --watch",
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",

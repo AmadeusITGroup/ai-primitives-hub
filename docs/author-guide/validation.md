@@ -2,6 +2,13 @@
 
 Validate your collection files before publishing to catch errors early.
 
+Validation works at two levels, each building on the previous one:
+
+1. **Collection level** — checks the `.collection.yml` files in a source repository
+   and the files they reference. Start here; see [Quick Validation](#quick-validation).
+2. **Hub level** — checks a hub configuration (`hub-config.yml`) that aggregates
+   sources and profiles. See [Hub Governance (CLI)](#hub-governance-cli).
+
 ## Quick Validation
 
 Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux or `Cmd+Shift+P` on
@@ -228,6 +235,54 @@ are not checked. The check is not run for an invalid `kind`, which is already an
 
 **kind "…" differs from the kind "…" of the install route "…"** (warning)
 → Move the file under the folder of its declared kind, or change `kind` to match its folder; see [Kind and Path](#kind-and-path)
+
+## Hub Governance (CLI)
+
+Run `ai-primitives-hub hub validate --governance -o json` to validate the hub
+with an error-based verdict. Errors fail; warnings do not. Add `--report-path
+hub-report.md` to write the same findings as Markdown, or `--policy policy.yml`
+to select a policy instead of the discovered `hub-governance.yml`.
+
+HUB001 validates hub syntax, schema, references and source policies and cannot
+be disabled or downgraded. HUB002 reports advisories and can be disabled or
+changed to an error. CFG001–CFG003 reject invalid YAML/schema, unknown rule IDs,
+and attempts to weaken mandatory rules. Invalid policy is ignored and fails the run.
+See the [rule catalogue](./rule-catalogue.md).
+
+Validation is offline by default. `--check-sources` explicitly contacts enabled
+sources and resolves profile references; it does not validate collection or
+primitive content. Existing validation without governance flags is unchanged.
+
+### Scoping to a Change
+
+For PR scope, add `--base-ref <commit> --head-ref <commit>` (exact 40- or
+64-character hexadecimal commit IDs). Git mode reads both the default policy
+and an explicit `--policy` from the merge base, so a PR cannot relax its own gate.
+Explicit paths must resolve within the repository and exist at the merge base;
+missing or outside-repository policies fail with CFG001. Without Git refs,
+including scope-file mode, policies are read from the working tree.
+
+Alternatively, select what to validate with `--scope-file scope.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "sourceIds": ["my-source"],
+  "profileIds": ["my-profile"]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `schemaVersion` | Required. The number `1`. |
+| `sourceIds` | Required array, may be empty. Each entry is the `id` of a source exactly as written under `sources` in the validated `hub-config.yml`, for example `my-source`. Profiles referencing a selected source are also checked. |
+| `profileIds` | Required array, may be empty. Each entry is the `id` of a profile exactly as written under `profiles` in the same `hub-config.yml`. |
+
+IDs are not derived or normalized: an ID that does not exist in the hub config,
+or that is listed twice, fails the run, and any other field is rejected.
+Both scoped modes require `--governance`.
+Scoped source checks support remote github, awesome-copilot and skills sources
+only and never execute local/APM code. `--verbose` sends redacted progress to stderr.
 
 ## See Also
 
