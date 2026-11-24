@@ -83,7 +83,12 @@ export interface SourceAuthenticationContext {
   tokenProvider?: TokenProvider;
 }
 
-function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
+/**
+ * Resolve source-aware authentication before falling back to the delivery token chain.
+ * @param source
+ * @param deps
+ */
+export function buildSourceTokenProvider(source: RegistrySource, deps: SourceAdapterFactoryDeps): TokenProvider {
   const authentication = deps.sourceAuthentication?.get(source.id);
   if (authentication !== undefined) {
     if (authentication.category === 'unresolved') {
@@ -136,6 +141,15 @@ function resolveSourceRepositoryTarget(source: RegistrySource): GitHubRepository
     }
     throw error;
   }
+}
+
+/**
+ * Share source-aware API and token routing with governance release verification.
+ * @param source
+ * @param deps
+ */
+export function createSourceGitHubApi(source: RegistrySource, deps: SourceAdapterFactoryDeps): GitHubApi {
+  return buildGitHubApi(source, buildSourceTokenProvider(source, deps), deps, deps.sourceAuthentication?.get(source.id));
 }
 
 function buildGitHubApi(

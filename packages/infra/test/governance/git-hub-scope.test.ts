@@ -6,12 +6,36 @@ import {
 } from 'vitest';
 import {
   parseHubScopeFile,
+  readGitBlob,
   readGitHubScope,
 } from '../../src/governance/git-hub-scope';
 
 const baseRef = 'a'.repeat(40);
 const headRef = 'b'.repeat(40);
 const mergeBase = 'c'.repeat(40);
+describe('committed Git blob reads', () => {
+  it('propagates Git failures instead of reporting an absent file', async () => {
+    const failure = new Error('Git timed out');
+    const execFile = vi.fn().mockRejectedValue(failure);
+    await expect(readGitBlob({ execFile }, '/repo', baseRef, 'hub-governance.yml')).rejects.toBe(failure);
+  });
+
+  it.each(['', `040000 tree ${headRef}\thub-governance.yml\0`])('returns undefined when the path is absent or not a blob: %s', async (entry) => {
+    const execFile = vi.fn().mockResolvedValue({ stdout: entry, stderr: '' });
+    await expect(readGitBlob({ execFile }, '/repo', baseRef, 'hub-governance.yml')).resolves.toBeUndefined();
+    expect(execFile).toHaveBeenCalledOnce();
+    expect(execFile.mock.calls[0][1]).toContain('ls-tree');
+  });
+
+  it('reads an existing blob after checking its tree entry', async () => {
+    const execFile = vi.fn()
+      .mockResolvedValueOnce({ stdout: `100644 blob ${headRef}\thub-governance.yml\0`, stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'rules: {}\n', stderr: '' });
+    await expect(readGitBlob({ execFile }, '/repo', baseRef, 'hub-governance.yml')).resolves.toBe('rules: {}\n');
+    expect(execFile.mock.calls[1][1]).toContain('cat-file');
+  });
+});
+
 describe('Git Hub scope boundary', () => {
   it('uses merge-base and explicit head blobs with safe argument vectors', async () => {
     const execFile = vi.fn((_file: string, args: readonly string[]) => {

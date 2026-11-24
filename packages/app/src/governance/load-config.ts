@@ -4,12 +4,14 @@
  */
 import * as path from 'node:path';
 import type {
+  ArgvProcessRunner,
   FileSystem,
   GovernanceFinding,
   GovernancePolicy,
 } from '@ai-primitives-hub/core';
 import {
   parseGovernanceConfig,
+  readGitBlob,
 } from '@ai-primitives-hub/infra/governance';
 
 /** Discovered at the repository root when no explicit path is given. */
@@ -60,6 +62,41 @@ export async function loadGovernanceConfig(fs: FileSystem, repoRoot: string, exp
 }
 
 /**
+ * Read policies from the merge base in Git mode, otherwise from the working tree.
+ * @param fs
+ * @param request
+ * @param request.repoRoot
+ * @param request.policy
+ * @param request.processRunner
+ * @param mergeBase
+ */
+export async function loadScopedGovernanceConfig(
+  fs: FileSystem, request: { repoRoot: string; policy?: string; processRunner?: ArgvProcessRunner }, mergeBase?: string
+): Promise<LoadedGovernanceConfig> {
+  if (mergeBase === undefined) {
+    return loadGovernanceConfig(fs, request.repoRoot, request.policy);
+  }
+  const relative = path.relative(request.repoRoot, path.resolve(request.repoRoot, request.policy ?? GOVERNANCE_CONFIG_FILE));
+  const file = relative.split(path.sep).join('/');
+  try {
+    if (!request.processRunner || !file || path.isAbsolute(relative) || file.split('/').includes('..') || file.includes('\\') || file.includes(':')
+      || [...file].some((char) => char.codePointAt(0)! < 32)) {
+      throw new Error('Policy must be a safe repository-relative path.');
+    }
+    const content = await readGitBlob(request.processRunner, request.repoRoot, mergeBase, file);
+    if (content === undefined && request.policy !== undefined) {
+      throw new Error('Explicit policy is missing from the merge base.');
+    }
+    return governanceConfigFromContent(content, file);
+  } catch {
+    const displayFile = file.startsWith('../') || path.isAbsolute(relative) ? path.basename(file) : file;
+    return { policy: {}, file: displayFile,
+      findings: [{ ruleId: 'CFG001', severity: 'error', file: displayFile,
+        message: 'Unable to read governance configuration from the PR base. Explicit policies must exist at the merge base within the repository.' }] };
+  }
+}
+
+/**
  * Show paths relative to the repository root so reports never expose runner paths.
  * @param findings
  * @param repoRoot
@@ -67,8 +104,11 @@ export async function loadGovernanceConfig(fs: FileSystem, repoRoot: string, exp
 export function withDisplayPaths(findings: readonly GovernanceFinding[], repoRoot: string): GovernanceFinding[] {
   const root = path.resolve(repoRoot);
   return findings.map((finding) => {
-    if (finding.file === undefined || !path.isAbsolute(finding.file)) {
+    if (finding.file === undefined) {
       return finding;
+    }
+    if (!path.isAbsolute(finding.file)) {
+      return { ...finding, file: finding.file.replaceAll('\\', '/') };
     }
     const relative = path.relative(root, finding.file);
     return relative.startsWith('..') || path.isAbsolute(relative)

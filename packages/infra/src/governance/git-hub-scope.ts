@@ -115,13 +115,45 @@ export async function readGitBlob(runner: ArgvProcessRunner, repoRoot: string, c
     throw new Error('readGitBlob requires an exact commit and a safe repository-relative path.');
   }
   const git = async (...args: string[]) => (await runner.execFile('git', ['--no-replace-objects', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repoRoot, timeoutMs: 30_000 })).stdout;
-  let type: string;
-  try {
-    type = (await git('cat-file', '-t', `${commit}:${file}`)).trim();
-  } catch {
+  const entry = await git('ls-tree', '-z', commit, '--', `:(literal)${file}`);
+  if (!/^\d{6} blob /.test(entry)) {
     return undefined;
   }
-  return type === 'blob' ? git('cat-file', 'blob', `${commit}:${file}`) : undefined;
+  return git('cat-file', 'blob', `${commit}:${file}`);
+}
+
+export interface GitChangedFiles { baseRef: string; headRef: string; mergeBase: string; files: string[] }
+
+/**
+ * Read changed files, including deleted references, for collection validation. The checkout must be at the exact head.
+ * @param runner
+ * @param repoRoot
+ * @param baseRef
+ * @param headRef
+ */
+export async function readGitChangedFiles(runner: ArgvProcessRunner, repoRoot: string, baseRef: string, headRef: string): Promise<GitChangedFiles> {
+  const commit = /^(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})$/;
+  if (!commit.test(baseRef) || !commit.test(headRef)) {
+    throw new Error('--base-ref and --head-ref must be exact 40- or 64-hex commit IDs.');
+  }
+  const git = async (...args: string[]) => (await runner.execFile('git', ['--no-replace-objects', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repoRoot, timeoutMs: 30_000 })).stdout;
+  let checkout: string;
+  let mergeBases: string[];
+  try {
+    checkout = (await git('rev-parse', 'HEAD')).trim();
+    mergeBases = (await git('merge-base', '--all', baseRef, headRef)).trim().split('\n');
+  } catch {
+    throw new Error('Cannot read PR history. Fetch complete base/head history (fetch-depth: 0) and retry.');
+  }
+  if (checkout.toLowerCase() !== headRef.toLowerCase()) {
+    throw new Error('The checkout is not at --head-ref. Check out the PR head commit before validating.');
+  }
+  if (mergeBases.length !== 1 || !commit.test(mergeBases[0])) {
+    throw new Error('A unique merge base is required.');
+  }
+  const output = await git('diff', '--name-only', '-z', '--no-renames', mergeBases[0], headRef);
+  const files = output.split('\0').filter((file) => file.length > 0).toSorted();
+  return { baseRef, headRef, mergeBase: mergeBases[0], files };
 }
 
 /**

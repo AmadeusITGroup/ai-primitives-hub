@@ -307,7 +307,7 @@ function listFilesRecursively(dirPath: string, basePath: string): string[] {
 
 /**
  * Resolve all item paths referenced in a collection.
- * For skills, expands the skill directory to include all files.
+ * Always retains declared paths, including missing files. For skills, also includes directory files.
  * @param repoRoot - Repository root path
  * @param collection - Parsed collection object
  * @returns Array of normalized repo-relative paths

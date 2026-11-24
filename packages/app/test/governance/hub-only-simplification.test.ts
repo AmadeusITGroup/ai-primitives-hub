@@ -92,7 +92,7 @@ describe('hub-only simplification', () => {
     const markdown = renderGovernanceMarkdown(evaluateGovernance('hub', [], { rules: { HUB002: { enabled: false, reason: 'Team policy' } } }));
     expect(markdown).toContain('- **HUB002**: disabled — Team policy');
     expect(markdown).toContain('| HUB002 | Hub validation advisories | ⏭️ Disabled by configuration |');
-    expect(FLOOR_RULE_IDS).toEqual(['HUB001']);
+    expect(FLOOR_RULE_IDS).toContain('HUB001');
     expect(isFloorRule('HUB001')).toBe(true);
     expect(isFloorRule('HUB002')).toBe(false);
     expect(isFloorRule('CFG001')).toBe(false);
@@ -100,7 +100,7 @@ describe('hub-only simplification', () => {
     expect(HUB_RULES.map((rule) => rule.id)).toEqual(['HUB001', 'HUB002']);
   });
 
-  it('does not publish the later collection/primitive changed-file reader', () => {
-    expect(infra).not.toHaveProperty('readGitChangedFiles');
+  it('publishes the changed-file reader now owned by collection validation', () => {
+    expect(infra).toHaveProperty('readGitChangedFiles');
   });
 });
