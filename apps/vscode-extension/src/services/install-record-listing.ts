@@ -73,8 +73,8 @@ export interface InstallRecordListingOptions {
   showProblem?: (message: string) => void;
   /** Tool whose entries are listed as installed; `detectHostApp()` by default. */
   hostTool?: string;
-  /** The configured source id of a recorded source id; the id itself by default. */
-  configuredSourceIdOf?: (recordedId: string) => Promise<string>;
+  /** The configured source id of a recorded source id and its recorded hub; the id itself by default. */
+  configuredSourceIdOf?: (recordedId: string, recordedHubId?: string) => Promise<string>;
 }
 
 /** Problem kinds the listing reports. */
@@ -129,7 +129,9 @@ export class InstallRecordListing {
   private readonly store: RecordStore;
   private readonly showProblem: (message: string) => void;
   private readonly hostTool: string;
-  private readonly configuredSourceIdOf: (recordedId: string) => Promise<string>;
+  private readonly configuredSourceIdOf: (recordedId: string, recordedHubId?: string) => Promise<string>;
+  /** Recorded `hubId` of each record file and source id, from the record files read. */
+  private readonly recordedHubs = new Map<string, string>();
   private readonly logger = Logger.getInstance();
   /** Problem keys already shown to the user. */
   private readonly shown = new Set<string>();
@@ -205,6 +207,14 @@ export class InstallRecordListing {
   private async loadBundles(location: RecordLocation): Promise<Map<string, BundleRecord>> {
     try {
       const { record } = await this.store.load(location);
+      for (const [sourceId, source] of Object.entries(record.sources)) {
+        const key = `${location.path}\u0000${sourceId}`;
+        if (typeof source.hubId === 'string') {
+          this.recordedHubs.set(key, source.hubId);
+        } else {
+          this.recordedHubs.delete(key);
+        }
+      }
       return new Map(Object.entries(record.bundles));
     } catch (error) {
       if (!isRecordError(error)) {
@@ -230,7 +240,7 @@ export class InstallRecordListing {
       commitModeOverride: location.commitMode ?? 'commit'
     });
     item.recordOrigin = 'install-record';
-    item.sourceId = await this.configuredSourceIdOf(entry.sourceId);
+    item.sourceId = await this.configuredSourceIdOf(entry.sourceId, this.recordedHubs.get(`${location.path}\u0000${entry.sourceId}`));
     items.set(bundleId, item);
   }
 
@@ -357,9 +367,8 @@ export class InstallRecordListing {
       const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(chosen.entry), {
         installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, chosen.entry)
       });
-      items.push({
-        ...item, sourceId: await this.configuredSourceIdOf(chosen.entry.sourceId), scope: 'user', commitMode: undefined, recordOrigin: 'install-record'
-      });
+      const sourceId = await this.configuredSourceIdOf(chosen.entry.sourceId, this.recordedHubs.get(`${location.path}\u0000${chosen.entry.sourceId}`));
+      items.push({ ...item, sourceId, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
     }
     return { items, hostBundleIds, hostKeys };
   }

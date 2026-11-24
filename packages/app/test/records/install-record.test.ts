@@ -533,6 +533,28 @@ describe('repository install record', () => {
     expect(read(committed).bundles['acme-tools-coll-1.0.0'].tools.vscode.sourceId).toBe(sourceId);
   });
 
+  it('keeps both entries when two sources record the same bundle name for one tool, as a merge of two branches leaves them', async () => {
+    await install('vscode', ['.github/prompts/a.prompt.md'], {
+      bundleId: 'coll', name: 'coll', source: { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' }
+    });
+    const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    const [firstKey] = Object.keys(raw.bundles);
+    const otherSource = 'src:github:github.com/other/tools';
+    const merged = {
+      ...raw,
+      sources: { ...raw.sources, [otherSource]: { type: 'github', url: 'https://github.com/other/tools' } },
+      bundles: { ...raw.bundles, [`${otherSource}/coll`]: { name: 'coll', tools: { vscode: { ...raw.bundles[firstKey].tools.vscode, version: '2.0.0' } } } }
+    };
+    fs.writeFileSync(committed.path, JSON.stringify(merged));
+
+    await store.save(committed, (await store.load(committed)).record);
+
+    const saved = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    expect(Object.keys(saved.bundles).toSorted()).toEqual([firstKey, `${otherSource}/coll`].toSorted());
+    expect(saved.bundles[`${otherSource}/coll`].tools.vscode.version).toBe('2.0.0');
+    expect(saved.bundles[firstKey].tools.vscode.files).toEqual(raw.bundles[firstKey].tools.vscode.files);
+  });
+
   it('keeps the bundle key when the bundle is upgraded', async () => {
     const options = (version: string): Partial<RecordInstallInput> => ({ bundleId: `acme-tools-coll-${version}`, version, name: 'coll' });
     await install('vscode', ['.github/prompts/a.prompt.md'], options('1.0.0'));

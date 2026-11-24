@@ -1855,7 +1855,7 @@ export class RegistryManager {
       fs: this.recordAdapter.fs,
       store: this.recordAdapter.store,
       hostTool: this.recordAdapter.hostTool,
-      configuredSourceIdOf: (recordedId) => this.recordAdapter.configuredSourceIdOf(recordedId)
+      configuredSourceIdOf: (recordedId, recordedHubId) => this.recordAdapter.configuredSourceIdOf(recordedId, recordedHubId)
     });
     return this.installRecordListing;
   }

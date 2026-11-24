@@ -15,6 +15,8 @@ import {
   type InstallRecordServices,
   type Lockfile,
   type LockfileSourceEntry,
+  type McpConfigFile,
+  type McpServerToWrite,
   migrateLevel,
   type MigrationReport,
   orderConfiguredSources,
@@ -55,6 +57,7 @@ import {
   resolveMcpConfigPath,
   type Target,
   TARGET_TYPES,
+  type TargetLayoutsConfig,
   type TargetType,
   type TokenProvider,
   UNKNOWN_TOOL_NAME,
@@ -107,6 +110,8 @@ export interface PreparedRepositoryRecord {
   exclusion?: RepositoryExclusion;
   /** What the migration run before this action did; absent when there was nothing to migrate. */
   migration?: MigrationReport;
+  /** Layout layers, built-in first, for the tool's MCP file; the built-in layout alone when absent. */
+  layers?: TargetLayoutsConfig[];
 }
 
 /**
@@ -203,34 +208,36 @@ const vscodeUserDirOf = (env: Readonly<Record<string, string | undefined>>, tool
   return path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), product, 'User');
 };
 
+/** What {@link writeBundleMcpServers} and {@link checkBundleMcpServers} write: tool, workspace root, bundle and its servers. */
+export interface BundleMcpInstall {
+  /** The target's type. */
+  tool: string;
+  /** Workspace root; `${bundlePath}` at repository level. */
+  workspaceRoot: string;
+  bundleId: string;
+  /** Installed version. */
+  version: string;
+  mcp: BundleMcpServers;
+}
+
 /**
- * Write a bundle's MCP servers into the tool's MCP file at the record's level.
- * A tool with no MCP file there gets none, with a warning.
- * @param service - Record service.
+ * The tool's MCP file at the record's level and the servers to write there.
  * @param location - Record file the install is recorded in.
  * @param install - Tool, workspace root, bundle and its servers.
- * @param install.tool - The target's type.
- * @param install.workspaceRoot - Workspace root; `${bundlePath}` at repository level.
- * @param install.bundleId - Bundle id.
- * @param install.version - Installed version.
- * @param install.mcp - The bundle's servers.
- * @returns The servers to record, and warnings.
- * @throws {RegistryError} `RECORD.MCP_CONFLICT`, `RECORD.MCP_CONFIG_UNREADABLE` or `RECORD.PATH_OUTSIDE_ROOT`.
+ * @param layers - Layout layers, built-in first, as the payload writer resolves them.
+ * @returns The file and servers, or a warning when the tool has no MCP file there.
  */
-export const writeBundleMcpServers = async (
-  service: InstallRecordService,
+const planBundleMcp = (
   location: RecordLocation,
-  install: { tool: string; workspaceRoot: string; bundleId: string; version: string; mcp: BundleMcpServers }
-): Promise<{ mcpServers: RecordedMcpServer[]; warnings: string[] }> => {
+  install: BundleMcpInstall,
+  layers: TargetLayoutsConfig[]
+): { file: McpConfigFile; servers: McpServerToWrite[] } | { warnings: string[] } => {
   const names = Object.keys(install.mcp.servers ?? {});
   const layout = (TARGET_TYPES as readonly string[]).includes(install.tool)
-    ? resolveMcpLayoutConfig(install.tool as TargetType, location.level, [defaultLayouts])
+    ? resolveMcpLayoutConfig(install.tool as TargetType, location.level, layers)
     : undefined;
   if (names.length === 0 || layout === undefined) {
-    return {
-      mcpServers: [],
-      warnings: names.length === 0 ? [] : [`${install.tool} has no MCP file at ${location.level} level; MCP servers not installed: ${names.join(', ')}.`]
-    };
+    return { warnings: names.length === 0 ? [] : [`${install.tool} has no MCP file at ${location.level} level; MCP servers not installed: ${names.join(', ')}.`] };
   }
   const home = location.level === 'user' ? location.root : (install.mcp.env.HOME ?? location.root);
   const file = {
@@ -252,8 +259,57 @@ export const writeBundleMcpServers = async (
     bundlePath: location.level === 'user' ? home : install.workspaceRoot,
     ...(layout.envPlaceholderStyle === undefined ? {} : { envPlaceholderStyle: layout.envPlaceholderStyle })
   });
-  return { mcpServers: await service.writeMcpServers({ location, file, servers }), warnings: [] };
+  return { file, servers };
 };
+
+/**
+ * Check that a bundle's MCP servers can be written, writing nothing; run before the bundle's files are written.
+ * @param service - Record service.
+ * @param location - Record file the install is recorded in.
+ * @param install - Tool, workspace root, bundle and its servers.
+ * @param layers - Layout layers, built-in first.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT`, `RECORD.MCP_CONFIG_UNREADABLE` or `RECORD.PATH_OUTSIDE_ROOT`.
+ */
+export const checkBundleMcpServers = async (
+  service: InstallRecordService,
+  location: RecordLocation,
+  install: BundleMcpInstall,
+  layers: TargetLayoutsConfig[]
+): Promise<void> => {
+  const plan = planBundleMcp(location, install, layers);
+  if ('file' in plan) {
+    await service.checkMcpServers({ location, file: plan.file, servers: plan.servers });
+  }
+};
+
+/**
+ * Write a bundle's MCP servers into the tool's MCP file at the record's level.
+ * A tool with no MCP file there gets none, with a warning.
+ * @param service - Record service.
+ * @param location - Record file the install is recorded in.
+ * @param install - Tool, workspace root, bundle and its servers.
+ * @param layers - Layout layers, built-in first.
+ * @returns The servers to record, and warnings.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT`, `RECORD.MCP_CONFIG_UNREADABLE` or `RECORD.PATH_OUTSIDE_ROOT`.
+ */
+export const writeBundleMcpServers = async (
+  service: InstallRecordService,
+  location: RecordLocation,
+  install: BundleMcpInstall,
+  layers: TargetLayoutsConfig[]
+): Promise<{ mcpServers: RecordedMcpServer[]; warnings: string[] }> => {
+  const plan = planBundleMcp(location, install, layers);
+  if (!('file' in plan)) {
+    return { mcpServers: [], warnings: plan.warnings };
+  }
+  return { mcpServers: await service.writeMcpServers({ location, file: plan.file, servers: plan.servers }), warnings: [] };
+};
+
+/**
+ * Layout layers for a command: built-in, user and project, as the payload writer uses them.
+ * @param ctx - CLI context.
+ */
+export const loadLayoutLayers = (ctx: Context): Promise<TargetLayoutsConfig[]> => createLayoutLoader(ctx).load();
 
 /** What was installed, as the record describes it: the manifest id and the bundle's files by bundle path. */
 export interface InstalledBundleContent {
@@ -408,6 +464,7 @@ export const prepareRepositoryRecord = async (
       service: records.service,
       workspaceRoot: records.workspaceRoot,
       exclusion: records.exclusion,
+      layers: await loadLayoutLayers(ctx),
       ...(migration === undefined ? {} : { migration })
     };
   } catch (error) {
@@ -451,7 +508,7 @@ export const prepareUserRecord = async (
     }
     const migration = await migrateLevel({ store, fs, targets: [location], env: ctx.env });
     await store.load(location);
-    return { location, service, workspaceRoot: home, ...(migration === undefined ? {} : { migration }) };
+    return { location, service, workspaceRoot: home, layers: await loadLayoutLayers(ctx), ...(migration === undefined ? {} : { migration }) };
   } catch (error) {
     throw isRecordError(error) ? toInstallRecordError(error) : error;
   }
@@ -475,7 +532,7 @@ export const recordRepositoryInstall = async (
       ? undefined
       : await writeBundleMcpServers(prepared.service, prepared.location, {
         tool: install.tool, workspaceRoot: prepared.workspaceRoot, bundleId: install.bundleId, version: install.version, mcp: install.mcp
-      });
+      }, prepared.layers ?? [defaultLayouts]);
     mcpWarnings.push(...(mcp?.warnings ?? []));
     change = await prepared.service.recordInstall({
       location: prepared.location,
@@ -499,6 +556,30 @@ export const recordRepositoryInstall = async (
     deleted: removal.deleted,
     warnings: [...mcpWarnings, ...change.warnings, ...removal.warnings]
   };
+};
+
+/**
+ * Refuse an install whose MCP servers cannot be written, before the bundle's files are written.
+ * @param prepared - From {@link prepareRecordForTarget}; `undefined` for a target that keeps the old lockfile.
+ * @param install - Bundle, version, tool and its servers.
+ * @param install.bundleId - Bundle id.
+ * @param install.version - Version to install.
+ * @param install.tool - The target's type.
+ * @param install.mcp - The bundle's servers.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT`, `RECORD.MCP_CONFIG_UNREADABLE` or `RECORD.PATH_OUTSIDE_ROOT`, as `install` reports it.
+ */
+export const checkRepositoryInstallMcp = async (
+  prepared: PreparedRepositoryRecord | undefined,
+  install: { bundleId: string; version: string; tool: string; mcp: BundleMcpServers }
+): Promise<void> => {
+  if (prepared === undefined) {
+    return;
+  }
+  try {
+    await checkBundleMcpServers(prepared.service, prepared.location, { ...install, workspaceRoot: prepared.workspaceRoot }, prepared.layers ?? [defaultLayouts]);
+  } catch (error) {
+    throw isRecordError(error) ? toInstallRecordError(error) : error;
+  }
 };
 
 /** Both repository record files, loaded and checked for an uninstall. */
@@ -1073,6 +1154,28 @@ export interface PlannedRecordInstall {
 }
 
 /**
+ * Refuse a planned entry whose MCP servers cannot be written, before its writer runs.
+ * @param service - Record service.
+ * @param item - The planned entry.
+ * @param target - Effective target that will write it.
+ * @param ctx - CLI context.
+ * @param version - Version to write.
+ * @param mcp - The bundle's servers.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT`, `RECORD.MCP_CONFIG_UNREADABLE` or `RECORD.PATH_OUTSIDE_ROOT`.
+ */
+export const checkPlannedInstallMcp = async (
+  service: InstallRecordService,
+  item: Pick<PlannedRecordInstall, 'bundleId' | 'tool' | 'location'>,
+  target: Target,
+  ctx: Context,
+  version: string,
+  mcp: BundleMcpServers
+): Promise<void> => {
+  const workspaceRoot = item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd());
+  await checkBundleMcpServers(service, item.location, { tool: item.tool, workspaceRoot, bundleId: item.bundleId, version, mcp }, await loadLayoutLayers(ctx));
+};
+
+/**
  * Re-record a planned entry after its writer ran; {@link finishRecordRun} deletes superseded files.
  * @param service - Record service.
  * @param item - The planned entry.
@@ -1100,7 +1203,7 @@ export const recordPlannedInstall = async (
   const workspaceRoot = item.location.level === 'user' ? item.location.root : (target.rootPath ?? ctx.cwd());
   const mcpWrite = mcp === undefined
     ? undefined
-    : await writeBundleMcpServers(service, item.location, { tool: item.tool, workspaceRoot, bundleId: item.bundleId, version, mcp });
+    : await writeBundleMcpServers(service, item.location, { tool: item.tool, workspaceRoot, bundleId: item.bundleId, version, mcp }, await loadLayoutLayers(ctx));
   const change = await service.recordInstall({
     location: item.location,
     bundleId: item.bundleId,

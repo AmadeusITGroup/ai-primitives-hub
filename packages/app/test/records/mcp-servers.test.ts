@@ -254,3 +254,104 @@ describe('MCP servers in the install record', () => {
     expect(JSON.parse(fs.readFileSync(outside, 'utf8'))).toEqual({ servers: { x: { command: 'x' } } });
   });
 });
+
+describe('MCP servers in the install record: checks before writing', () => {
+  let base: string;
+  let root: string;
+  let service: InstallRecordService;
+  let committed: RecordLocation;
+  const recordFs = new NodeRecordFs();
+  const configPath = (): string => path.join(root, '.vscode', 'mcp.json');
+  const servers = (command = 'db-server'): ReturnType<typeof prepareMcpServers> => prepareMcpServers({
+    servers: { db: { command } }, bundleId: BUNDLE, version: '1.0.0', manifestId: 'coll', manifestRepository: 'https://github.com/acme/tools', bundlePath: root
+  });
+  const write = (command?: string): Promise<RecordedMcpServer[]> =>
+    service.writeMcpServers({ location: committed, file: { path: configPath(), serversKey: 'servers' }, servers: servers(command) });
+
+  beforeEach(async () => {
+    base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'record-mcp-check-')));
+    root = path.join(base, 'repo');
+    fs.mkdirSync(path.join(root, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    const store = new RecordStore({ fs: recordFs, validator: new RecordSchemaValidator(), generatedBy: 'ai-primitives-hub-cli@0.3.0', now: () => NOW });
+    service = new InstallRecordService({ store, fs: recordFs, now: () => NOW });
+    [committed] = await store.resolveRepository({ start: root });
+  });
+
+  afterEach(() => {
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  it('accepts an unrecorded server whose definition is the one being written, as a failed install leaves it', async () => {
+    await write();
+
+    await expect(write()).resolves.toEqual([expect.objectContaining({ name: `${KEY}:db` })]);
+    await expect(write('other-server')).rejects.toMatchObject({ code: 'RECORD.MCP_CONFLICT' });
+  });
+
+  it('checkMcpServers refuses a conflicting name and writes nothing', async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), JSON.stringify({ servers: { [`${KEY}:db`]: { command: 'hand-written' } } }));
+    const before = fs.readFileSync(configPath(), 'utf8');
+    const check = (command?: string): Promise<void> =>
+      service.checkMcpServers({ location: committed, file: { path: configPath(), serversKey: 'servers' }, servers: servers(command) });
+
+    await expect(check()).rejects.toMatchObject({ code: 'RECORD.MCP_CONFLICT' });
+    await expect(check('hand-written')).resolves.toBeUndefined();
+    expect(fs.readFileSync(configPath(), 'utf8')).toBe(before);
+  });
+
+  it('refuses an MCP file whose folder links outside the level root, and leaves the outside file unchanged', async () => {
+    const outside = path.join(base, 'outside');
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'mcp.json'), '{"servers":{}}');
+    fs.symlinkSync(outside, path.join(root, '.vscode'));
+
+    await expect(write()).rejects.toMatchObject({ code: 'RECORD.PATH_OUTSIDE_ROOT' });
+    expect(fs.readFileSync(path.join(outside, 'mcp.json'), 'utf8')).toBe('{"servers":{}}');
+  });
+
+  it('refuses an MCP file that links outside the level root, and writes through a link that stays inside it', async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    const outside = path.join(base, 'shared-mcp.json');
+    fs.writeFileSync(outside, '{"servers":{}}');
+    fs.symlinkSync(outside, configPath());
+
+    await expect(write()).rejects.toMatchObject({ code: 'RECORD.PATH_OUTSIDE_ROOT' });
+    expect(fs.readFileSync(outside, 'utf8')).toBe('{"servers":{}}');
+
+    const inside = path.join(root, 'config', 'mcp.json');
+    fs.mkdirSync(path.dirname(inside), { recursive: true });
+    fs.writeFileSync(inside, '{"servers":{}}');
+    fs.unlinkSync(configPath());
+    fs.symlinkSync(inside, configPath());
+    await write();
+    expect(fs.lstatSync(configPath()).isSymbolicLink()).toBe(true);
+    expect(Object.keys((JSON.parse(fs.readFileSync(inside, 'utf8')) as { servers: object }).servers)).toEqual([`${KEY}:db`]);
+  });
+
+  it('keeps both servers when two installs write one MCP file at the same time', async () => {
+    const other = prepareMcpServers({
+      servers: { cache: { command: 'cache-server' } }, bundleId: 'acme-tools-other-1.0.0', version: '1.0.0', manifestId: 'other',
+      manifestRepository: 'https://github.com/acme/tools', bundlePath: root
+    });
+
+    await Promise.all([
+      write(),
+      service.writeMcpServers({ location: committed, file: { path: configPath(), serversKey: 'servers' }, servers: other })
+    ]);
+
+    expect(Object.keys((JSON.parse(fs.readFileSync(configPath(), 'utf8')) as { servers: object }).servers).toSorted())
+      .toEqual([`${KEY}:db`, 'ai-primitives-hub:acme:tools:other:cache']);
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps a restricted MCP file\'s mode when it rewrites the file', async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), '{"servers":{}}');
+    fs.chmodSync(configPath(), 0o600);
+
+    await write();
+
+    expect(fs.statSync(configPath()).mode % 0o1000).toBe(0o600);
+  });
+});

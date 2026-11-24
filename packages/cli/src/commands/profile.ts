@@ -78,6 +78,7 @@ import * as yaml from 'js-yaml';
 import {
   bundleMcpOf,
   type BundleMcpServers,
+  checkRepositoryInstallMcp,
   Command,
   type Context,
   createHttpClientAndTokens,
@@ -434,6 +435,7 @@ type ActivateBundleOutcome =
  * @param tokens Token provider.
  * @param ctx CLI context.
  * @param sourceAwareDependencyCache
+ * @param record - The target's prepared install record; its MCP servers are checked before any file is written.
  * @returns The written files and lockfile entries on success, or a failure reason.
  */
 async function activateBundleForTarget(
@@ -444,7 +446,8 @@ async function activateBundleForTarget(
   http: HttpClient,
   tokens: TokenProvider,
   ctx: Context,
-  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache
+  sourceAwareDependencyCache?: SourceAwareInstallDependencyCache,
+  record?: PreparedRepositoryRecord
 ): Promise<ActivateBundleOutcome> {
   const src = sources[bundleRef.source];
   if (!src) {
@@ -486,6 +489,9 @@ async function activateBundleForTarget(
       // Hub profiles name GitHub bundles `{owner}-{repo}-{manifestId}`.
       sourceRepoSlug: githubRepoSlugForSource(src)
     });
+    const mcp = bundleMcpOf(manifest, ctx.env, src.type === 'github' ? src.url : undefined);
+    // An MCP server another writer put in the tool's file refuses the bundle before any file is written.
+    await checkRepositoryInstallMcp(record, { bundleId: bundleRef.id, version: manifest.version, tool: target.type, mcp });
     const { installableFiles: targetFiles, result } = await writeBundleSafely(writer, target, files, manifest);
     const entry: LockfileBundleEntry = {
       version: manifest.version,
@@ -498,8 +504,7 @@ async function activateBundleForTarget(
       entry.commitMode = target.commitMode ?? 'commit';
     }
     return {
-      ok: true, written: result.written, entry, sourceEntry, source, ...(hub === undefined ? {} : { hub }), bundle: { name: manifest.id, files },
-      mcp: bundleMcpOf(manifest, ctx.env, src.type === 'github' ? src.url : undefined)
+      ok: true, written: result.written, entry, sourceEntry, source, ...(hub === undefined ? {} : { hub }), bundle: { name: manifest.id, files }, mcp
     };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : String(err) };
@@ -981,7 +986,8 @@ async function installProfileBundles(
         built.http,
         built.tokens,
         ctx,
-        sourceAwareDependencyCache
+        sourceAwareDependencyCache,
+        record
       );
       if (!outcome.ok) {
         report.failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });
@@ -1379,7 +1385,7 @@ async function runProfileInstall(
     const superseded: { previous: LockfileBundleEntry['files']; next: LockfileBundleEntry['files'] }[] = [];
     for (const bundleRef of bundleRefs) {
       const outcome = await activateBundleForTarget(
-        bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache
+        bundleRef, sources, target, writer, built.http, built.tokens, ctx, sourceAwareDependencyCache, record
       );
       if (!outcome.ok) {
         failures.push({ bundleId: bundleRef.id, target: target.name, reason: outcome.reason });

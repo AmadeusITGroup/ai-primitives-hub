@@ -300,6 +300,14 @@ export const fromRecordFile = (file: InstallRecord): InstallRecord => {
       if (!Object.hasOwn(record.bundles, bundleId)) {
         record.bundles[bundleId] = Object.assign(nullObject<BundleRecord>(), extra, { tools: nullObject<BundleRecord['tools']>() });
       }
+      const sameKey = record.bundles[bundleId].tools;
+      if (keyed && Object.hasOwn(sameKey, tool) && sameKey[tool].sourceId !== entry.sourceId) {
+        // Another source's entry of the same bundle and tool, as a merge of two branches leaves it:
+        // kept under its own key, so neither entry nor its files are dropped.
+        record.bundles[key] ??= Object.assign(nullObject<BundleRecord>(), extra, { name: key.slice(slash + 1), tools: nullObject<BundleRecord['tools']>() });
+        record.bundles[key].tools[tool] = entry;
+        continue;
+      }
       // A name the bundle id gives anyway is not kept, so a save derives it again.
       if (record.bundles[bundleId].name === recordBundleNameOf(bundleId, entry.version)) {
         delete record.bundles[bundleId].name;

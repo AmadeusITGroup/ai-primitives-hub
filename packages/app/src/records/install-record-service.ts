@@ -46,6 +46,7 @@ import {
   removeExcluded,
 } from './git-root';
 import {
+  checkMcpServers,
   type McpConfigFile,
   mcpServerChecksumOf,
   mcpServerKeyOf,
@@ -370,6 +371,26 @@ const mcpConfigPathOf = (root: string, file: string): string => {
     throw recordError('RECORD.PATH_OUTSIDE_ROOT', { file: path.basename(file), detail: `the MCP file ${file} is outside ${root}` });
   }
   return relative.split(path.sep).join('/');
+};
+
+/**
+ * `config` of an MCP file, checked on disk: its folders, and a symlinked file's
+ * target, must resolve inside the level root.
+ * @param fs - Filesystem port.
+ * @param root - Level root.
+ * @param file - Absolute MCP file path.
+ * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT`.
+ */
+const confineMcpConfig = async (fs: RecordFs, root: string, file: string): Promise<string> => {
+  const config = mcpConfigPathOf(root, file);
+  await confinePath(fs, root, config, config);
+  if ((await fs.lstat(file))?.kind === 'symlink') {
+    const target = await fs.realpath(file).catch(() => undefined);
+    if (target === undefined || relativeInside(await fs.realpath(root), target) === undefined) {
+      throw recordError('RECORD.PATH_OUTSIDE_ROOT', { file: config, detail: `the MCP file ${config} links outside ${root}` });
+    }
+  }
+  return config;
 };
 
 // Names of the servers any entry of the level records for one MCP file.
@@ -1430,15 +1451,37 @@ export class InstallRecordService {
    * @returns The servers as recorded, `config` relative to the level root.
    * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT`, `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`; the file is then unchanged.
    */
-  public async writeMcpServers(input: {
+  public writeMcpServers(input: {
     location: RecordLocation;
     file: McpConfigFile;
     servers: readonly McpServerToWrite[];
   }): Promise<RecordedMcpServer[]> {
-    const config = mcpConfigPathOf(input.location.root, input.file.path);
+    // The read-merge-write of the MCP file runs on the root's queue, as record changes do.
+    return serializeByRoot(input.location.root, async () => {
+      const config = await confineMcpConfig(this.fs, input.location.root, input.file.path);
+      const listed = await recordedMcpServerNames(this.store, input.location, config);
+      const written = await writeMcpServers(this.fs, input.file, input.servers, { isRecorded: (name) => listed.has(name), label: config });
+      return written.map((server): RecordedMcpServer => ({ config, ...server }));
+    });
+  }
+
+  /**
+   * Check that servers can be written into a tool's MCP file, writing nothing, so
+   * an install can refuse before it writes its other files.
+   * @param input - The level's record file, the MCP file and the servers.
+   * @param input.location - Record file the install is recorded in.
+   * @param input.file - The tool's MCP file; it must be inside the level root.
+   * @param input.servers - Servers to write.
+   * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT`, `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`.
+   */
+  public async checkMcpServers(input: {
+    location: RecordLocation;
+    file: McpConfigFile;
+    servers: readonly McpServerToWrite[];
+  }): Promise<void> {
+    const config = await confineMcpConfig(this.fs, input.location.root, input.file.path);
     const listed = await recordedMcpServerNames(this.store, input.location, config);
-    const written = await writeMcpServers(this.fs, input.file, input.servers, { isRecorded: (name) => listed.has(name), label: config });
-    return written.map((server): RecordedMcpServer => ({ config, ...server }));
+    await checkMcpServers(this.fs, input.file, input.servers, { isRecorded: (name) => listed.has(name), label: config });
   }
 
   /**
@@ -1519,7 +1562,7 @@ export class InstallRecordService {
    * @throws {RegistryError} `RECORD.PATH_OUTSIDE_ROOT` or `RECORD.MCP_CONFIG_UNREADABLE`.
    */
   public async describeMcpServers(root: string, file: McpConfigFile, servers: readonly { name: string; item?: string }[]): Promise<RecordedMcpServer[]> {
-    const config = mcpConfigPathOf(root, file.path);
+    const config = await confineMcpConfig(this.fs, root, file.path);
     const current = await readMcpConfig(this.fs, file, config);
     const map = isJsonObject(current[file.serversKey]) ? current[file.serversKey] as Record<string, unknown> : {};
     return servers.filter((server) => Object.hasOwn(map, server.name)).map((server) => ({
@@ -1547,8 +1590,8 @@ export class InstallRecordService {
     }
     for (const [config, ofConfig] of byConfig) {
       const absolute = path.resolve(root, ...config.split('/'));
-      const relative = path.relative(root, absolute);
-      if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+      const confined = await confineMcpConfig(this.fs, root, absolute).then(() => true, () => false);
+      if (!confined) {
         result.warnings.push(`Did not change ${config}: it is outside ${root}.`);
         continue;
       }

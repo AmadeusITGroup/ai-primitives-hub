@@ -32,6 +32,9 @@ import {
   NodeFileSystem,
 } from '@ai-primitives-hub/infra';
 import {
+  dump,
+} from 'js-yaml';
+import {
   afterEach,
   beforeEach,
   describe,
@@ -351,6 +354,29 @@ describe('manifest-driven placement of a Copilot-layout bundle', () => {
     expect(refused.exitCode).not.toBe(0);
     expect(refused.stdout).toContain('RECORD.MCP_CONFLICT');
     expect(JSON.parse(await readFile(path.join(kiroDir, KIRO_MCP), 'utf8'))).toEqual({ mcpServers: { [SERVER_KEY]: { command: 'hand-written' } } });
+    // Refused before the bundle's files were written.
+    expect(await listFiles(kiroDir)).toEqual([KIRO_MCP]);
+  });
+
+  it('writes MCP servers into the MCP file a project layout names, as it places the bundle', async () => {
+    await writeFile(path.join(workspace, 'ai-primitives-hub-layouts.yml'), dump({
+      layouts: {
+        kiro: {
+          user: {
+            baseDir: '${HOME}/.kiro',
+            kindRoutes: { 'prompts/': 'steering/', 'instructions/': 'steering/', 'agents/': 'agents/', 'skills/': 'skills/' },
+            mcpConfig: { path: '${HOME}/.kiro/settings/team-mcp.json', serversKey: 'mcpServers', envPlaceholderStyle: 'bare' }
+          }
+        }
+      }
+    }));
+
+    const installed = await run(['install', '--from', bundleDir, '--target', 'kiro-ide', '-o', 'json']);
+
+    expect(installed.exitCode, installed.stdout).toBe(0);
+    expect(Object.keys((JSON.parse(await readFile(path.join(kiroDir, 'settings', 'team-mcp.json'), 'utf8')) as { mcpServers: object }).mcpServers))
+      .toEqual([SERVER_KEY]);
+    expect(await listFiles(kiroDir)).not.toContain(KIRO_MCP);
   });
 
   it('installs to a Kiro repository target under the workspace .kiro directory', async () => {

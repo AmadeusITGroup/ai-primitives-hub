@@ -616,6 +616,9 @@ export class McpServerManager {
       }
 
       await this.configService.writeMcpConfig(mergeResult.config, options.scope);
+      // Reported as soon as they are in the file, so a later failure still lets the caller record or remove them.
+      result.installedServers = Object.keys(serversToInstall).filter((name) => !mergeResult.conflicts.includes(name));
+      result.serversInstalled = result.installedServers.length;
       if (owned === undefined) {
         await this.configService.writeTrackingMetadata(tracking, options.scope);
       }
@@ -633,10 +636,6 @@ export class McpServerManager {
         this.logger.info(`Disabled ${duplicatesDisabled.length} duplicate MCP servers: ${duplicateNames}`);
       }
 
-      result.serversInstalled = Object.keys(serversToInstall).length - mergeResult.conflicts.length;
-      result.installedServers = Object.keys(serversToInstall).filter(
-        (name) => !mergeResult.conflicts.includes(name)
-      );
       result.success = true;
 
       this.logger.info(`Successfully installed ${result.serversInstalled} MCP servers for bundle ${bundleId}`);
@@ -826,6 +825,9 @@ export class McpServerManager {
 
       // Write config and tracking
       await this.writeWorkspaceMcpConfig(workspaceRoot, mergedConfig);
+      // Reported as soon as they are in the file, so a later failure still lets the caller record or remove them.
+      result.installedServers = Object.keys(serversToInstall);
+      result.serversInstalled = result.installedServers.length;
       if (owned === undefined) {
         await this.writeWorkspaceTrackingMetadata(workspaceRoot, tracking);
       }
@@ -836,8 +838,6 @@ export class McpServerManager {
         await this.addToGitExclude(workspaceRoot, this.getWorkspaceMcpExcludePattern(workspaceRoot));
       }
 
-      result.serversInstalled = Object.keys(serversToInstall).length;
-      result.installedServers = Object.keys(serversToInstall);
       result.success = true;
 
       this.logger.info(`Successfully installed ${result.serversInstalled} MCP servers for bundle ${bundleId} to workspace`);

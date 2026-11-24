@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import {
   appendFile,
+  chmod,
   lstat,
   mkdir,
   open,
@@ -104,9 +105,13 @@ export class NodeRecordFs implements RecordFs {
   }
 
   /** @inheritdoc */
-  public async writeFile(path: string, contents: string): Promise<void> {
-    // `wx` fails when the path exists, so a temp file is never reused; the umask sets the mode.
-    await writeFile(path, contents, { encoding: 'utf8', flag: 'wx' });
+  public async writeFile(path: string, contents: string, options: { mode?: number } = {}): Promise<void> {
+    // `wx` fails when the path exists, so a temp file is never reused; the umask sets the mode unless one is given.
+    await writeFile(path, contents, { encoding: 'utf8', flag: 'wx', ...(options.mode === undefined ? {} : { mode: options.mode }) });
+    if (options.mode !== undefined) {
+      // The umask can clear bits `mode` asks for.
+      await chmod(path, options.mode);
+    }
   }
 
   /** @inheritdoc */

@@ -28,6 +28,7 @@ import {
   orderConfiguredSources,
   readLockfile,
   RECORD_SOURCE_TYPES,
+  recordHubIdOf,
   type RecordHubInput,
   recordIdentityOf,
   type RecordSourceDescriptor,
@@ -683,14 +684,25 @@ export class ExtensionRecordAdapter {
   /**
    * The configured id of a source a record names by its readable id; the id itself
    * when no configured source is that source, so it still names the recorded copy.
+   * Of several configured sources with that readable id, the one from the recorded
+   * hub wins, then the lookup order of {@link configuredSources}.
    * @param recordedId - The entry's `sourceId`.
+   * @param recordedHubId - The recorded source's `hubId`.
    */
-  public async configuredSourceIdOf(recordedId: string): Promise<string> {
+  public async configuredSourceIdOf(recordedId: string, recordedHubId?: string): Promise<string> {
     if (!isRecordSourceId(recordedId)) {
       return recordedId;
     }
-    const sources = await this.sources.listSources();
-    return sources.find((source) => recordSourceIdOf(toRecordSource(source, source.id)) === recordedId)?.id ?? recordedId;
+    const matches = (await this.configuredSources()).filter((source) => recordSourceIdOf(toRecordSource(source, source.id)) === recordedId);
+    if (recordedHubId !== undefined) {
+      for (const source of matches) {
+        const hub = await this.recordHubOf(source.hubId);
+        if (hub !== undefined && recordHubIdOf(hub) === recordedHubId) {
+          return source.id;
+        }
+      }
+    }
+    return matches[0]?.id ?? recordedId;
   }
 
   /**

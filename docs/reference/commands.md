@@ -149,7 +149,8 @@ A bundle's `mcpServers` go into the tool's MCP file at the install level, such a
 - The record lists the servers each entry wrote (`mcpServers[]`: `config`, `name`, `item`, `checksum`), since the file also holds servers you added yourself.
 - Uninstall removes only the entry's servers. A server you changed is kept and reported (toggling `disabled` is not a change), and a server another entry lists stays. The file is deleted only when no server is left.
 - Update removes servers the new version dropped and rewrites the rest.
-- A server name already in the file and not recorded fails with `RECORD.MCP_CONFLICT`. A file that is not plain JSON is never rewritten: install fails with `RECORD.MCP_CONFIG_UNREADABLE`, uninstall warns.
+- A server name already in the file and not recorded fails with `RECORD.MCP_CONFLICT` before any of the bundle's files are written, unless its definition is the one being installed, as a failed install leaves it. A file that is not plain JSON is never rewritten: install fails with `RECORD.MCP_CONFIG_UNREADABLE`, uninstall warns.
+- An MCP file whose folder, or whose own symlink, leads outside the level root is refused with `RECORD.PATH_OUTSIDE_ROOT`. A rewrite keeps the file's permission bits.
 - A tool with no MCP file at the level, such as Windsurf at repository level, gets no servers, with a warning.
 - The record replaces the extension's `prompt-registry-mcp-tracking.json`: the first change at a level moves tracked servers into their entries and deletes the file. Servers with no entry, and user-level servers under WSL, stay tracked there.
 

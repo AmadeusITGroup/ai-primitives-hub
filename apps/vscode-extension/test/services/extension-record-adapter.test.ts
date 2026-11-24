@@ -305,6 +305,19 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(snapshotTree(root), before);
   });
 
+  test('an update of a source recorded from another hub is refused before the old MCP servers are removed', async () => {
+    useHub('other-hub', 'other/hub');
+    await install(V1);
+    useHub('acme-hub');
+    const removeMcp = sandbox.spy(installer as any, 'uninstallMcpServers');
+    const before = snapshotTree(root);
+
+    await assert.rejects(update(V2), { code: 'RECORD.HUB_CONFLICT' });
+
+    assert.strictEqual(removeMcp.callCount, 0);
+    assert.deepStrictEqual(snapshotTree(root), before);
+  });
+
   const refusedInstalls: { name: string; arrange: () => void; sourceId?: string; expected: RegExp | { code: string }; errorShown: boolean }[] = [
     { name: 'an unconfigured source id', arrange: () => undefined, sourceId: 'not-configured', expected: /source not-configured is not configured/, errorShown: false },
     {
@@ -1510,5 +1523,37 @@ suite('older records', function () {
         assert.ok(messages().some((shownMessage) => message.test(shownMessage)), messages().join('\n'));
       }
     });
+  });
+});
+
+suite('ExtensionRecordAdapter: configured source of a recorded source', () => {
+  const memento = (): Pick<vscode.Memento, 'get' | 'update'> => ({ get: () => undefined, update: () => Promise.resolve() });
+  const source = (id: string, hubId: string): any => ({
+    id, name: id, type: 'github', url: 'https://github.com/acme/tools', enabled: true, priority: 0, hubId
+  });
+  const hubs: Record<string, { name: string; reference: { type: string; location: string; ref?: string } }> = {
+    'hub-a': { name: 'Hub A', reference: { type: 'github', location: 'acme/hub-a', ref: 'main' } },
+    'hub-b': { name: 'Hub B', reference: { type: 'github', location: 'acme/hub-b', ref: 'main' } }
+  };
+  const adapter = (): ExtensionRecordAdapter => new ExtensionRecordAdapter({
+    sources: {
+      // The recorded hub's source is listed last, and another hub is active.
+      listSources: () => Promise.resolve([source('tools-a', 'hub-a'), source('tools-b', 'hub-b')]),
+      getActiveHubId: () => Promise.resolve('hub-a'),
+      getHub: (hubId: string) => Promise.resolve(hubs[hubId] ?? null)
+    },
+    memento: memento()
+  });
+  const recordedId = recordSourceIdOf({ type: 'github', url: 'https://github.com/acme/tools' });
+
+  test('returns the configured source from the hub the record names, whatever the order and the active hub', async () => {
+    const hubB = recordHubIdOf({ type: 'github', location: 'acme/hub-b', ref: 'main' });
+
+    assert.strictEqual(await adapter().configuredSourceIdOf(recordedId, hubB), 'tools-b');
+  });
+
+  test('falls back to the active hub\'s source without a recorded hub, and to the recorded id without a match', async () => {
+    assert.strictEqual(await adapter().configuredSourceIdOf(recordedId), 'tools-a');
+    assert.strictEqual(await adapter().configuredSourceIdOf('src:github:github.com/other/repo'), 'src:github:github.com/other/repo');
   });
 });

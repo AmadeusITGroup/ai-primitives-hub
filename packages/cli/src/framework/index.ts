@@ -117,6 +117,8 @@ export {
   configuredSources,
   createLayoutLoader,
   bundleMcpOf,
+  checkPlannedInstallMcp,
+  checkRepositoryInstallMcp,
   createRecordServices,
   writeBundleMcpServers,
   finishRecordRun,

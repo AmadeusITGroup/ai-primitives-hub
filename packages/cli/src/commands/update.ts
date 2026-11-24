@@ -77,6 +77,7 @@ import {
 } from '@ai-primitives-hub/infra';
 import {
   bundleMcpOf,
+  checkPlannedInstallMcp,
   CLI_RECORD_GENERATED_BY,
   Command,
   configuredRecordSources,
@@ -951,12 +952,15 @@ async function applyRecordUpdate(
   const { files, manifest } = await downloadCandidate(
     candidate, http, tokensForRecordSource(run.tokens, item.fromRecord), { bundleId, source: item.source }
   );
-  const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
-    recordPlannedInstall(
+  const mcp = bundleMcpOf(manifest, ctx.env, item.source.type === 'github' ? item.source.url : undefined);
+  const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) => {
+    // An MCP server another writer put in the tool's file refuses the update before any file is written.
+    await checkPlannedInstallMcp(prepared.service, { bundleId, tool, location }, target, ctx, manifest.version, mcp);
+    return recordPlannedInstall(
       prepared.service, { ...item, bundleId, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
-      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings, { name: manifest.id, files },
-      bundleMcpOf(manifest, ctx.env, item.source.type === 'github' ? item.source.url : undefined)
+      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings, { name: manifest.id, files }, mcp
     );
+  };
   const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
   const changes = [change];
   const synced: string[] = [];

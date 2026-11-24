@@ -173,30 +173,34 @@ export const writeMcpConfigText = async (fs: RecordFs, filePath: string, text: s
 const writeMcpConfig = (fs: RecordFs, file: McpConfigFile, config: Record<string, unknown>): Promise<void> =>
   writeMcpConfigText(fs, file.path, `${JSON.stringify(config, null, 2)}\n`);
 
+/** Which existing server names an install may replace, and the file name for errors. */
+export interface McpServerWriteOptions {
+  /** Whether an install record lists this server name for this file. */
+  isRecorded: (name: string) => boolean;
+  /** File named in errors, relative to the level root. */
+  label: string;
+}
+
 /**
- * Write servers into an MCP file, keeping every other key and server. A name the
- * file has that `isRecorded` does not claim was added by someone else and is refused.
+ * Read an MCP file and refuse a server name another writer put there. A name no
+ * record lists is accepted when its definition is the one being written, as a
+ * failed install leaves it, so a retry is not a conflict.
  * @param fs - Filesystem port.
  * @param file - The MCP file.
  * @param servers - Servers to write.
- * @param options - Which existing names an install recorded, and the file name for errors.
- * @param options.isRecorded - Whether an install record lists this server name for this file.
- * @param options.label - File named in errors, relative to the level root.
- * @returns Each server as recorded, without `config`.
- * @throws {RegistryError} `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`; the file is then unchanged.
+ * @param options - Recorded names and the file name for errors.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`.
  */
-export const writeMcpServers = async (
+const readForMcpWrite = async (
   fs: RecordFs,
   file: McpConfigFile,
   servers: readonly McpServerToWrite[],
-  options: { isRecorded: (name: string) => boolean; label: string }
-): Promise<{ name: string; item: string; checksum: string }[]> => {
-  if (servers.length === 0) {
-    return [];
-  }
+  options: McpServerWriteOptions
+): Promise<{ config: Record<string, unknown>; existing: Record<string, unknown> }> => {
   const config = await readMcpConfig(fs, file, options.label);
   const existing = serversIn(config, file.serversKey);
-  const taken = servers.filter((server) => Object.hasOwn(existing, server.name) && !options.isRecorded(server.name));
+  const taken = servers.filter((server) => Object.hasOwn(existing, server.name) && !options.isRecorded(server.name)
+    && mcpServerChecksumOf(existing[server.name]) !== mcpServerChecksumOf(server.definition));
   if (taken.length > 0) {
     throw recordError('RECORD.MCP_CONFLICT', {
       file: options.label,
@@ -204,6 +208,49 @@ export const writeMcpServers = async (
       context: { servers: taken.map((server) => server.name) }
     });
   }
+  return { config, existing };
+};
+
+/**
+ * Check that servers can be written into an MCP file, writing nothing.
+ * @param fs - Filesystem port.
+ * @param file - The MCP file.
+ * @param servers - Servers to write.
+ * @param options - Recorded names and the file name for errors.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`.
+ */
+export const checkMcpServers = async (
+  fs: RecordFs,
+  file: McpConfigFile,
+  servers: readonly McpServerToWrite[],
+  options: McpServerWriteOptions
+): Promise<void> => {
+  if (servers.length > 0) {
+    await readForMcpWrite(fs, file, servers, options);
+  }
+};
+
+/**
+ * Write servers into an MCP file, keeping every other key and server. A name the
+ * file has that `isRecorded` does not claim, with another definition, was added by
+ * someone else and is refused.
+ * @param fs - Filesystem port.
+ * @param file - The MCP file.
+ * @param servers - Servers to write.
+ * @param options - Recorded names and the file name for errors.
+ * @returns Each server as recorded, without `config`.
+ * @throws {RegistryError} `RECORD.MCP_CONFLICT` or `RECORD.MCP_CONFIG_UNREADABLE`; the file is then unchanged.
+ */
+export const writeMcpServers = async (
+  fs: RecordFs,
+  file: McpConfigFile,
+  servers: readonly McpServerToWrite[],
+  options: McpServerWriteOptions
+): Promise<{ name: string; item: string; checksum: string }[]> => {
+  if (servers.length === 0) {
+    return [];
+  }
+  const { config, existing } = await readForMcpWrite(fs, file, servers, options);
   const next = { ...existing };
   for (const server of servers) {
     // A tool's own `disabled` setting survives a rewrite.

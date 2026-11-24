@@ -1055,11 +1055,36 @@ export class BundleInstaller {
     options: InstallOptions,
     inPlace: RepositoryUpdateInPlace
   ): Promise<InstalledBundle> {
+    // A source recorded from another hub is refused before the old MCP servers are removed.
+    await this.checkUpdateSourceHub(bundle, options, inPlace);
     // MCP config entries are merged, not recorded: refresh them as before.
     await this.uninstallMcpServers(installed.bundleId, options.scope);
     const updated = await this.installFromBuffer(bundle, bundleBuffer, options, sourceType, inPlace);
     this.logger.info('Bundle updated successfully');
     return updated;
+  }
+
+  /**
+   * Refuse an update whose source is recorded from another hub, before anything changes.
+   * @param bundle - New version.
+   * @param options - Scope and commit mode of the update.
+   * @param inPlace - The old entry.
+   */
+  private async checkUpdateSourceHub(bundle: Bundle, options: InstallOptions, inPlace: RepositoryUpdateInPlace): Promise<void> {
+    const workspaceRoot = getWorkspaceRoot();
+    const repository = options.scope === 'repository' && workspaceRoot !== undefined;
+    if (!repository && !(options.scope === 'user' && this.records.usesSharedUserRecord())) {
+      return;
+    }
+    const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
+    try {
+      const location = repository
+        ? inPlace.location ?? await this.records.prepareInstall(workspaceRoot, options.commitMode ?? 'commit')
+        : await this.records.prepareUserInstall(this.copilotSync.userFolders());
+      await this.records.checkSourceHub(location, source, hub);
+    } catch (error) {
+      this.rethrowRecordError(error);
+    }
   }
 
   /**
