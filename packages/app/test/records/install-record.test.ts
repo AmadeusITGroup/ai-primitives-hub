@@ -2,6 +2,9 @@
 import {
   execFileSync,
 } from 'node:child_process';
+import {
+  createHash,
+} from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -553,6 +556,38 @@ describe('repository install record', () => {
     expect(Object.keys(saved.bundles).toSorted()).toEqual([firstKey, `${otherSource}/coll`].toSorted());
     expect(saved.bundles[`${otherSource}/coll`].tools.vscode.version).toBe('2.0.0');
     expect(saved.bundles[firstKey].tools.vscode.files).toEqual(raw.bundles[firstKey].tools.vscode.files);
+  });
+
+  it('a reinstall from either source of a merged record updates that source\'s entry and keeps the other', async () => {
+    const sourceA = { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' };
+    const sourceB = { sourceId: 'other-github', type: 'github', url: 'https://github.com/other/tools' };
+    await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'coll', name: 'coll', source: sourceA });
+    const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    const [keyA] = Object.keys(raw.bundles);
+    const keyB = `${recordSourceIdOf(sourceB)}/coll`;
+    write('.github/prompts/b.prompt.md');
+    fs.writeFileSync(committed.path, JSON.stringify({
+      ...raw,
+      sources: { ...raw.sources, [recordSourceIdOf(sourceB)]: { type: 'github', url: sourceB.url } },
+      bundles: {
+        ...raw.bundles,
+        [keyB]: { name: 'coll', tools: { vscode: { ...raw.bundles[keyA].tools.vscode, version: '2.0.0', files: [
+          { path: '.github/prompts/b.prompt.md', checksum: `sha256:${createHash('sha256').update(fs.readFileSync(path.join(root, '.github/prompts/b.prompt.md'))).digest('hex')}` }
+        ] } } }
+      }
+    }));
+    const versions = (): Record<string, string> => Object.fromEntries(Object.entries((JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>).bundles)
+      .map(([key, bundle]: [string, any]) => [key, bundle.tools.vscode.version]));
+
+    await install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'coll', name: 'coll', version: '3.0.0', source: sourceB });
+
+    expect(versions()).toEqual({ [keyA]: '1.0.0', [keyB]: '3.0.0' });
+    expect(fs.existsSync(path.join(root, '.github/prompts/a.prompt.md'))).toBe(true);
+
+    await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'coll', name: 'coll', version: '4.0.0', source: sourceA });
+
+    expect(versions()).toEqual({ [keyA]: '4.0.0', [keyB]: '3.0.0' });
+    expect(fs.existsSync(path.join(root, '.github/prompts/b.prompt.md'))).toBe(true);
   });
 
   it('keeps the bundle key when the bundle is upgraded', async () => {

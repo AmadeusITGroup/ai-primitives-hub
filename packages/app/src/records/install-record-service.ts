@@ -66,6 +66,7 @@ import {
 import {
   isRecordHubId,
   isRecordSourceId,
+  recordBundleKeyOf,
   recordBundleNameOf,
   recordHubIdOf,
   recordHubKeyIn,
@@ -981,10 +982,16 @@ export class InstallRecordService {
     // Recorded under its readable id, the same on every machine, whatever the configured id.
     const sourceId = recordSourceIdOf(source);
     const hub = recordedHubOf(source, input.hub);
-    const { location, bundleId, tool } = input;
+    const { location, tool } = input;
     const target = await this.store.load(location);
     const otherLocation = otherRepositoryLocation(location);
     const other = otherLocation === undefined ? undefined : await this.store.load(otherLocation);
+    // Another source's entry of the same name keeps the plain key, and this source's entry its own key
+    // (see `fromRecordFile`): a reinstall from this source updates its own entry, not the other one.
+    const ownKey = recordBundleKeyOf(sourceId, recordBundleNameOf(input.name ?? input.bundleId, input.version));
+    const hasOwnKey = ownKey !== input.bundleId && [target, other].some((file) => file !== undefined
+      && Object.hasOwn(file.record.bundles, ownKey) && Object.hasOwn(file.record.bundles[ownKey].tools, tool));
+    const bundleId = hasOwnKey ? ownKey : input.bundleId;
     assertOneHub(other === undefined ? [target] : [target, other], sourceId, source.hubId);
     // Without the hub's details, a configured hub id keeps the hub the source is recorded from.
     if (hub === undefined && source.hubId !== undefined && !isRecordHubId(source.hubId)) {
