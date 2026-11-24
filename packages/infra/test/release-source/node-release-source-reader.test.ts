@@ -54,6 +54,63 @@ describe('NodeReleaseSourceReader', () => {
   }, REAL_FS_HOOK_TIMEOUT_MS);
 
   describe('openRevision()', () => {
+    const addSubmodule = (): string => {
+      const source = fs.mkdtempSync(path.join(os.tmpdir(), 'release-source-module-'));
+      const modulePath = 'vendor/upstream skill';
+      try {
+        git(source, ['init']);
+        git(source, ['config', 'user.email', 'test@example.invalid']);
+        git(source, ['config', 'user.name', 'Release Source Test']);
+        writeFile(source, 'skills/slidev/SKILL.md', '# Pinned skill\n');
+        writeFile(source, 'skills/slidev/run.sh', '#!/bin/sh\n');
+        git(source, ['add', '.']);
+        git(source, ['update-index', '--chmod=+x', 'skills/slidev/run.sh']);
+        git(source, ['commit', '-m', 'Upstream fixture']);
+        git(repo, ['-c', 'protocol.file.allow=always', 'submodule', 'add', source, modulePath]);
+        git(repo, ['commit', '-m', 'Pin upstream fixture']);
+      } finally {
+        fs.rmSync(source, { recursive: true, force: true });
+      }
+      return modulePath;
+    };
+
+    it('reads and lists only pinned submodule files even when its checkout has moved', async () => {
+      const modulePath = addSubmodule();
+      const checkout = path.join(repo, modulePath);
+      git(checkout, ['config', 'user.email', 'test@example.invalid']);
+      git(checkout, ['config', 'user.name', 'Release Source Test']);
+      writeFile(checkout, 'skills/slidev/SKILL.md', '# Newer checkout\n');
+      writeFile(checkout, 'skills/slidev/new.md', 'Not in the pinned commit\n');
+      git(checkout, ['add', '.']);
+      git(checkout, ['commit', '-m', 'Move checkout']);
+
+      const tree = await reader.openRevision(repo);
+      const skill = `${modulePath}/skills/slidev`;
+      expect(await tree.listFiles('vendor')).toEqual([`${skill}/SKILL.md`, `${skill}/run.sh`]);
+      expect(await tree.listFiles(skill)).toEqual([`${skill}/SKILL.md`, `${skill}/run.sh`]);
+      expect(decode(await tree.readFile(`${skill}/SKILL.md`))).toBe('# Pinned skill\n');
+      expect(await tree.isExecutable?.(`${skill}/run.sh`)).toBe(true);
+      await expect(tree.readFile(`${skill}/new.md`)).rejects.toThrow('Source file is not present at revision');
+    });
+
+    it('fails with checkout guidance only when an uninitialized submodule is needed', async () => {
+      const modulePath = addSubmodule();
+      git(repo, ['submodule', 'deinit', '--force', '--', modulePath]);
+      const tree = await reader.openRevision(repo);
+      expect(await tree.listFiles('.', { recursive: false })).toEqual(['.gitmodules', 'LICENSE']);
+      expect(decode(await tree.readFile('prompts/hello.prompt.md'))).toBe('# Hello\n');
+      await expect(tree.listFiles(`${modulePath}/skills`)).rejects.toThrow('git submodule update --init --recursive');
+    });
+
+    it('does not use submodule HEAD when the parent pins an unavailable commit', async () => {
+      const modulePath = addSubmodule();
+      const missing = 'a'.repeat(40);
+      git(repo, ['update-index', '--cacheinfo', `160000,${missing},${modulePath}`]);
+      git(repo, ['commit', '-m', 'Pin unavailable commit']);
+      const tree = await reader.openRevision(repo);
+      await expect(tree.readFile(`${modulePath}/skills/slidev/SKILL.md`)).rejects.toThrow(`pinned commit ${missing}`);
+    });
+
     it('resolves HEAD to the full lowercase commit id', async () => {
       const tree = await reader.openRevision(repo);
       expect(tree.revision).toBe(git(repo, ['rev-parse', 'HEAD']));
@@ -159,7 +216,7 @@ describe('NodeReleaseSourceReader', () => {
       const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'release-source-plain-'));
       try {
         await expect(reader.openRevision(plain)).rejects.toThrow(
-          'Git command failed: git rev-parse --verify HEAD^{commit}'
+          'Git command failed: git rev-parse --verify --end-of-options HEAD^{commit}'
         );
       } finally {
         fs.rmSync(plain, { recursive: true, force: true });

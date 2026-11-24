@@ -4,7 +4,8 @@
  * Without the flag a bundle the target cannot fully hold is rejected and
  * nothing is written (unchanged). With it, the supported items install,
  * the rest are listed in the output, the lockfile records only what was
- * installed, and uninstall removes exactly that.
+ * installed, and uninstall removes exactly that. User-scope targets record
+ * in the shared user record.
  */
 import {
   mkdir,
@@ -16,10 +17,6 @@ import {
 } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import {
-  type Lockfile,
-  resolveUserConfigPaths,
-} from '@ai-primitives-hub/app';
 import type {
   HttpClient,
   HttpRequest,
@@ -50,6 +47,10 @@ import {
   runCli,
   runCommand,
 } from '../../src/framework';
+import {
+  readInstallRecord,
+  userRecordPath,
+} from '../helpers/install-record-fixtures';
 
 const MIXED_FILES: Record<string, string> = {
   'deployment-manifest.yml': `id: sample-mixed
@@ -172,9 +173,6 @@ describe('install --skip-unsupported', () => {
     });
     return { exitCode, stdout: ctx.stdout.captured() };
   };
-  const userLockPath = (): string => resolveUserConfigPaths(env()).userLockfile;
-  const readLock = async (lockPath: string): Promise<Lockfile> =>
-    JSON.parse(await readFile(lockPath, 'utf8')) as Lockfile;
 
   beforeEach(async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-skip-unsupported-test-'));
@@ -196,7 +194,8 @@ describe('install --skip-unsupported', () => {
       expect(result.stdout).toContain('BUNDLE.UNSUPPORTED_CONTENT');
       expect(result.stdout).toContain('hooks/pre-commit.hook.json');
       expect(await listFiles(kiroDir)).toEqual([]);
-      await expect(readFile(userLockPath(), 'utf8')).rejects.toThrow();
+      // Only the user-level import ran before the refusal: no bundle is recorded.
+      expect((await readInstallRecord(userRecordPath(env()))).bundles).toEqual({});
     });
 
     it('keeps the JSON envelope of a fully supported install', async () => {
@@ -220,7 +219,7 @@ describe('install --skip-unsupported', () => {
 
       expect(result.exitCode, result.stdout).toBe(0);
       expect(result.stdout).toBe(
-        `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 0 skipped). Updated ${userLockPath()}.\n`
+        `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 0 skipped). Updated ${userRecordPath(env())}.\n`
       );
       expect(result.stderr).toBe('');
     });
@@ -238,8 +237,8 @@ describe('install --skip-unsupported', () => {
     expect(envelope.data.skipped).toEqual([HOOK_SKIP]);
     expect(envelope.warnings).toEqual([`skipped hooks/pre-commit.hook.json: ${KIRO_REASON}`]);
     expect(await listFiles(kiroDir)).toEqual(['steering/hello.prompt.md']);
-    const entry = (await readLock(envelope.data.lockfile)).bundles['sample-mixed'];
-    expect(entry.files.map((f) => f.path)).toEqual(['prompts/hello.prompt.md']);
+    const entry = (await readInstallRecord(envelope.data.lockfile)).bundles['sample-mixed'].tools.kiro;
+    expect(entry.files.map((f) => f.path)).toEqual(['.kiro/steering/hello.prompt.md']);
   });
 
   it('lists the skipped items in text output and warns on stderr', async () => {
@@ -247,7 +246,7 @@ describe('install --skip-unsupported', () => {
 
     expect(result.exitCode, result.stdout).toBe(0);
     expect(result.stdout).toBe(
-      `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 1 skipped). Updated ${userLockPath()}.\n`
+      `Installed sample-mixed@1.0.0 into target "kiro-ide" (1 written, 1 skipped). Updated ${userRecordPath(env())}.\n`
       + 'Skipped:\n'
       + `  - hooks/pre-commit.hook.json: ${KIRO_REASON}\n`
     );
@@ -262,9 +261,10 @@ describe('install --skip-unsupported', () => {
     const removed = await run(['uninstall', '--bundle', 'sample-mixed', '--target', 'kiro-ide', '-o', 'json']);
 
     expect(removed.exitCode, removed.stdout).toBe(0);
-    expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['prompts/hello.prompt.md']);
+    expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['.kiro/steering/hello.prompt.md']);
     expect(await listFiles(kiroDir)).toEqual([]);
-    expect((await readLock(userLockPath())).bundles['sample-mixed']).toBeUndefined();
+    // The user record is kept empty, with its import marker.
+    expect(await readInstallRecord(userRecordPath(env()))).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
   it('applies to a remote install', async () => {
@@ -277,8 +277,8 @@ describe('install --skip-unsupported', () => {
     const envelope = parseJson<InstallData>(result.stdout);
     expect(envelope.status).toBe('warning');
     expect(envelope.data.skipped).toEqual([HOOK_SKIP]);
-    const entry = (await readLock(envelope.data.lockfile)).bundles['sample-mixed'];
-    expect(entry.files.map((f) => f.path)).toEqual(['prompts/hello.prompt.md']);
+    const entry = (await readInstallRecord(envelope.data.lockfile)).bundles['sample-mixed'].tools.kiro;
+    expect(entry.files.map((f) => f.path)).toEqual(['.kiro/steering/hello.prompt.md']);
   });
 
   it('skips content a repository-scope target excludes and uninstalls only the rest', async () => {
@@ -300,13 +300,16 @@ describe('install --skip-unsupported', () => {
     await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
     await expect(readFile(path.join(workspace, '.github', 'agents', 'hello.agent.md'), 'utf8')).rejects.toThrow();
-    const entry = (await readLock(envelope.data.lockfile)).bundles['sample-repo'];
-    expect(entry.files.map((f) => f.path)).toEqual(['prompts/hello.prompt.md']);
+    // Repository scope records root-relative paths under `bundles.<id>.tools.<type>`.
+    expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.local.lock.json'));
+    const record = await readInstallRecord(envelope.data.lockfile);
+    expect(record.bundles['sample-repo'].tools.vscode.files.map((f) => f.path))
+      .toEqual(['.github/prompts/hello.prompt.md']);
 
     const removed = await run(['uninstall', '--bundle', 'sample-repo', '--target', 'repo-prompts', '-o', 'json']);
 
     expect(removed.exitCode, removed.stdout).toBe(0);
-    expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['prompts/hello.prompt.md']);
+    expect(parseJson<{ removed: string[] }>(removed.stdout).data.removed).toEqual(['.github/prompts/hello.prompt.md']);
     await expect(readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')).rejects.toThrow();
   });
 
@@ -335,6 +338,7 @@ describe('install --skip-unsupported', () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain('BUNDLE.UNSUPPORTED_CONTENT');
     expect(await listFiles(kiroDir)).toEqual([]);
-    await expect(readFile(userLockPath(), 'utf8')).rejects.toThrow();
+    // Only the user-level import ran before the refusal: no bundle is recorded.
+    expect((await readInstallRecord(userRecordPath(env()))).bundles).toEqual({});
   });
 });

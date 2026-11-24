@@ -12,6 +12,9 @@ import {
   LocalApmAdapter,
 } from '../../src/adapters/local-apm-adapter';
 import {
+  ZipBundleExtractor,
+} from '../../src/extractors/zip-bundle-extractor';
+import {
   FixedClock,
 } from '../helpers/fixed-clock';
 import {
@@ -155,6 +158,22 @@ describe('LocalApmAdapter', () => {
       // ZIP local-file-header magic number: "PK\x03\x04".
       expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
       expect(zip.length).toBeGreaterThan(0);
+    });
+
+    it('preserves binary .apm assets and exact root prompt bytes', async () => {
+      const fs = new InMemoryFileSystem();
+      const binary = Buffer.from([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x80]);
+      const text = Buffer.from('\uFEFF# Café\r\n');
+      fs.seed('/packages-root/apm.yml', apmManifestYaml());
+      fs.seed('/packages-root/.apm/skills/demo/dist/example.whl', binary);
+      fs.seed('/packages-root/root.prompt.md', text);
+      const adapter = makeAdapter({ fs });
+      const [bundle] = await adapter.fetchBundles();
+
+      const files = await new ZipBundleExtractor().extract(await adapter.downloadBundle(bundle));
+
+      expect(Buffer.from(files.get('prompts/skills/demo/dist/example.whl')!)).toEqual(binary);
+      expect(Buffer.from(files.get('prompts/root.prompt.md')!)).toEqual(text);
     });
 
     it('throws when the package directory referenced by downloadUrl no longer exists', async () => {

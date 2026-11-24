@@ -31,8 +31,10 @@
     "lint": "eslint src test",
     "lint:fix": "eslint src test --fix",
     "test": "vitest run",
+    "test:sea": "pnpm run build:sea:local && node --test scripts/test-sea.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "qualify:apm-archive": "node scripts/qualify-apm-archive.mjs",
     "build:sea": "node scripts/build-sea.mjs",
     "build:sea:local": "node scripts/build-sea.mjs --local",
     "prepublishOnly": "pnpm run build"

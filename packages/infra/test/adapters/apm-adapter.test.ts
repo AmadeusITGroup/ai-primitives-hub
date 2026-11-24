@@ -13,6 +13,9 @@ import {
   ApmAdapter,
 } from '../../src/adapters/apm-adapter';
 import {
+  ZipBundleExtractor,
+} from '../../src/extractors/zip-bundle-extractor';
+import {
   FakeGitHubApi,
 } from '../helpers/fake-github-api';
 import {
@@ -257,6 +260,26 @@ describe('ApmAdapter', () => {
       // ZIP local-file-header magic number: "PK\x03\x04".
       expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
       expect(zip.length).toBeGreaterThan(0);
+    });
+
+    it('preserves binary installed .apm assets and exact dependency/root prompt bytes', async () => {
+      const fs = new InMemoryFileSystem();
+      const binary = Buffer.from([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFE, 0x00, 0x80]);
+      const text = Buffer.from('\uFEFF# Café\r\n');
+      const processRunner = withApmInstalled(new FakeProcessRunner()).on('apm install', async (_command, options) => {
+        await fs.writeFileBytes(`${options.cwd}/.apm/skills/demo/dist/example.whl`, binary);
+        await fs.writeFileBytes(`${options.cwd}/apm_modules/dep/helper.prompt.md`, text);
+        await fs.writeFileBytes(`${options.cwd}/root.prompt.md`, text);
+        return { stdout: '', stderr: '' };
+      });
+      const adapter = makeAdapter({ fs, processRunner });
+      const bundle = { id: 'owner-pkg', name: 'Pkg', description: 'd', author: 'owner', downloadUrl: `${RAW_BASE}/apm.yml` } as never;
+
+      const files = await new ZipBundleExtractor().extract(await adapter.downloadBundle(bundle));
+
+      expect(Buffer.from(files.get('prompts/skills/demo/dist/example.whl')!)).toEqual(binary);
+      expect(Buffer.from(files.get('prompts/helper.prompt.md')!)).toEqual(text);
+      expect(Buffer.from(files.get('prompts/root.prompt.md')!)).toEqual(text);
     });
 
     it('writes a temp apm.yml declaring the subdirectory package as a dependency', async () => {

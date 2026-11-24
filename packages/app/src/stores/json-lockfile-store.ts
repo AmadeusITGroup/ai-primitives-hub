@@ -1,36 +1,10 @@
 /**
- * Install lockfile (repository scope only).
- *
- * Adapted to interoperate byte-for-byte with the VS Code extension's
- * `LockfileManager` (`src/services/lockfile-manager.ts`) schema, NOT
- * the reference branch's schema this module was ported from
- * (schemaVersion `1`, single `entries: LockfileEntry[]` array,
- * `target`-keyed). The two are structurally incompatible:
- *
- *   - Extension (this module): `version: '2.0.0'` (string), `bundles:
- *     Record<bundleId, LockfileBundleEntry>` (object), `files:
- *     LockfileFileEntry[]` (`{path, checksum}`), TWO separate physical
- *     files (`prompt-registry.lock.json` for `commit` mode,
- *     `prompt-registry.local.lock.json` for `local-only` mode —
- *     commitMode is implicit by which file an entry lives in).
- *   - Reference branch's original: `schemaVersion: 1` (number),
- *     `entries: LockfileEntry[]` (array keyed by target+sourceId+
- *     bundleId, to support multi-target lockfiles), `files: string[]`
- *     + parallel `fileChecksums`, ONE file with an explicit per-entry
- *     `commitMode` field.
- *
- * This module mirrors the extension's actual on-disk shape so a CLI
- * install and an extension install of the same bundle produce
- * byte-compatible lockfile entries. Scope: repository only — the
- * lockfile has never tracked user/workspace-scope installs (no
- * reproducibility/team-sharing use case there), so this store — and
- * the uninstall pipeline that uses it — only applies to
- * `target.scope === 'repository'`. No `target` field exists on
- * `LockfileBundleEntry` for the same reason the extension has none:
- * repository scope always writes to `.github/`, invariant of which
- * IDE type nominally triggered the install (see
- * `writers/repo-scope-writer.ts`'s `RepositoryScopeWriterAdapter`,
- * which ignores its `Target` parameter entirely).
+ * Older 2.0.0 lockfile store: `prompt-registry.lock.json`,
+ * `prompt-registry.local.lock.json` and the CLI's old user lockfile, keyed by
+ * bundle only (no tool field). The current format is the 3.0.0 install record
+ * (`records/`). Still used for migration, the CLI's workspace scope and
+ * `profile activate`, an old-format `--lockfile`, and bundles only an older
+ * file lists.
  * @module stores/json-lockfile-store
  */
 import {

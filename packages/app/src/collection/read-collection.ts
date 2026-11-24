@@ -322,19 +322,15 @@ export function resolveCollectionItemPaths(repoRoot: string, collection: Collect
     }
 
     const normalizedPath = normalizeRepoRelativePath(item.path);
+    allPaths.push(normalizedPath);
 
     if (item.kind === 'skill') {
       // For skills, the path points to SKILL.md but we need the entire directory
       const skillDir = path.dirname(path.join(repoRoot, normalizedPath));
       if (fs.existsSync(skillDir) && fs.statSync(skillDir).isDirectory()) {
         const skillFiles = listFilesRecursively(skillDir, repoRoot);
-        allPaths.push(...skillFiles);
-      } else {
-        // Fallback: just include the path as-is if directory doesn't exist
-        allPaths.push(normalizedPath);
+        allPaths.push(...skillFiles.filter((file) => file !== normalizedPath));
       }
-    } else {
-      allPaths.push(normalizedPath);
     }
   }
 

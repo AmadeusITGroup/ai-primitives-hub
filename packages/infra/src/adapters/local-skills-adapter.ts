@@ -10,11 +10,8 @@
  * content directly (matching `main`'s own local implementation, which
  * already did this correctly - only the remote adapter has git shas to
  * reuse). All disk I/O goes through the injected `FileSystem` port;
- * archive creation uses `archiver`, reading each file as text (matching
- * `LocalAdapter`'s own documented text-only limitation - `FileSystem`
- * has no binary-safe read, so a hash computed here over a binary skill
- * asset's UTF-8-decoded text won't byte-for-byte match one computed by
- * `main`'s raw-`Buffer` read; same accepted limitation, not a new one).
+ * archive creation reads raw bytes to preserve binary skill assets.
+ * Version hashing retains the existing text-based algorithm.
  * Uses the shared `resolveLocalPath`/`isValidLocalUrl` from
  * `./local-path`.
  *
@@ -284,8 +281,8 @@ export class LocalSkillsAdapter extends BaseSourceAdapter {
     archive.append(yaml.dump(this.createDeploymentManifest(skill)), { name: 'deployment-manifest.yml' });
 
     for (const relativePath of await this.listFilesRecursively(skillPath)) {
-      const content = await this.fs.readFile(path.join(skillPath, relativePath));
-      archive.append(content, { name: `skills/${skill.id}/${relativePath}` });
+      const content = await this.fs.readFileBytes(path.join(skillPath, relativePath));
+      archive.append(Buffer.from(content), { name: `skills/${skill.id}/${relativePath}` });
     }
 
     await archive.finalize();

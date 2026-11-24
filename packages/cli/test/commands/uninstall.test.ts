@@ -16,8 +16,8 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
-  NodeFileSystem,
-} from '@ai-primitives-hub/infra';
+  resolveUserConfigPaths,
+} from '@ai-primitives-hub/app';
 import {
   afterEach,
   beforeEach,
@@ -29,23 +29,35 @@ import {
   InstallCommand,
 } from '../../src/commands/install';
 import {
+  StatusCommand,
+} from '../../src/commands/status';
+import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
 import {
   UninstallCommand,
 } from '../../src/commands/uninstall';
 import {
-  runCommand,
-} from '../../src/framework';
-import {
   createGovernedReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  addRepositoryTargets,
+  initGitRoot,
+  makeRun,
+  readInstallRecord,
+  readRecord,
+  recordPathIn,
+  userRecordPath,
+  writeLocalFooBundle,
+  writeOldLockfile,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
   InstallCommand,
-  UninstallCommand
+  UninstallCommand,
+  StatusCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -59,19 +71,7 @@ describe('uninstall command', () => {
   let targetDir: string;
   const installedFile = (): string => path.join(targetDir, 'prompts', 'hello.prompt.md');
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES);
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -80,13 +80,8 @@ describe('uninstall command', () => {
     bundleDir = path.join(workspace, 'bundle');
     targetDir = path.join(workspace, 'target');
 
-    await mkdir(path.join(bundleDir, 'prompts'), { recursive: true });
+    await writeLocalFooBundle(bundleDir);
     await mkdir(targetDir, { recursive: true });
-    await writeFile(
-      path.join(bundleDir, 'deployment-manifest.yml'),
-      'id: local-foo\nversion: 1.0.0\nname: Local Foo\nitems:\n  - path: prompts/hello.prompt.md\n    kind: prompt\n'
-    );
-    await writeFile(path.join(bundleDir, 'prompts', 'hello.prompt.md'), '# Hello Prompt\n');
 
     expect((await run([
       'target', 'add', 'copilot', '--type', 'copilot-cli', '--path', targetDir, '-o', 'json'
@@ -108,8 +103,8 @@ describe('uninstall command', () => {
 
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
-    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as { bundles: Record<string, unknown> };
-    expect(lockContent.bundles).toEqual({});
+    // The user record is kept empty, with its import marker.
+    expect(await readInstallRecord(envelope.data.lockfile)).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
   it('uninstalls a governed bundle using installable-only lockfile paths', async () => {
@@ -128,10 +123,8 @@ describe('uninstall command', () => {
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
 
     const envelope = parseJson<{ lockfile: string }>(uninstallResult.stdout);
-    const lockContent = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, unknown>;
-    };
-    expect(lockContent.bundles).toEqual({});
+    // The user record is kept empty, with its import marker.
+    expect(await readInstallRecord(envelope.data.lockfile)).toMatchObject({ bundles: {}, importedUserLockfileAt: expect.any(String) });
   });
 
   it('is a warning no-op (exit 0) when the bundle is not installed', async () => {
@@ -184,24 +177,207 @@ describe('uninstall command', () => {
     await expect(readFile(installedFile(), 'utf8')).rejects.toThrow();
   });
 
+  describe('repository install record (ai-primitives-hub.lock.json)', () => {
+    const oldLockPath = (): string => path.join(workspace, 'prompt-registry.lock.json');
+    /**
+     * Write an old 2.0.0 `prompt-registry.lock.json` for the local bundle.
+     * @param bundles - Bundle id → its single prompt file, relative to the bundle.
+     */
+    const writeOldLock = async (bundles: Record<string, string>): Promise<void> => {
+      await writeOldLockfile(
+        oldLockPath(),
+        Object.fromEntries(Object.entries(bundles).map(([id, file]) => [id, { version: '1.0.0', files: [file], sourceId: 'local-bundle' }])),
+        { 'local-bundle': { type: 'local', url: bundleDir } }
+      );
+    };
+    const recordPath = (): string => recordPathIn(workspace);
+    const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    const recordedTools = async (): Promise<string[]> =>
+      Object.keys((await readRecord(workspace)).bundles['local-foo'].tools).toSorted();
+    const exists = async (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+
+    beforeEach(async () => {
+      await initGitRoot(workspace);
+      await addRepositoryTargets(run, workspace, [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], { bundleDir });
+    });
+
+    it('uninstalling one tool from the record keeps the other tool and its files', async () => {
+      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-kiro', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(recordPath());
+      expect(await recordedTools()).toEqual(['vscode']);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it.each([
+      ['a file edited after install is kept and named in a warning', (): Promise<void> => writeFile(vscodePrompt(), '# My own edits\n'), true,
+        ['Did not remove .github/prompts/hello.prompt.md: it was changed after install.']],
+      ['a missing file does not fail it', (): Promise<void> => rm(vscodePrompt()), false, []]
+    ])('uninstall: %s, and the entry is removed', async (_label, change, onDisk, warnings) => {
+      await change();
+
+      const result = await run(['uninstall', '--bundle', 'local-foo', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const envelope = JSON.parse(result.stdout) as { warnings: string[]; data: { removed: string[] } };
+      expect(envelope.warnings).toEqual(warnings);
+      expect(envelope.data.removed).toEqual([]);
+      expect(await recordedTools()).toEqual(['kiro']);
+      expect(await exists(vscodePrompt())).toBe(onDisk);
+    });
+
+    it('a plain uninstall of a bundle migrated from the old file removes its lone unknown entry and keeps its files', async () => {
+      const oldFile = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldFile, '# Old\n');
+      await writeOldLock({ 'old-only': '.github/prompts/old.prompt.md' });
+
+      // A bundle only the old file lists does not decide with several targets: a typed --target migrates the level first.
+      const migrate = await run(['uninstall', '--bundle', 'old-only', '--target', 'repo-kiro']);
+      expect(migrate.exitCode, migrate.stdout).toBe(0);
+      expect(migrate.stdout).toContain(`Migrated repository record:\n  merged ${oldLockPath()}\n  needs reinstall: old-only@1.0.0 (tool unknown)\n`);
+
+      const result = await run(['uninstall', '--bundle', 'old-only']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain('Removed the record entry of old-only (tool unknown); 1 file kept because their tool is unknown.');
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await readFile(oldFile, 'utf8')).toBe('# Old\n');
+      expect(await exists(oldLockPath())).toBe(false);
+      expect(Object.keys((JSON.parse(await readFile(recordPath(), 'utf8')) as { bundles: object }).bundles)).toEqual(['local-foo']);
+    });
+
+    it('--all migrates the old file first and leaves a migrated bundle under unknown', async () => {
+      await writeOldLock({ 'local-foo': 'prompts/hello.prompt.md', 'old-only': 'prompts/old.prompt.md' });
+
+      const result = await run(['uninstall', '--all', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const data = parseJson<{ uninstalled: number; bundles: { id: string }[]; migration: { needsReinstall: object[]; droppedEntries: { bundleId: string }[] } }>(result.stdout).data;
+      expect(data.bundles.map((bundle) => bundle.id)).toEqual(['local-foo']);
+      expect(data.migration.needsReinstall).toEqual([{ bundleId: 'old-only', version: '1.0.0' }]);
+      expect(data.migration.droppedEntries.map((entry) => entry.bundleId)).toEqual(['local-foo']);
+      expect(await recordedTools()).toEqual(['kiro']);
+      expect(await exists(oldLockPath())).toBe(false);
+    });
+
+    it('refuses uninstall <id> without --target when the bundle has several tools, removing nothing', async () => {
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['uninstall', '--bundle', 'local-foo', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      const error = (JSON.parse(result.stdout) as { errors: { code: string; message: string; context: { tools: string[] } }[] }).errors[0];
+      expect(error).toMatchObject({ code: 'USAGE.MISSING_FLAG', context: { tools: ['kiro', 'vscode'] } });
+      expect(error.message).toContain('kiro, vscode');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <3.0.0 record> --target <user-scope vscode> refuses with USAGE.INVALID_FLAG, removing nothing', async () => {
+      expect((await run(['target', 'add', 'user-vscode', '--type', 'vscode', '--path', path.join(workspace, 'user-vscode'), '-o', 'json'])).exitCode).toBe(0);
+      const before = await readFile(recordPath(), 'utf8');
+
+      const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'user-vscode', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect((JSON.parse(result.stdout) as { errors: { code: string }[] }).errors[0].code).toBe('USAGE.INVALID_FLAG');
+      expect(await readFile(recordPath(), 'utf8')).toBe(before);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <3.0.0 record> --target <kiro> removes only the kiro entries and keeps vscode files', async () => {
+      const result = await run(['uninstall', '--lockfile', recordPath(), '--target', 'repo-kiro']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(result.stdout).toContain(`Record: repository ${recordPath()}\n`);
+      expect(await recordedTools()).toEqual(['vscode']);
+      expect(await exists(vscodePrompt())).toBe(true);
+    });
+
+    it('--lockfile <2.0.0 file> uninstalls as before', async () => {
+      const oldFile = path.join(workspace, '.github', 'prompts', 'old.prompt.md');
+      await writeFile(oldFile, '# Old\n');
+      await writeOldLock({ 'old-only': 'prompts/old.prompt.md' });
+
+      const result = await run(['uninstall', '--lockfile', oldLockPath(), '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string; uninstalled: number }>(result.stdout).data).toMatchObject({ lockfile: oldLockPath(), uninstalled: 1 });
+      expect(await exists(oldFile)).toBe(false);
+      expect(await recordedTools()).toEqual(['kiro', 'vscode']);
+    });
+  });
+
+  describe('user install record (ai-primitives-hub.user.lock.json)', () => {
+    let userEnv: Record<string, string>;
+    let homeTargetDir: string;
+    const runUser = (argv: string[]): ReturnType<ReturnType<typeof makeRun>> => makeRun(() => workspace, COMMAND_CLASSES, userEnv)(argv);
+    const homePrompt = (): string => path.join(homeTargetDir, 'prompts', 'hello.prompt.md');
+    const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+    const installUser = async (): Promise<void> => {
+      const result = await runUser(['install', 'local-foo', '--from', bundleDir, '--target', 'user-copilot', '-o', 'json']);
+      expect(result.exitCode, result.stdout).toBe(0);
+    };
+    const uninstallUser = async (): Promise<{ removed: string[]; lockfile: string }> => {
+      const result = await runUser(['uninstall', '--bundle', 'local-foo', '--target', 'user-copilot', '-o', 'json']);
+      expect(result.exitCode, result.stdout).toBe(0);
+      return parseJson<{ removed: string[]; lockfile: string }>(result.stdout).data;
+    };
+
+    beforeEach(async () => {
+      // HOME and USERPROFILE differ, so the recorded paths show which one is the root.
+      userEnv = {
+        HOME: path.join(workspace, 'home'),
+        USERPROFILE: path.join(workspace, 'profile'),
+        XDG_CONFIG_HOME: path.join(workspace, 'user-xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'user-xdg-cache')
+      };
+      homeTargetDir = path.join(userEnv.HOME, 'target');
+      await mkdir(homeTargetDir, { recursive: true });
+      await mkdir(userEnv.USERPROFILE, { recursive: true });
+      expect((await runUser([
+        'target', 'add', 'user-copilot', '--type', 'copilot-cli', '--path', homeTargetDir, '-o', 'json'
+      ])).exitCode).toBe(0);
+    });
+
+    it('records paths relative to HOME, not USERPROFILE, and uninstall removes exactly those files', async () => {
+      await installUser();
+      const userRecord = userRecordPath(userEnv);
+      const record = await readInstallRecord(userRecord);
+      const recorded = record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path);
+      expect(recorded).toEqual(['target/prompts/hello.prompt.md']);
+
+      const data = await uninstallUser();
+
+      expect(data.lockfile).toBe(userRecord);
+      expect(data.removed).toEqual(recorded);
+      expect(await exists(homePrompt())).toBe(false);
+    });
+
+    it('after the user-level import, uninstall ignores the old user lockfile: the recorded file goes, that lockfile stays byte-identical', async () => {
+      const oldLockfile = resolveUserConfigPaths(userEnv).userLockfile;
+      const before = await writeOldLockfile(oldLockfile, { 'local-foo': { version: '1.0.0', files: ['prompts/hello.prompt.md'], sourceId: 'local-src' } });
+      await installUser();
+      expect(await readInstallRecord(userRecordPath(userEnv))).toMatchObject({ importedUserLockfileAt: expect.any(String) });
+
+      const data = await uninstallUser();
+
+      expect(data.removed).toEqual(['target/prompts/hello.prompt.md']);
+      expect(await exists(homePrompt())).toBe(false);
+      expect(await readFile(oldLockfile, 'utf8')).toBe(before);
+      const status = await runUser(['status', '-o', 'json']);
+      expect(status.exitCode, status.stdout).toBe(0);
+      expect(status.stdout).not.toContain('local-foo');
+    });
+  });
+
   it('fails with exit 1 when neither --bundle, --lockfile, nor --all is given (and no lockfile is discoverable)', async () => {
     const freshWorkspace = await mkdtemp(path.join(os.tmpdir(), 'cli-uninstall-test-fresh-'));
     try {
       const freshTargetDir = path.join(freshWorkspace, 'target');
       await mkdir(freshTargetDir, { recursive: true });
-      const freshRun = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-        commandClasses: COMMAND_CLASSES,
-        context: {
-          cwd: freshWorkspace,
-          fs: new NodeFileSystem(),
-          env: {
-            HOME: freshWorkspace,
-            USERPROFILE: freshWorkspace,
-            XDG_CONFIG_HOME: path.join(freshWorkspace, 'xdg-config'),
-            XDG_CACHE_HOME: path.join(freshWorkspace, 'xdg-cache')
-          }
-        }
-      });
+      const freshRun = makeRun(() => freshWorkspace, COMMAND_CLASSES);
       expect((await freshRun([
         'target', 'add', 'copilot', '--type', 'copilot-cli', '--path', freshTargetDir, '-o', 'json'
       ])).exitCode).toBe(0);

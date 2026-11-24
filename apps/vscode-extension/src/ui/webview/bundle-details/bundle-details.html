@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="{{iconsUri}}">
     <link rel="stylesheet" href="{{cssUri}}">
 </head>
-<body>
+<body data-auto-update-enabled="{{autoUpdateEnabled}}" data-bundle-id="{{bundleId}}">
     <div class="header">
         <h1>
             <i class="fa-icon fa-box-open"></i> {{bundleName}}
@@ -65,13 +65,6 @@
 
     {{promptsSection}}
 
-    <script nonce="{{nonce}}">
-        // Initialize bundle details data for the external JS
-        window.bundleDetailsData = {
-            autoUpdateEnabled: {{autoUpdateEnabled}},
-            bundleId: '{{bundleId}}'
-        };
-    </script>
     <script nonce="{{nonce}}" src="{{scriptUri}}"></script>
 </body>
 </html>

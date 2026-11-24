@@ -23,6 +23,8 @@ import {
   ArtifactoryBundleResolver,
   ArtifactoryEnvCredentialProvider,
   ArtifactoryHttpClient,
+  ArtifactoryRepositoryCredentialProvider,
+  ArtifactoryRepositoryInspector,
   ArtifactorySourceAdapter,
   normalizeSourceRoot,
   resolveConfinedObject,
@@ -123,6 +125,96 @@ describe('Artifactory credentials', () => {
       .resolves.toEqual({ Authorization: 'Bearer test-token' });
     await expect(provider.headersFor('http://127.0.0.1:8081/artifactory/other/index.json', context))
       .rejects.toThrow(RegistryError);
+  });
+
+  it('confines repository metadata credentials to one endpoint without broadening artifact credentials', async () => {
+    const root = 'https://artifactory.example/artifactory/selected';
+    const endpoint = 'https://artifactory.example/artifactory/api/repositories/selected';
+    const context: SourceRequestContext = {
+      sourceId: root, trustedOrigin: 'https://artifactory.example',
+      trustedPathPrefix: '/artifactory/api/repositories/selected'
+    };
+    const env = { ARTIFACTORY_TOKEN: 'test-token' };
+    const provider = new ArtifactoryRepositoryCredentialProvider(env, 'ARTIFACTORY_TOKEN', root);
+    await expect(provider.headersFor(endpoint, context)).resolves.toEqual({ Authorization: 'Bearer test-token' });
+    for (const url of [
+      'https://evil.example/artifactory/api/repositories/selected',
+      endpoint + '/child', endpoint + '?query=1', endpoint + '#fragment',
+      'https://artifactory.example/artifactory/api/repositories/another',
+      root + '/index-v1.json'
+    ]) {
+      await expect(provider.headersFor(url, context)).rejects.toThrow(RegistryError);
+    }
+    await expect(provider.headersFor(endpoint, { ...context, trustedOrigin: 'https://evil.example' })).rejects.toThrow(RegistryError);
+    const artifacts = new ArtifactoryEnvCredentialProvider(env, 'ARTIFACTORY_TOKEN', root);
+    await expect(artifacts.headersFor(endpoint, context)).rejects.toThrow(RegistryError);
+    const missing = new ArtifactoryRepositoryCredentialProvider({}, 'ARTIFACTORY_TOKEN', root);
+    await expect(missing.headersFor(endpoint, context)).rejects.toMatchObject({ code: 'ARTIFACTORY.CREDENTIAL_MISSING' });
+  });
+});
+
+describe('Artifactory repository inspection', () => {
+  const root = 'https://artifactory.example/prefix/artifactory/selected';
+  const endpoint = 'https://artifactory.example/prefix/artifactory/api/repositories/selected';
+  const metadata = { key: 'selected', rclass: 'local', packageType: 'agentpackages', repoLayoutRef: 'agent-packages-default' };
+
+  it.each(['agentpackages', 'AgentPackages', 'generic'])('reads the API packageType %s independently of repository layout', async (packageType) => {
+    const http = new FakeHttpClient([makeResponse(200, new TextEncoder().encode(JSON.stringify({ ...metadata, packageType })))]);
+    const inspector = new ArtifactoryRepositoryInspector(http,
+      new ArtifactoryRepositoryCredentialProvider({ ARTIFACTORY_TOKEN: 'test-token' }, 'ARTIFACTORY_TOKEN', root));
+    await expect(inspector.inspect(root + '/')).resolves.toEqual({
+      key: 'selected', rclass: 'local', packageType: packageType.toLowerCase()
+    });
+    expect(http.requests).toHaveLength(1);
+    expect(http.requests[0]).toMatchObject({
+      method: 'GET', url: endpoint, followRedirects: false,
+      headers: { Authorization: 'Bearer test-token', Accept: 'application/json' }
+    });
+  });
+
+  it.each([
+    { body: 'not-json' },
+    { body: '[]' },
+    { body: JSON.stringify({ ...metadata, key: 'another' }) },
+    { body: JSON.stringify({ ...metadata, packageType: undefined }) },
+    { body: JSON.stringify({ ...metadata, packageType: 1 }) },
+    { body: JSON.stringify({ ...metadata, packageType: '' }) },
+    { body: JSON.stringify({ ...metadata, rclass: undefined }) }
+  ])('rejects malformed repository metadata: $body', async ({ body }) => {
+    const http = new FakeHttpClient([makeResponse(200, new TextEncoder().encode(body))]);
+    await expect(new ArtifactoryRepositoryInspector(http, new FakeCredentials()).inspect(root))
+      .rejects.toMatchObject({ code: 'ARTIFACTORY.CONFIG_INVALID' });
+  });
+
+  it.each([301, 302, 401, 403, 404, 503])('rejects HTTP %s without retrying or following redirects', async (statusCode) => {
+    const http = new FakeHttpClient([makeResponse(statusCode, new Uint8Array())]);
+    await expect(new ArtifactoryRepositoryInspector(http, new FakeCredentials()).inspect(root)).rejects.toThrow(`HTTP ${statusCode}`);
+    expect(http.requests).toHaveLength(1);
+    expect(http.requests[0].followRedirects).toBe(false);
+  });
+
+  it('rejects an unexpectedly redirected final response', async () => {
+    const http = new FakeHttpClient([{
+      ...makeResponse(200, new TextEncoder().encode(JSON.stringify(metadata))),
+      finalUrl: 'https://evil.example/metadata'
+    }]);
+    await expect(new ArtifactoryRepositoryInspector(http, new FakeCredentials()).inspect(root))
+      .rejects.toMatchObject({ code: 'ARTIFACTORY.PATH_ESCAPE' });
+  });
+
+  it.each([
+    'https://artifactory.example/selected',
+    root + '/subpath',
+    'https://artifactory.example/artifactory/selected/../another',
+    'https://artifactory.example/artifactory/%73elected',
+    root + '?query=1',
+    'https://user:password@artifactory.example/artifactory/selected'
+  ])('rejects ambiguous or unsafe roots before requesting credentials: %s', async (targetRoot) => {
+    const http = new FakeHttpClient([]);
+    const credentials = new FakeCredentials();
+    await expect(new ArtifactoryRepositoryInspector(http, credentials).inspect(targetRoot)).rejects.toThrow(RegistryError);
+    expect(http.requests).toEqual([]);
+    expect(credentials.contexts).toEqual([]);
   });
 });
 

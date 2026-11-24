@@ -38,6 +38,15 @@ pnpm run test:coverage:integration # integration only
 
 Use `LOG_LEVEL=ERROR` to suppress debug output.
 
+### Opt-in live replica consumers
+
+From the repository root, `pnpm run test:live:replica-consumers` runs the live
+Artifactory CLI and VS Code consumer campaign with isolated install directories.
+The optional `APH_LIVE_ARTIFACTORY_CREDENTIAL_REF` setting must be an uppercase
+environment-variable name and cannot be `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`
+or `XDG_CACHE_HOME`. The runner rejects these names before token resolution so
+credential injection cannot replace its isolated storage roots.
+
 ## Test Directory Layout
 
 ```
@@ -82,6 +91,24 @@ pnpm run test:coverage:unit    # c8 html output in coverage/
 ```
 
 Coverage reports are written to the `coverage/` directory.
+
+## Security Scanner Testing
+
+Scanner coverage lives in `packages/core/test/domain/security/`,
+`packages/infra/test/security/`, `packages/app/test/security/`,
+`packages/cli/test/commands/security-scan.test.ts`, and the extension's scanner
+tests. Run focused package tests with `pnpm -C packages/<package> exec vitest run <test-path>`.
+The isolated-engine and CLI scanner tests use the built worker. On a clean
+checkout, build the shared packages first:
+
+```bash
+pnpm --filter @ai-primitives-hub/core --filter @ai-primitives-hub/infra --filter @ai-primitives-hub/app --filter @ai-primitives-hub/cli build
+pnpm -C packages/infra exec vitest run test/security/isolated-security-scan-engine.test.ts
+```
+
+Use synthetic credentials only, and cover positive cases, near misses,
+redaction, limits, worker isolation, cancellation, and report writes.
+See [Security Scanner Maintenance](./security-scanner-maintenance.md).
 
 ## What These Suites Do Not Cover
 

@@ -15,6 +15,7 @@ npm-shrinkwrap.json
 .env.development.local
 .env.test.local
 .env.production.local
+.art.env
 .pnpm-store
 
 # IDE files

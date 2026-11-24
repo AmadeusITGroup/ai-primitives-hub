@@ -2,7 +2,6 @@
   "governed": {
     "claude-code/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.claude",
         "<workspace>/.claude/agents",
         "<workspace>/.claude/commands",
@@ -16,14 +15,12 @@
         "<workspace>/.claude/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.claude/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.claude/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.claude/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "4d7d3a2badd98fdd7871d7eb71e3be9d33780c13d5d9d8f9cd168745d157695d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -36,18 +33,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".claude/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".claude/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".claude/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -67,18 +65,15 @@
         "$HOME/.claude/plugins/foo",
         "$HOME/.claude/plugins/foo/skills",
         "$HOME/.claude/plugins/foo/skills/s",
-        "$HOME/.claude/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.claude/skills"
       ],
       "files": {
         "$HOME/.claude/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.claude/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.claude/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "bea9c6ce96e3c6cac89d3b4b988b3c0c10885459220f6e4bca75de85f4e449e3"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -91,18 +86,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".claude/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".claude/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".claude/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -121,18 +117,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -145,18 +138,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -175,18 +169,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -199,18 +190,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -220,7 +212,6 @@
     },
     "cursor/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.cursor",
         "<workspace>/.cursor/agents",
         "<workspace>/.cursor/commands",
@@ -233,14 +224,12 @@
         "<workspace>/.cursor/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.cursor/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.cursor/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.cursor/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "19a43efadac6def7a81d6ee53be20558b5f576586e412a3fb4fd3f6f97cecf0b"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -253,18 +242,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".cursor/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".cursor/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".cursor/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -283,18 +273,15 @@
         "$HOME/.cursor/plugins/foo/skills",
         "$HOME/.cursor/plugins/foo/skills/s",
         "$HOME/.cursor/rules",
-        "$HOME/.cursor/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.cursor/skills"
       ],
       "files": {
         "$HOME/.cursor/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.cursor/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.cursor/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "033c41bb077cb3ff8a3b4b01a757aaccd5409efdbcb3ac63490106be4957fdf6"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -307,18 +294,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".cursor/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".cursor/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".cursor/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -328,7 +316,6 @@
     },
     "devin-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -343,14 +330,12 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -363,18 +348,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -397,18 +383,15 @@
         "$HOME/.devin/plugins/foo/skills",
         "$HOME/.devin/plugins/foo/skills/s",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -421,18 +404,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -442,7 +426,6 @@
     },
     "devin/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -457,14 +440,12 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -477,18 +458,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -511,18 +493,15 @@
         "$HOME/.devin/plugins/foo/skills",
         "$HOME/.devin/plugins/foo/skills/s",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -535,18 +514,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -556,7 +536,6 @@
     },
     "kiro-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/hooks",
@@ -570,14 +549,12 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.kiro/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.kiro/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -590,18 +567,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".kiro/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".kiro/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".kiro/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -621,18 +599,15 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.kiro/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.kiro/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -645,18 +620,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".kiro/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".kiro/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".kiro/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -706,7 +682,6 @@
     },
     "opencode/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.opencode",
         "<workspace>/.opencode/agents",
         "<workspace>/.opencode/commands",
@@ -720,14 +695,12 @@
         "<workspace>/.opencode/tools"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.opencode/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.opencode/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.opencode/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "6c87e0e91ddc75bba591f5046e6dbc8986b59eeb7c3d0475debd184eae8226ab"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -740,18 +713,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".opencode/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".opencode/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".opencode/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -771,18 +745,15 @@
         "$HOME/.opencode/plugins/foo/skills/s",
         "$HOME/.opencode/rules",
         "$HOME/.opencode/skills",
-        "$HOME/.opencode/tools",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.opencode/tools"
       ],
       "files": {
         "$HOME/.opencode/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.opencode/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.opencode/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "d8a888910226a3afbe2d442b76a4eb9b75995545bf9a5fa1eaabf38bff1fca45"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -795,18 +766,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".opencode/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".opencode/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".opencode/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -816,7 +788,6 @@
     },
     "vscode-insiders/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.github",
         "<workspace>/.github/plugins",
         "<workspace>/.github/plugins/foo",
@@ -824,14 +795,12 @@
         "<workspace>/.github/plugins/foo/skills/s"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.github/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.github/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.github/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "92745287913bc3762247dd5ffd136b2f1021571892c71c879b44f7c74e7e2e6b"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -844,18 +813,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".github/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".github/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".github/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -874,18 +844,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "e108acdb0c2b7ee324c81c1010121e295b6bbe93ae4da632d995f7fb0d7ce288"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -898,18 +865,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -919,7 +887,6 @@
     },
     "vscode/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.github",
         "<workspace>/.github/plugins",
         "<workspace>/.github/plugins/foo",
@@ -927,14 +894,12 @@
         "<workspace>/.github/plugins/foo/skills/s"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.github/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.github/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.github/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -947,18 +912,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".github/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".github/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".github/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -968,7 +934,6 @@
     },
     "vscode/repository/local-only": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.github",
         "<workspace>/.github/plugins",
         "<workspace>/.github/plugins/foo",
@@ -976,14 +941,12 @@
         "<workspace>/.github/plugins/foo/skills/s"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.github/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.github/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.github/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": "# Prompt Registry (local)\n.github/plugins/foo/.mcp.json\n.github/plugins/foo/plugin.json\n.github/plugins/foo/skills/s/SKILL.md",
@@ -996,18 +959,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".github/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".github/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".github/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1026,18 +990,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "eafa2273b259dd384e5d0e6391c40ee10692b248394be96a289fb9a9c2928a7f"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1050,18 +1011,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1071,7 +1033,6 @@
     },
     "windsurf/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.windsurf",
         "<workspace>/.windsurf/agents",
         "<workspace>/.windsurf/hooks",
@@ -1083,14 +1044,12 @@
         "<workspace>/.windsurf/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.windsurf/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.windsurf/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.windsurf/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "a30aeb9daf9d5f75f3d6c19bc781e378ca4ec3486baaa20f3877251b2f93a470"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1103,18 +1062,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".windsurf/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".windsurf/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".windsurf/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1133,18 +1093,15 @@
         "$HOME/.codeium/windsurf/plugins/foo/skills",
         "$HOME/.codeium/windsurf/plugins/foo/skills/s",
         "$HOME/.codeium/windsurf/rules",
-        "$HOME/.codeium/windsurf/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.codeium/windsurf/skills"
       ],
       "files": {
         "$HOME/.codeium/windsurf/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.codeium/windsurf/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.codeium/windsurf/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "6db8d19cfbd75cbd4b33a8bc6ae65a9a94451fc9570451b495946ff5442e010c"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1157,18 +1114,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".codeium/windsurf/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".codeium/windsurf/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".codeium/windsurf/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1180,7 +1138,6 @@
   "legacy": {
     "claude-code/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.claude",
         "<workspace>/.claude/agents",
         "<workspace>/.claude/commands",
@@ -1194,14 +1151,12 @@
         "<workspace>/.claude/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.claude/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.claude/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.claude/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "4d7d3a2badd98fdd7871d7eb71e3be9d33780c13d5d9d8f9cd168745d157695d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1214,18 +1169,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".claude/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".claude/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".claude/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1245,18 +1201,15 @@
         "$HOME/.claude/plugins/foo",
         "$HOME/.claude/plugins/foo/skills",
         "$HOME/.claude/plugins/foo/skills/s",
-        "$HOME/.claude/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.claude/skills"
       ],
       "files": {
         "$HOME/.claude/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.claude/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.claude/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "bea9c6ce96e3c6cac89d3b4b988b3c0c10885459220f6e4bca75de85f4e449e3"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1269,18 +1222,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".claude/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".claude/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".claude/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1299,18 +1253,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1323,18 +1274,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1353,18 +1305,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "44bdc3fe4fc07c85bc45c31bf42ccaedaea9d662f015f27b6c691f4c76afa361"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1377,18 +1326,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1398,7 +1348,6 @@
     },
     "cursor/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.cursor",
         "<workspace>/.cursor/agents",
         "<workspace>/.cursor/commands",
@@ -1411,14 +1360,12 @@
         "<workspace>/.cursor/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.cursor/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.cursor/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.cursor/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "19a43efadac6def7a81d6ee53be20558b5f576586e412a3fb4fd3f6f97cecf0b"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1431,18 +1378,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".cursor/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".cursor/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".cursor/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1461,18 +1409,15 @@
         "$HOME/.cursor/plugins/foo/skills",
         "$HOME/.cursor/plugins/foo/skills/s",
         "$HOME/.cursor/rules",
-        "$HOME/.cursor/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.cursor/skills"
       ],
       "files": {
         "$HOME/.cursor/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.cursor/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.cursor/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "033c41bb077cb3ff8a3b4b01a757aaccd5409efdbcb3ac63490106be4957fdf6"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1485,18 +1430,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".cursor/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".cursor/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".cursor/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1506,7 +1452,6 @@
     },
     "devin-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -1521,14 +1466,12 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1541,18 +1484,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1575,18 +1519,15 @@
         "$HOME/.devin/plugins/foo/skills",
         "$HOME/.devin/plugins/foo/skills/s",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1599,18 +1540,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1620,7 +1562,6 @@
     },
     "devin/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -1635,14 +1576,12 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1655,18 +1594,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1689,18 +1629,15 @@
         "$HOME/.devin/plugins/foo/skills",
         "$HOME/.devin/plugins/foo/skills/s",
         "$HOME/.devin/powers",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.devin/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.devin/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1713,18 +1650,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".devin/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".devin/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".devin/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1734,7 +1672,6 @@
     },
     "kiro-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/hooks",
@@ -1748,14 +1685,12 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.kiro/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.kiro/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1768,18 +1703,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".kiro/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".kiro/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".kiro/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1799,18 +1735,15 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.kiro/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.kiro/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1823,18 +1756,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".kiro/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".kiro/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".kiro/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1884,7 +1818,6 @@
     },
     "opencode/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.opencode",
         "<workspace>/.opencode/agents",
         "<workspace>/.opencode/commands",
@@ -1898,14 +1831,12 @@
         "<workspace>/.opencode/tools"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.opencode/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.opencode/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.opencode/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "6c87e0e91ddc75bba591f5046e6dbc8986b59eeb7c3d0475debd184eae8226ab"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1918,18 +1849,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".opencode/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".opencode/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".opencode/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1949,18 +1881,15 @@
         "$HOME/.opencode/plugins/foo/skills/s",
         "$HOME/.opencode/rules",
         "$HOME/.opencode/skills",
-        "$HOME/.opencode/tools",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.opencode/tools"
       ],
       "files": {
         "$HOME/.opencode/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.opencode/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.opencode/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "d8a888910226a3afbe2d442b76a4eb9b75995545bf9a5fa1eaabf38bff1fca45"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1973,18 +1902,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".opencode/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".opencode/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".opencode/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1994,7 +1924,6 @@
     },
     "vscode-insiders/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.github",
         "<workspace>/.github/plugins",
         "<workspace>/.github/plugins/foo",
@@ -2002,14 +1931,12 @@
         "<workspace>/.github/plugins/foo/skills/s"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.github/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.github/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.github/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "92745287913bc3762247dd5ffd136b2f1021571892c71c879b44f7c74e7e2e6b"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -2022,18 +1949,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".github/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".github/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".github/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2052,18 +1980,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "e108acdb0c2b7ee324c81c1010121e295b6bbe93ae4da632d995f7fb0d7ce288"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -2076,18 +2001,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2097,7 +2023,6 @@
     },
     "vscode/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.github",
         "<workspace>/.github/plugins",
         "<workspace>/.github/plugins/foo",
@@ -2105,14 +2030,12 @@
         "<workspace>/.github/plugins/foo/skills/s"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.github/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.github/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.github/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -2125,18 +2048,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".github/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".github/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".github/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2146,7 +2070,6 @@
     },
     "vscode/repository/local-only": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.github",
         "<workspace>/.github/plugins",
         "<workspace>/.github/plugins/foo",
@@ -2154,14 +2077,12 @@
         "<workspace>/.github/plugins/foo/skills/s"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.github/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.github/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.github/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "0e3ec8e148f1168c6780f39f69390f389647820c45543e6bb73c6e11a9c78d62"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": "# Prompt Registry (local)\n.github/plugins/foo/.mcp.json\n.github/plugins/foo/plugin.json\n.github/plugins/foo/skills/s/SKILL.md",
@@ -2174,18 +2095,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".github/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".github/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".github/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.local.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2204,18 +2126,15 @@
         "$HOME/.copilot/plugins/foo/skills",
         "$HOME/.copilot/plugins/foo/skills/s",
         "$HOME/.copilot/prompts",
-        "$HOME/.copilot/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.copilot/skills"
       ],
       "files": {
         "$HOME/.copilot/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.copilot/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.copilot/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "eafa2273b259dd384e5d0e6391c40ee10692b248394be96a289fb9a9c2928a7f"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -2228,18 +2147,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".copilot/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".copilot/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".copilot/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2249,7 +2169,6 @@
     },
     "windsurf/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.windsurf",
         "<workspace>/.windsurf/agents",
         "<workspace>/.windsurf/hooks",
@@ -2261,14 +2180,12 @@
         "<workspace>/.windsurf/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.windsurf/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "<workspace>/.windsurf/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "<workspace>/.windsurf/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
         "<workspace>/ai-primitives-hub.yml": "a30aeb9daf9d5f75f3d6c19bc781e378ca4ec3486baaa20f3877251b2f93a470"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -2281,18 +2198,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".windsurf/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".windsurf/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".windsurf/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -2311,18 +2229,15 @@
         "$HOME/.codeium/windsurf/plugins/foo/skills",
         "$HOME/.codeium/windsurf/plugins/foo/skills/s",
         "$HOME/.codeium/windsurf/rules",
-        "$HOME/.codeium/windsurf/skills",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.codeium/windsurf/skills"
       ],
       "files": {
         "$HOME/.codeium/windsurf/plugins/foo/.mcp.json": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
         "$HOME/.codeium/windsurf/plugins/foo/plugin.json": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
         "$HOME/.codeium/windsurf/plugins/foo/skills/s/SKILL.md": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "6db8d19cfbd75cbd4b33a8bc6ae65a9a94451fc9570451b495946ff5442e010c"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -2335,18 +2250,19 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-            "path": "plugins/foo/.mcp.json"
+            "checksum": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+            "path": ".codeium/windsurf/plugins/foo/.mcp.json"
           },
           {
-            "checksum": "e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
-            "path": "plugins/foo/plugin.json"
+            "checksum": "sha256:e502edb8c2c052300eccbfc8e6c9fa201e9774b484b7afd5dd538a1f099ad43e",
+            "path": ".codeium/windsurf/plugins/foo/plugin.json"
           },
           {
-            "checksum": "323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
-            "path": "plugins/foo/skills/s/SKILL.md"
+            "checksum": "sha256:323d6fac869464a4bcba2016b984ef7cc266767add267b07bd57169e8f8678d1",
+            "path": ".codeium/windsurf/plugins/foo/skills/s/SKILL.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

@@ -135,6 +135,8 @@ INTEGRATION_TEST_*.md
 !icon.png
 !dist/extension.js
 !dist/extension.js.LICENSE.txt
+!dist/isolated-security-scan-worker.js
+!dist/isolated-security-scan-worker.js.LICENSE.txt
 !dist/webview/
 !dist/webview/**
 

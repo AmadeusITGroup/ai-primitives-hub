@@ -122,7 +122,6 @@
     },
     "devin-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -135,12 +134,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -153,10 +150,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -177,16 +175,13 @@
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
         "$HOME/.devin/powers/stripe",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -199,10 +194,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -212,7 +208,6 @@
     },
     "devin/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -225,12 +220,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -243,10 +236,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -267,16 +261,13 @@
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
         "$HOME/.devin/powers/stripe",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -289,10 +280,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -302,7 +294,6 @@
     },
     "kiro-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/hooks",
@@ -314,12 +305,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -332,10 +321,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -353,16 +343,13 @@
         "$HOME/.kiro/powers/stripe",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -375,10 +362,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -388,7 +376,6 @@
     },
     "kiro/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
@@ -398,12 +385,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -416,10 +401,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -435,16 +421,13 @@
         "$HOME/.kiro/powers/stripe",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "45cef5d8403ca2ef8e5861481aa12254d6e8d8795439d8038d1b835e7eb97fe0"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -457,10 +440,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -772,7 +756,6 @@
     },
     "devin-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -785,12 +768,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "ba4c31d393e34c0ec020376e50259ddee5f3fa607af9d3368a7b376bfcfaaf8d"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -803,10 +784,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -827,16 +809,13 @@
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
         "$HOME/.devin/powers/stripe",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "55aa2fa9f11e35fa269c5e3fd24ffbb2700ffd0dc8d5101fa12bda79abf701ca"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -849,10 +828,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -862,7 +842,6 @@
     },
     "devin/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.devin",
         "<workspace>/.devin/agents",
         "<workspace>/.devin/hooks",
@@ -875,12 +854,10 @@
         "<workspace>/.devin/skills"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "7cd6de9be4441fa3d7726902091351daa361d90006aa6025ce782e549683e0c9"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -893,10 +870,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -917,16 +895,13 @@
         "$HOME/.devin/plugins",
         "$HOME/.devin/powers",
         "$HOME/.devin/powers/stripe",
-        "$HOME/.devin/rules",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.devin/rules"
       ],
       "files": {
         "$HOME/.devin/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "3131d189b5071774bf4311c8634d50da7a39520c5c153e7b7ba543d92ceac55e"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -939,10 +914,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".devin/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -952,7 +928,6 @@
     },
     "kiro-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/hooks",
@@ -964,12 +939,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -982,10 +955,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1003,16 +977,13 @@
         "$HOME/.kiro/powers/stripe",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1025,10 +996,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1038,7 +1010,6 @@
     },
     "kiro/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
@@ -1048,12 +1019,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1066,10 +1035,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -1085,16 +1055,13 @@
         "$HOME/.kiro/powers/stripe",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/powers/stripe/POWER.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "45cef5d8403ca2ef8e5861481aa12254d6e8d8795439d8038d1b835e7eb97fe0"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -1107,10 +1074,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-            "path": "powers/stripe/POWER.md"
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "path": ".kiro/powers/stripe/POWER.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

@@ -5,6 +5,9 @@
  */
 import * as path from 'node:path';
 import {
+  RECORD_FILE_NAMES,
+} from '@ai-primitives-hub/core';
+import {
   LAYOUTS_CONFIG_FILE,
 } from '@ai-primitives-hub/infra';
 import {
@@ -32,14 +35,24 @@ import {
 const abs = (posix: string): string => path.resolve(posix);
 
 describe('findAncestorFile', () => {
-  it('lists the project config, layouts file and both lockfiles as preflight names', () => {
+  it('lists the project config, layouts file, both lockfiles and both install records as preflight names', () => {
     expect(PRIMITIVE_DIAGNOSTICS_PREFLIGHT_FILES).toEqual([
       'ai-primitives-hub.yml',
       'ai-primitives-hub.yaml',
       LAYOUTS_CONFIG_FILE,
       LOCKFILE_NAME,
-      LOCAL_LOCKFILE_NAME
+      LOCAL_LOCKFILE_NAME,
+      ...RECORD_FILE_NAMES
     ]);
+  });
+
+  it('finds a stray ai-primitives-hub.lock.json above the workspace', async () => {
+    const fs = new InMemoryFileSystem();
+    fs.seed(abs('/home/user/ai-primitives-hub.lock.json'), '{}');
+    fs.seed(abs('/home/user/runs/ai-primitives-hub.yml.bak'), 'x');
+
+    await expect(findAncestorFile(fs, abs('/home/user/runs/ws'), PRIMITIVE_DIAGNOSTICS_PREFLIGHT_FILES))
+      .resolves.toBe(abs('/home/user/ai-primitives-hub.lock.json'));
   });
 
   it.each([...PRIMITIVE_DIAGNOSTICS_PREFLIGHT_FILES])('finds %s in an ancestor of the start dir', async (name) => {

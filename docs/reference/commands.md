@@ -26,14 +26,85 @@ The command is metadata-only by default: it never downloads archives or publishe
 
 `--cache-dir`, `--workers`, and `--request-budget` control persistent metadata/archive reuse, concurrency, and the GitHub request ceiling. Cache files are atomically written with directory mode 700 and file mode 600. No GitHub fallback client or `gh` CLI is used by production replication.
 
+## Security Scanning
+
+`ai-primitives-hub security scan [PATH...] [--ci] [--fail-on HIGH]`
+
+Scans Markdown artifacts and Claude settings without executing them. Reports
+are opt-in; secret evidence is redacted. See the [scanner reference](./security-scanner.md)
+for options, failure policies, and exit codes.
+
+| Command ID | Command Palette title |
+|---|---|
+| `promptregistry.securityScanFile` | Security Scan Current File |
+| `promptregistry.securityScanWorkspace` | Security Scan Workspace |
+| `promptregistry.securityShowLastReport` | Show Last Security Report |
+| `promptregistry.securityClearDiagnostics` | Clear Security Diagnostics |
+
+## Bundle Build (CLI)
+
+```bash
+ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0
+ai-primitives-hub bundle build --collection-file collections/example.collection.yml --version 1.0.0 --layout apm
+```
+
+For a governed build, commit the collection manifest and its source files before
+building. If a referenced item lives in a Git submodule, the build reads it and
+its bundled resources from the exact commit pinned by the parent revision,
+not from the submodule's current checkout. Initialize submodules with
+`git submodule update --init --recursive` (or use `submodules: recursive` with
+`actions/checkout`). Missing required submodules or pinned commits fail the
+build; unrelated submodules do not need to be initialized. A submodule does
+not replace the collection repository's root license evidence.
+
+For CI, pass the paths from `git diff --name-only` to `collection affected`
+using repeated `--changed-path` flags. A changed gitlink marks collections
+that reference paths below it or bundle it as a skill resource as affected.
+Detection does not require checking out or diffing the submodule itself.
+
+`--layout aph` is the unchanged default. The experimental `--layout apm` keeps
+source collection files and original Hub paths unchanged, adds installable
+primitive mirrors under `.apm/`, and emits root `deployment-manifest.yml` and `apm.yml`. Both manifests
+are also written beside the ZIP; structured output adds `apmManifestAsset`.
+Hub primitive and provenance references remain unchanged; governed inventories
+include the mirrors. Matching root APM metadata is validated but never installed
+as a target primitive. Installation honors manifest-selected copies and avoids
+installing unselected mirrors twice.
+
+The initial APM layout packages prompts, instructions, agents/chatmodes and skills,
+including skill resources, under ordinary, `.github/` or `.apm/` directories.
+Nested/noncanonical native discovery and dependency/MCP translation limitations
+produce warnings without dropping APH content. Unsupported kinds, empty
+collections and mirror collisions fail explicitly. See
+[APM layout validation](../author-guide/validation.md#experimental-aphapm-bundle-layout)
+for metadata mapping and qualification limits. This CLI option does not change
+the legacy npm collection builder or Artifactory replication.
+
 ## Bundle Install (CLI)
 
-`ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] --target <target> [--skip-unsupported]`
+`ai-primitives-hub install [bundle-id] [--from <dir> | --source <value>] [--target <target>] [--skip-unsupported]`
 
 - `--from <dir>` installs a local bundle. Without a bundle id, the manifest `id` is accepted as-is; with a bundle id, it must match the manifest.
 - `--source <value>` is looked up first as a source id (or name) in the active hub, then as a hub id (the hub's profiles name the source that carries the bundle), and only then used as a GitHub `owner/repo`. When none matches, the command fails with `BUNDLE.NOT_FOUND` and names the three lookups it tried. When none matches and the active hub (or the hub named by `--source`) exists but its configuration cannot be loaded, the command fails with `HUB.LOAD_FAILED`, naming the hub and the load error.
+- `install --source <hub-id> --interactive` reports a failure that stops the interactive install, such as a hub that cannot be loaded, as `HUB.INSTALL_FAILED`, naming the hub and the cause, and exits 1. An error that already carries its own code is reported with that code. A bundle that fails to install is written to stderr and the remaining bundles are still installed; the command then reports how many were installed (`Installed <n>/<total> bundles`) and exits 0.
 - GitHub bundle ids may use the hub form `{owner}-{repo}-{manifestId}`, with or without a `-{version}` / `-v{version}` suffix. The repo prefix is compared case-insensitively; in this form the bundle name and any pinned version must match the manifest exactly. For compatibility, the earlier rule still applies too: an id equal to the manifest `id`, or ending in `-{manifestId}-{version}` / `-{manifestId}-v{version}` after any prefix, is accepted, so this check does not by itself confirm which repository a bundle came from. `profile activate` and `install --lockfile` (for GitHub lockfile sources) apply the same rule.
-- An install is all-or-nothing by default: when the target cannot hold part of the bundle, it fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing. `--skip-unsupported` installs the items the target supports and lists each skipped item with its reason, in text output under `Skipped:` and in `-o json` as `data.skipped[]` (`path`, `code`, `reason`). The result has status `warning` and exits 0. When the target supports none of the bundle, the install still fails with `BUNDLE.UNSUPPORTED_CONTENT`. Skipped items are not recorded in the lockfile, so `uninstall` removes only what was installed. The flag works with `<bundle-id>`, `--from` and `--source <hub-id> --interactive`. It is refused with `--lockfile` (`USAGE.INVALID_FLAG`), because replay installs every recorded bundle in full, and has no effect with `--dry-run`. `profile activate` and `update` stay all-or-nothing: to pick up a new version of a partially installed bundle, run `install` again with `--skip-unsupported`.
+- An install is all-or-nothing by default: when the target cannot hold part of the bundle, it fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing. `--skip-unsupported` installs the items the target supports and lists each skipped item with its reason, in text output under `Skipped:` and in `-o json` as `data.skipped[]` (`path`, `code`, `reason`). The result has status `warning` and exits 0. When the target supports none of the bundle, the install still fails with `BUNDLE.UNSUPPORTED_CONTENT`. Skipped items are not recorded in the install record, so `uninstall` removes only what was installed. The flag works with `<bundle-id>`, `--from` and `--source <hub-id> --interactive`. It is refused with `--lockfile` (`USAGE.INVALID_FLAG`), because replay installs every recorded bundle in full, and has no effect with `--dry-run`. `profile activate` and `update` stay all-or-nothing: to pick up a new version of a partially installed bundle, run `install` again with `--skip-unsupported`.
+- `install --source <hub-id> --interactive` installs each selected bundle and prints one summary: `data.installed` (count), `data.total`, `data.bundles[]` (`bundleId`, `version`) and `data.failures[]` (`bundleId`, `reason`). When some bundles fail, the others are still installed, the failures are listed, and the command exits 1 with status `warning`; when none installs, it fails with `HUB.INSTALL_FAILED`. With `-o json` the selection preview is written to stderr, so stdout holds a single envelope.
+- `profile install <profile-id>` installs every bundle of the profile as an ordinary install, without activating the profile. Repository and user targets record the bundles in the install record, as `install` does (workspace targets keep the older lockfile), and the output lists each `Record:` file (`data.records[]`). Active profiles stay active, no activation state is saved, and `profile deactivate` does not remove these bundles (use `uninstall`). Every bundle is written to every target; one already recorded for the target's tool at the same version is reported under `Already installed:` (`data.alreadyInstalled[]`) and its entry is left where it is, and a version change is reported under `Installed:`, with files the new version no longer ships removed, as `install` does. Two targets that record the same tool at one level are refused with `USAGE.INVALID_FLAG` before anything is written, as for `profile activate`. When a bundle marked `required: true` is installed on none of the targets, the command fails with `HUB.REQUIRED_BUNDLE_MISSING` and removes the bundles it added, files and entries; bundles that were installed before are left in place. After a version change the entry stays, in the record file of the target's commit mode, because it describes the updated files that remain. A file it cannot remove is named in the error and its entry stays, so `uninstall` can remove it later. An unexpected error, such as a record that cannot be written, is undone the same way and reported as `FS.PROFILE_INSTALL_FAILED`, together with anything that could not be undone. The Hub does not record which command installed a bundle, so if an active profile also lists one of these bundles, deactivating that profile removes it. Other failures are listed under `Failures:` and the command exits 1. `--hub`, `--target` and `--dry-run` work as for `profile activate`.
+- `profile activate` fails with `HUB.REQUIRED_BUNDLE_MISSING` when a bundle the profile marks `required: true` is installed on none of the targets. The error names each such bundle with its install error, the activation is rolled back, and no profile is left active (the previously active profile stays deactivated). A failed bundle marked `required: false`, or a required bundle that failed on only some targets, is listed under `Failures:` and the command exits 1 with the profile active.
+
+### Choosing a target
+
+`install`, `uninstall` and `update` take `--target <name>`. Without it they use the only configured target. With none or several, `install` fails with `USAGE.MISSING_FLAG` listing the targets, before writing anything, while `update` and `uninstall --bundle` let the install record decide (below). `.ai-primitives-hub/target-state.json` (the last used target) is no longer used; while it exists, the hint says so.
+
+When no target is inferred, the install record decides:
+
+- **`update`** updates every recorded tool at the level through its own configured target; a tool with no target is reported in `skipped`.
+- **`uninstall --bundle <bundle-id>`** uses the configured target of the bundle's tool (the first by name, noted in `warnings`). It fails with `USAGE.MISSING_FLAG` when there is none, and is refused for a bundle recorded for several tools. A lone `unknown` entry is removed and its files are kept.
+
+The level comes from `--lockfile` (`update` only), then `--scope`, then the default rule of `status`: the repository record at the git root (or an older `prompt-registry.*` file there), else the user record. **In a repository with neither, they act on the user level**; pass `--scope repository` or `--target`. With no entry for the action, `--target` is required. Bundles only in a not-yet-migrated older file do not decide: pass `--target` once to migrate the level (`update` reports them as failed when the record has other entries). A record replay (`install --lockfile <record>`, or a bare `install`) needs no target.
+
+`init` creates no install record; until the first repository install, `status` and a bare `install` use the user record.
 
 ### Where files land
 
@@ -44,15 +115,73 @@ The command is metadata-only by default: it never downloads archives or publishe
 - Entries that are not files, such as `mcpServers`, are not placed this way. Entries whose `type:` is not one of the five above, and bundle files no item lists, keep the path-based routing below.
 - When the target cannot place an item (its type is excluded by the target's `--allowed-kinds`, the layout has no route for it, or an earlier item already uses its destination, such as ids `alpha` and `alpha.instructions` of type `instructions`), the install fails with `BUNDLE.UNSUPPORTED_CONTENT` and writes nothing, unless `--skip-unsupported` is set, which skips the item instead (see above).
 - A skill item's `file:` may name the skill directory (`skills/<name>`) or a file in it (`skills/<name>/SKILL.md`); either way only that skill's directory is copied.
-- Re-installing or updating a bundle that is already in the lockfile removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
+- Re-installing or updating a bundle that is already in the install record removes the files of the previous install that the new one no longer writes (for example a `prompts/x.md` that is now placed as `prompts/x.prompt.md`), compared by installed location.
 
 Bundles whose manifest lists no items keep path-based routing: a file is installed under the target route matching its bundle path prefix (for example `prompts/`, `skills/`), with its name unchanged.
 
-The lockfile keeps bundle-relative `path` entries with their checksums. For items placed by the manifest it also records `installedPath`, the location relative to the target's base directory, which `uninstall` and `profile deactivate` remove. Entries without `installedPath`, including those written by earlier releases, are removed by path routing as before.
+The install record lists each written file by its path relative to the level root (the git root, or your home folder) with its checksum; `uninstall` removes them, except files you edited or another entry still lists. The older 2.0.0 lockfile (workspace scope) keeps bundle-relative `path` entries and, for manifest-placed items, `installedPath`, which `uninstall` and `profile deactivate` remove; entries without it are removed by path routing.
 
 Repository-scope VS Code and Copilot CLI targets keep their own `.github/` writer and are not affected.
 
-Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. The lockfile records no mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
+Files stored executable in the bundle (a committed `100755` file is archived as `0755`) are installed executable by `install`, `install --lockfile`, `profile activate` and `update`, on every target and at both scopes, including the `.github/` writer. Execute permission is added wherever read permission is granted, so the result follows your umask (`0644` becomes `0755`). Every other file keeps the default mode, and an update that ships a file as non-executable clears its execute bits. `install --from <dir>` takes the bit from the files on disk. Install records store no file mode. On Windows, and on filesystems that do not allow the mode change (for example vfat/exFAT mounts), the mode is ignored without an error. Bundles that the hub assembles itself from `skills` and `awesome-copilot` sources record every file as non-executable, so their scripts are installed without the execute bit.
+
+### Repository install record
+
+At repository scope, `install` records the bundle in a format `3.0.0` install record at the git root:
+
+- `ai-primitives-hub.lock.json` (commit mode) or `ai-primitives-hub.local.lock.json` (local-only, added to `.git/info/exclude`).
+- Each bundle has one entry per tool, so installing it for `vscode` and `kiro` keeps both. `-o json` reports the file in `data.lockfile`.
+- Installing another version of a bundle replaces the previous one for that tool.
+- An unreadable record stops the install with a `RECORD.*` error (exit 1) before anything is written; see `ai-primitives-hub explain <code>`.
+- An older `prompt-registry.lock.json` or `prompt-registry.local.lock.json` at the git root is migrated into the new record before the first change; see [Migrating older records](#migrating-older-records). User-scope installs use the [user install record](#user-install-record).
+
+`uninstall` removes the target's entry and its files, keeps files another entry lists or that you edited after the install (a warning names each one), and deletes an empty record. It also removes an older key of the same bundle that the record still holds for that tool, for example after a merge. A bundle only an older `prompt-registry.lock.json` lists is migrated first, then uninstalled from the new record.
+
+Commands that use the record end their text output with `Record: <level> <path>`; their `-o json` data adds `level` and `records`.
+
+- `update` updates every tool that has the bundle, each with its own target. Only `--target` narrows it to one tool. Tools that share files (for example `vscode` and `vscode-insiders` in `.github/`) move to the same version and are listed in `alsoUpdated`. A bundle id that ends with its version, such as a GitHub release id, is recorded under the new version's id and the old id is removed. Entries it cannot update are listed in `skipped`, with status `warning`: `unknown` tool entries, which need a reinstall, and sources with no installable release. A release whose archive is another bundle or version is refused.
+- `install --lockfile <ai-primitives-hub.*.lock.json>`, or a bare `install` in a repository with a record or only an older `prompt-registry` file at the git root (migrated first), reinstalls every recorded tool at its recorded version. `unknown` tool entries are listed in `needsReinstall`, and entries with no matching target in `skipped`. Each mapped target writes in the commit mode of the file that holds the entry, and must be in `--allow-target` when it is given. `--dry-run` is refused (`USAGE.INVALID_FLAG`) because the replay migrates and writes; run `status` instead.
+- `uninstall --bundle <id>` without `--target` is refused when several tools have the bundle. `uninstall --lockfile <ai-primitives-hub.*.lock.json> --target <name>` removes only that target's entries.
+- `status` lists one row per bundle and tool; `-o json` replaces `lockfile` with `level`, `records` and `entries`. Bundles only in `prompt-registry.lock.json` are still shown, unless the record has the same bundle at another version.
+- A recorded source is used only through the matching configured source (the active hub's first, then `source add`), with its URL and credentials. Otherwise the recorded copy is used without its `credentialRef`, and a `local` folder outside the repository is skipped. This also applies to `update --dry-run`.
+
+A source that came from a shared hub records its hub id as `hubId`, and the record's top-level `hubs` map holds that hub's import reference: `name`, `type`, `location`, and `ref` or `configFile` when it has one, never a credential. Sources added with `source add` and hubs that are only a local path on this machine get no `hubId`. A `hubs` entry is dropped when no recorded source names it any more, which also drops `hubs` entries an older file carried over. Replay and update prefer the configured source from the recorded hub when several configured sources have the same id. `status -o json` entries include `hubId`, and the text output shows `hub <id>` on the entry line.
+
+The VS Code extension uses the same record, under the tool of the editor it runs in (`vscode`, `vscode-insiders`, `kiro` or `windsurf`):
+
+- It installs, updates, uninstalls, moves and switches the commit mode of its own tool's entries only. A bundle installed only for another tool is not listed as installed, and you can install it for this editor too; changing another tool's entry shows `RECORD.CLI_MANAGED` with the CLI command to use.
+- An update keeps files you edited and moves tools that share the same files (for example `vscode`, `vscode-insiders` and `copilot-cli` in `.github/`) to the new version.
+- Installing, updating or downgrading a bundle, or switching its commit mode, leaves its tool one version, also for a bundle id that ends with its version. Files only the old version wrote are deleted unless you edited them. The repository view lists one item per bundle, from the entry of the editor it runs in.
+- Before its first change to a repository record, it migrates the older `prompt-registry` files at the git root, as the CLI does.
+- "Clean Up Stale Repository Bundles" migrates first, lists one row per bundle and tool, offers only entries whose files are all missing (never an `unknown` entry), and removes the entries without deleting files.
+
+### User install record
+
+User-scope installs are recorded in one file per machine, shared by the CLI and every VS Code profile: `ai-primitives-hub.user.lock.json` in `$XDG_CONFIG_HOME/ai-primitives-hub/` (default `~/.config/ai-primitives-hub/`; on Windows `%USERPROFILE%\.config\ai-primitives-hub\`). It has the repository record's format, with paths relative to your home folder (`HOME`, else `USERPROFILE`).
+
+- User-scope `install`, `uninstall`, `update` and `install --lockfile` use it, and so do `status` and a bare `install` outside a repository with a record. `-o json` names it in `data.lockfile`, and text output ends with `Record: user <path>`.
+- A bundle installed from one VS Code profile is installed for every profile.
+- A target folder outside your home folder, or a tool folder symlinked outside it, is refused with `RECORD.PATH_OUTSIDE_ROOT` before anything is written.
+- The CLI's earlier user lockfile, `ai-primitives-hub.lock.json` in the same folder, is imported into the user record once, before the first user-scope change, and is never changed or deleted. Workspace-scope targets keep using it.
+- Uninstall keeps files you edited after the install, with a warning. An extension link into its bundle cache that still points at the installed content counts as unchanged.
+- As at repository scope, installing, updating or downgrading a bundle leaves each tool one version of it in this file, also for a bundle id that ends with its version; `update` records it under the new version's id. In the extension, the old version's bundle cache and an older per-profile install of the bundle are removed too, and the user view lists one item per bundle.
+- In the extension, the current profile's older user-scope installs move into the user record before the first user-scope change. Other tools' entries are read-only (`RECORD.CLI_MANAGED`).
+- In a WSL remote window, and for `local-skills` skills linked to their source folder, the extension keeps recording per profile.
+- The CLI and the extension each read `XDG_CONFIG_HOME` from their own environment. A VS Code started from the Dock or Start menu does not see a value set only in your shell, so set it system-wide or not at all. The extension logs the path it uses.
+- Workspace-scope targets are unchanged.
+
+### Migrating older records
+
+For upgrading and rollback, see [Upgrading to 0.3.0: install records](../migration-guide.md#upgrading-to-030-install-records).
+
+Before the first command that changes a record, the CLI and the extension move the older records of that level into the new ones. Commands that only read (`status`, `doctor`, `update --dry-run`, `install --lockfile <older file>`, and the extension's listings and local-modification check) never migrate and leave the older files untouched.
+
+- **Repository level.** `prompt-registry.lock.json` and `prompt-registry.local.lock.json` at the git root are written as (or merged into) `ai-primitives-hub.lock.json` and `ai-primitives-hub.local.lock.json`, then deleted. No backup is kept; only the committed file can be restored from git history. Each bundle gets at most one entry, also when its id ends with its version: an entry the new record already has, at any version, wins, and otherwise the higher version in the older files is kept and the other is listed in `versionConflicts`. Older files outside the git root are ignored.
+- **User level.** The CLI's earlier user lockfile is imported once, marked by the user record's `importedUserLockfileAt` field, and stays as it is for workspace scope. Its workspace-scope installs can appear once as `unknown` user-level entries; `uninstall --bundle <bundle-id> --scope user` removes them and keeps their files. The extension moves the current profile's user installs into the user record under its tool, next to other tools' entries, and removes them from the profile; an entry the record already has for its tool, at any version, is kept, and of two profile versions the higher one moves. Linked `local-skills` installs stay, and in a WSL remote window nothing moves.
+- **The `unknown` tool.** Older entries do not say which tool they were for, so they are recorded under `unknown` and listed as needing a reinstall. Installing the bundle for a tool, at any version, or updating it in the extension, replaces that entry and keeps its files. Uninstalling a bundle whose only entries, at any version, are `unknown` removes them and keeps their files. The extension refuses to move or switch the commit mode of such a bundle until it is reinstalled.
+- **Report.** CLI text output prints a `Migrated <level> record:` block before `Record:`, and `-o json` adds `data.migration`. The extension logs the report and shows one notification, with **Show details**.
+- **Errors.** An older file that cannot be read stops the command with `RECORD.MALFORMED` and nothing is written. If an older file cannot be deleted after the new record is saved, the command fails with `RECORD.WRITE_FAILED`; the next change deletes it.
+- **`profile activate`.** CLI `profile activate` and `profile deactivate` use each repository or user target's record, like `install` and `uninstall`; workspace-scope targets keep the old user lockfile. `profile deactivate` removes a profile's bundle at whatever version the record now holds for that tool. Bundles activated with an older release become `unknown` entries, which `profile deactivate` keeps with their files and lists in a warning (`data.unknown` in `-o json`); activating again records them. Two targets of the same type at one level are refused with `USAGE.INVALID_FLAG` before anything is written; pick one with `--target`. Output ends with a `Record: <level> <path>` line per level, and `-o json` adds `data.records` and `data.migrations`.
 
 ## Plugin Create (CLI)
 
@@ -66,6 +195,19 @@ Writes `<dir>/<name>/plugin.json` (default `plugins/<name>/plugin.json`), an Age
 
 See [Plugin Items](../author-guide/collection-schema.md#plugin-items) for the plugin layout.
 
+## Security Rate (CLI)
+
+`ai-primitives-hub security rate [path] [--findings <report.json>] [--fail-on <level>] [--report-json <file>] [--report-markdown <file>] [--overwrite] [-o <format>]`
+
+Rates the collections (or skills) of a source checkout from a security scan: each bundle and the source get a 0-100 score, a risk band and a pass/fail gate. Without `--findings` the checkout is scanned with the [security scanner](./security-scanner.md), with the same rules as `security scan`; with `--findings` the findings of a scan report are rated instead.
+
+- **Scan.** The checkout is scanned recursively for `.md` and `.markdown` files, documentation files included (they cost fewer points, see Score). Repository suppressions (`.markdown.ignore`) are ignored, so a rated repository cannot tune its own rating. An incomplete scan (for example an unreadable file) is reported and exits 65; no report file is written, so an incomplete scan never leaves a passing report behind.
+- **Findings input.** `--findings` is the `--report-json` of `security scan`, or any JSON object with a `findings` array, or a bare array. Each finding needs `ruleId` (or `rule_id`), `file` and `severity` (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW` or `INFO`); `confidence` (default `HIGH`), `title`, `line` and `recommendedFix` (or `recommended_fix`) are optional. Entries that lack a required field are skipped and counted in the output. Absolute `file` paths inside the checkout are made relative to it. A file that is not valid JSON, has no findings array, has entries but none usable, or is a report with `complete: false` exits 65. Findings whose path lies outside the checkout are ignored. `PATH` must be an existing directory, otherwise the command exits 64.
+- **Bundles.** With `collections/*.collection.yml`, each collection is one bundle made of its collection file, its items (a `skill` or `plugin` item brings its whole folder) and its readme. Otherwise each `skills/<name>/SKILL.md` folder is a bundle. With neither, the whole repository is rated as one unit. `--collections-path` and `--skills-path` change the folders; paths that leave the checkout and symlinks are ignored with a warning.
+- **Score.** Each finding costs points: severity (`CRITICAL` 40, `HIGH` 20, `MEDIUM` 8, `LOW` 3, `INFO` 0) times confidence (`HIGH` 1, `MEDIUM` 0.5, `LOW` 0.25) times the file context (primitive files 1, documentation 0.25, vendored code 0.1). The rules `INJ-002`, `HKS-008` and `MD-001`, which often match documentation, count 0.25. Repeats of the same rule in the same file count 1, 0.5, then 0.25. A bundle scores `round(100 * exp(-penalty / 40))`. The source score is the average of its bundles.
+- **Risk.** `low` from 90, `medium` from 70, `high` from 40, otherwise `critical`.
+- **Gate.** `--fail-on` (default `CRITICAL`; `none` disables) fails when any bundle scores below `CRITICAL` 40, `HIGH` 70, `MEDIUM` 90 or `LOW` 100. The exit code is 1 when the gate fails, 0 when it passes, 64 for invalid options, 65 for an incomplete scan or unreadable findings, and 74 for a failed write.
+- **Reports.** `--report-json` writes `security-rating-report.json` (schema `security-rating-report.schema.json`, `schemaVersion` 1) and `--report-markdown` a summary suited to a job summary or pull-request comment. Existing files are not replaced unless `--overwrite` is set, and neither file is written when either already exists. The two paths must differ. `--repository` and `--commit` default to `GITHUB_REPOSITORY` and `GITHUB_SHA`; `--tag` defaults to `GITHUB_REF_NAME` only when `GITHUB_REF_TYPE` is `tag`, otherwise it is empty. `--scanner-name` records which scanner produced the findings (default `ai-primitives-hub-security`, or `unspecified` with `--findings`). `-o json|yaml|ndjson` prints the report in the standard envelope.
 ## Doctor Diagnostics (CLI)
 
 `ai-primitives-hub doctor diagnostics [--primitives [--kinds <csv>] [--targets <csv>] [--scopes <csv>]] [--retain-workspace] [-v] [-o <format>]`
@@ -116,7 +258,7 @@ Commands for managing bundle installation scope. These are available via context
 | `promptRegistry.moveToUser` | Move to User | Move a repository-scoped bundle to user scope |
 | `promptRegistry.switchToLocalOnly` | Switch to Local Only | Change a repository bundle from commit to local-only mode |
 | `promptRegistry.switchToCommit` | Switch to Commit | Change a repository bundle from local-only to commit mode |
-| `promptRegistry.cleanupStaleLockfileEntries` | Clean Up Stale Repository Bundles | Remove lockfile entries where files no longer exist |
+| `promptRegistry.cleanupStaleLockfileEntries` | Clean Up Stale Repository Bundles | Remove install record entries whose files no longer exist |
 
 ### Move to Repository
 
@@ -155,14 +297,14 @@ Changes how a repository-scoped bundle interacts with Git.
 
 ### Clean Up Stale Repository Bundles
 
-Removes lockfile entries where the corresponding files no longer exist in the repository.
+Removes repository install record entries whose files no longer exist in the repository.
 
 **Command:** `promptRegistry.cleanupStaleLockfileEntries`
 
-This is useful when bundle files have been manually deleted but the lockfile still references them. The command:
-1. Scans the lockfile for bundles with missing files
+This is useful when bundle files have been manually deleted but the install record still lists them. The command:
+1. Migrates older `prompt-registry` files first, then finds entries whose files are all missing (never `unknown` or file-less entries)
 2. Shows a confirmation dialog with the count of stale entries
-3. Removes confirmed stale entries from the lockfile
+3. Removes confirmed stale entries from the install record, without deleting files
 
 ## Source Management
 

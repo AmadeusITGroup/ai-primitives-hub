@@ -156,11 +156,11 @@ suite('McpConfigService - Duplicate Detection', () => {
       // Setup: Two servers from different bundles with same command+args
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:server1': {
+          'ai-primitives-hub:bundle-a:server1': {
             command: 'node',
             args: ['mcp-server.js']
           },
-          'prompt-registry:bundle-b:server1': {
+          'ai-primitives-hub:bundle-b:server1': {
             command: 'node',
             args: ['mcp-server.js']
           }
@@ -169,7 +169,7 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:server1': {
+          'ai-primitives-hub:bundle-a:server1': {
             bundleId: 'bundle-a',
             bundleVersion: '1.0.0',
             originalName: 'server1',
@@ -177,7 +177,7 @@ suite('McpConfigService - Duplicate Detection', () => {
             installedAt: new Date().toISOString(),
             scope: 'user'
           },
-          'prompt-registry:bundle-b:server1': {
+          'ai-primitives-hub:bundle-b:server1': {
             bundleId: 'bundle-b',
             bundleVersion: '1.0.0',
             originalName: 'server1',
@@ -200,12 +200,12 @@ suite('McpConfigService - Duplicate Detection', () => {
       const result = await configService.detectAndDisableDuplicates('user');
 
       assert.strictEqual(result.duplicatesDisabled.length, 1);
-      assert.strictEqual(result.duplicatesDisabled[0].serverName, 'prompt-registry:bundle-b:server1');
-      assert.strictEqual(result.duplicatesDisabled[0].duplicateOf, 'prompt-registry:bundle-a:server1');
+      assert.strictEqual(result.duplicatesDisabled[0].serverName, 'ai-primitives-hub:bundle-b:server1');
+      assert.strictEqual(result.duplicatesDisabled[0].duplicateOf, 'ai-primitives-hub:bundle-a:server1');
       assert.strictEqual(result.duplicatesDisabled[0].originalBundleId, 'bundle-a');
 
       // Check that the duplicate is disabled in the returned config
-      const duplicateServer = result.config.servers['prompt-registry:bundle-b:server1'];
+      const duplicateServer = result.config.servers['ai-primitives-hub:bundle-b:server1'];
       assert.strictEqual(duplicateServer.disabled, true);
       assert.ok(duplicateServer.description?.includes('Duplicate'));
     });
@@ -213,11 +213,11 @@ suite('McpConfigService - Duplicate Detection', () => {
     test('should detect duplicate remote servers with same URL', async () => {
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:api-server': {
+          'ai-primitives-hub:bundle-a:api-server': {
             type: 'http',
             url: 'https://api.example.com/mcp'
           },
-          'prompt-registry:bundle-b:api-server': {
+          'ai-primitives-hub:bundle-b:api-server': {
             type: 'http',
             url: 'https://api.example.com/mcp'
           }
@@ -226,7 +226,7 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:api-server': {
+          'ai-primitives-hub:bundle-a:api-server': {
             bundleId: 'bundle-a',
             bundleVersion: '1.0.0',
             originalName: 'api-server',
@@ -234,7 +234,7 @@ suite('McpConfigService - Duplicate Detection', () => {
             installedAt: new Date().toISOString(),
             scope: 'user'
           },
-          'prompt-registry:bundle-b:api-server': {
+          'ai-primitives-hub:bundle-b:api-server': {
             bundleId: 'bundle-b',
             bundleVersion: '1.0.0',
             originalName: 'api-server',
@@ -253,7 +253,7 @@ suite('McpConfigService - Duplicate Detection', () => {
       const result = await configService.detectAndDisableDuplicates('user');
 
       assert.strictEqual(result.duplicatesDisabled.length, 1);
-      const duplicateServer = result.config.servers['prompt-registry:bundle-b:api-server'] as McpRemoteServerConfig;
+      const duplicateServer = result.config.servers['ai-primitives-hub:bundle-b:api-server'] as McpRemoteServerConfig;
       assert.strictEqual(duplicateServer.disabled, true);
     });
 
@@ -261,13 +261,13 @@ suite('McpConfigService - Duplicate Detection', () => {
       // Three servers with same identity - only first should remain enabled
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:server': {
+          'ai-primitives-hub:bundle-a:server': {
             command: 'shared-server'
           },
-          'prompt-registry:bundle-b:server': {
+          'ai-primitives-hub:bundle-b:server': {
             command: 'shared-server'
           },
-          'prompt-registry:bundle-c:server': {
+          'ai-primitives-hub:bundle-c:server': {
             command: 'shared-server'
           }
         }
@@ -275,17 +275,17 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:server': {
+          'ai-primitives-hub:bundle-a:server': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'server',
             originalConfig: { command: 'shared-server' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-b:server': {
+          'ai-primitives-hub:bundle-b:server': {
             bundleId: 'bundle-b', bundleVersion: '1.0.0', originalName: 'server',
             originalConfig: { command: 'shared-server' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-c:server': {
+          'ai-primitives-hub:bundle-c:server': {
             bundleId: 'bundle-c', bundleVersion: '1.0.0', originalName: 'server',
             originalConfig: { command: 'shared-server' },
             installedAt: new Date().toISOString(), scope: 'user'
@@ -303,23 +303,23 @@ suite('McpConfigService - Duplicate Detection', () => {
       assert.strictEqual(result.duplicatesDisabled.length, 2);
 
       // First server should remain enabled
-      assert.strictEqual(result.config.servers['prompt-registry:bundle-a:server'].disabled, undefined);
+      assert.strictEqual(result.config.servers['ai-primitives-hub:bundle-a:server'].disabled, undefined);
 
       // Second and third should be disabled
-      assert.strictEqual(result.config.servers['prompt-registry:bundle-b:server'].disabled, true);
-      assert.strictEqual(result.config.servers['prompt-registry:bundle-c:server'].disabled, true);
+      assert.strictEqual(result.config.servers['ai-primitives-hub:bundle-b:server'].disabled, true);
+      assert.strictEqual(result.config.servers['ai-primitives-hub:bundle-c:server'].disabled, true);
     });
 
     test('should not flag different servers as duplicates', async () => {
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:server1': {
+          'ai-primitives-hub:bundle-a:server1': {
             command: 'server-a'
           },
-          'prompt-registry:bundle-b:server2': {
+          'ai-primitives-hub:bundle-b:server2': {
             command: 'server-b'
           },
-          'prompt-registry:bundle-c:api': {
+          'ai-primitives-hub:bundle-c:api': {
             type: 'http',
             url: 'https://api.example.com/mcp'
           }
@@ -328,17 +328,17 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:server1': {
+          'ai-primitives-hub:bundle-a:server1': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'server1',
             originalConfig: { command: 'server-a' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-b:server2': {
+          'ai-primitives-hub:bundle-b:server2': {
             bundleId: 'bundle-b', bundleVersion: '1.0.0', originalName: 'server2',
             originalConfig: { command: 'server-b' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-c:api': {
+          'ai-primitives-hub:bundle-c:api': {
             bundleId: 'bundle-c', bundleVersion: '1.0.0', originalName: 'api',
             originalConfig: { type: 'http', url: 'https://api.example.com/mcp' } as any,
             installedAt: new Date().toISOString(), scope: 'user'
@@ -359,11 +359,11 @@ suite('McpConfigService - Duplicate Detection', () => {
     test('should not flag already disabled servers as duplicates', async () => {
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:server': {
+          'ai-primitives-hub:bundle-a:server': {
             command: 'shared-server',
             disabled: true // Already disabled
           },
-          'prompt-registry:bundle-b:server': {
+          'ai-primitives-hub:bundle-b:server': {
             command: 'shared-server'
           }
         }
@@ -371,12 +371,12 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:server': {
+          'ai-primitives-hub:bundle-a:server': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'server',
             originalConfig: { command: 'shared-server' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-b:server': {
+          'ai-primitives-hub:bundle-b:server': {
             bundleId: 'bundle-b', bundleVersion: '1.0.0', originalName: 'server',
             originalConfig: { command: 'shared-server' },
             installedAt: new Date().toISOString(), scope: 'user'
@@ -419,7 +419,7 @@ suite('McpConfigService - Duplicate Detection', () => {
           'untracked-server': {
             command: 'some-server'
           },
-          'prompt-registry:bundle-a:server': {
+          'ai-primitives-hub:bundle-a:server': {
             command: 'some-server'
           }
         }
@@ -427,7 +427,7 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:server': {
+          'ai-primitives-hub:bundle-a:server': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'server',
             originalConfig: { command: 'some-server' },
             installedAt: new Date().toISOString(), scope: 'user'
@@ -452,10 +452,10 @@ suite('McpConfigService - Duplicate Detection', () => {
       // Even if URL looks like a command, they should not be considered duplicates
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:stdio': {
+          'ai-primitives-hub:bundle-a:stdio': {
             command: 'https://api.example.com/mcp'
           },
-          'prompt-registry:bundle-b:remote': {
+          'ai-primitives-hub:bundle-b:remote': {
             type: 'http',
             url: 'https://api.example.com/mcp'
           }
@@ -464,12 +464,12 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:stdio': {
+          'ai-primitives-hub:bundle-a:stdio': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'stdio',
             originalConfig: { command: 'https://api.example.com/mcp' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-b:remote': {
+          'ai-primitives-hub:bundle-b:remote': {
             bundleId: 'bundle-b', bundleVersion: '1.0.0', originalName: 'remote',
             originalConfig: { type: 'http', url: 'https://api.example.com/mcp' } as any,
             installedAt: new Date().toISOString(), scope: 'user'
@@ -493,10 +493,10 @@ suite('McpConfigService - Duplicate Detection', () => {
     test('should include original server name in duplicate description', async () => {
       const config: McpConfiguration = {
         servers: {
-          'prompt-registry:bundle-a:my-server': {
+          'ai-primitives-hub:bundle-a:my-server': {
             command: 'shared'
           },
-          'prompt-registry:bundle-b:my-server': {
+          'ai-primitives-hub:bundle-b:my-server': {
             command: 'shared'
           }
         }
@@ -504,12 +504,12 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const tracking: McpTrackingMetadata = {
         managedServers: {
-          'prompt-registry:bundle-a:my-server': {
+          'ai-primitives-hub:bundle-a:my-server': {
             bundleId: 'bundle-a', bundleVersion: '1.0.0', originalName: 'my-server',
             originalConfig: { command: 'shared' },
             installedAt: new Date().toISOString(), scope: 'user'
           },
-          'prompt-registry:bundle-b:my-server': {
+          'ai-primitives-hub:bundle-b:my-server': {
             bundleId: 'bundle-b', bundleVersion: '1.0.0', originalName: 'my-server',
             originalConfig: { command: 'shared' },
             installedAt: new Date().toISOString(), scope: 'user'
@@ -524,8 +524,8 @@ suite('McpConfigService - Duplicate Detection', () => {
 
       const result = await configService.detectAndDisableDuplicates('user');
 
-      const duplicateServer = result.config.servers['prompt-registry:bundle-b:my-server'];
-      assert.ok(duplicateServer.description?.includes('prompt-registry:bundle-a:my-server'));
+      const duplicateServer = result.config.servers['ai-primitives-hub:bundle-b:my-server'];
+      assert.ok(duplicateServer.description?.includes('ai-primitives-hub:bundle-a:my-server'));
       assert.ok(duplicateServer.description?.includes('bundle-a'));
     });
   });

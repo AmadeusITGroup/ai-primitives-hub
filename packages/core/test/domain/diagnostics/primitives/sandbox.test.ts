@@ -50,11 +50,9 @@ const storageUnder = (root: string): AppStoragePaths => ({
   cache: `${root}/cache`,
   sourcesCache: `${root}/cache/sources`,
   bundlesCache: `${root}/cache/bundles`,
-  installed: `${root}/installed`,
-  userInstalled: `${root}/installed/user`,
-  profilesInstalled: `${root}/installed/profiles`,
   profiles: `${root}/profiles`,
-  logs: `${root}/logs`
+  logs: `${root}/logs`,
+  userRecord: `${root}/ai-primitives-hub.user.lock.json`
 });
 
 const sandbox = (overrides: Partial<PreparedSandbox> = {}): PreparedSandbox => ({

@@ -4,9 +4,8 @@
 (() => {
   var vscode = acquireVsCodeApi();
 
-  // Get initial data from window object (set by TypeScript)
-  var autoUpdateEnabled = window.bundleDetailsData ? window.bundleDetailsData.autoUpdateEnabled : false;
-  var bundleId = window.bundleDetailsData ? window.bundleDetailsData.bundleId : '';
+  var autoUpdateEnabled = document.body.dataset.autoUpdateEnabled === 'true';
+  var bundleId = document.body.dataset.bundleId || '';
 
   /**
    * Update the toggle UI to reflect current state
@@ -20,13 +19,13 @@
 
   /**
    * Open a prompt file in the editor
-   * @param {string} installPath
+   * @param {string} bundleId
    * @param {string} filePath
    */
-  const openPromptFile = (installPath, filePath) => {
+  const openPromptFile = (bundleId, filePath) => {
     vscode.postMessage({
       type: 'openPromptFile',
-      installPath: installPath,
+      bundleId: bundleId,
       filePath: filePath
     });
   };
@@ -82,13 +81,13 @@
 
     if (actionElement) {
       var action = actionElement.dataset.action;
-      var installPath = actionElement.dataset.installPath;
+      var promptBundleId = actionElement.dataset.bundleId;
       var filePath = actionElement.dataset.filePath;
 
       switch (action) {
         case 'openPromptFile': {
-          if (installPath && filePath) {
-            openPromptFile(installPath, filePath);
+          if (promptBundleId && filePath) {
+            openPromptFile(promptBundleId, filePath);
           }
           break;
         }

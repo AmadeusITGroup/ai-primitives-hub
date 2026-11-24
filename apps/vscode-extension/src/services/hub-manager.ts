@@ -33,6 +33,7 @@ import type {
 import type {
   HubConfig as CoreHubConfig,
   ValidationResult as CoreValidationResult,
+  ProfileBundleSyncResult,
   ProfileLifecycleSync,
 } from '@ai-primitives-hub/core';
 import {
@@ -194,7 +195,7 @@ type HubLinkedProfile = Profile & { hubId?: string };
 interface HubRegistryBridge {
   addSource(source: RegistrySource): Promise<void>;
   deactivateProfile(profileId: string): Promise<void>;
-  installBundles(bundles: { bundleId: string; options: InstallOptions }[]): Promise<void>;
+  installBundles(bundles: { bundleId: string; options: InstallOptions }[]): Promise<ProfileBundleSyncResult | void>;
   listInstalledBundles(): Promise<InstalledBundle[]>;
   listProfiles(): Promise<HubLinkedProfile[]>;
   listSources(): Promise<RegistrySource[]>;

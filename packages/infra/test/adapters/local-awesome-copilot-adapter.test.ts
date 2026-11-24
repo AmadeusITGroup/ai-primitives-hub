@@ -1,3 +1,6 @@
+import {
+  createHash,
+} from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
@@ -11,6 +14,9 @@ import {
 import {
   LocalAwesomeCopilotAdapter,
 } from '../../src/adapters/local-awesome-copilot-adapter';
+import {
+  ZipBundleExtractor,
+} from '../../src/extractors/zip-bundle-extractor';
 import {
   InMemoryFileSystem,
 } from '../helpers/in-memory-filesystem';
@@ -213,6 +219,38 @@ describe('LocalAwesomeCopilotAdapter', () => {
       // ZIP local-file-header magic number: "PK\x03\x04".
       expect(zip.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
       expect(zip.length).toBeGreaterThan(0);
+    });
+
+    it('preserves nested binary skill assets and UTF-8 bytes when packaging a local collection (#357)', async () => {
+      const fs = new InMemoryFileSystem();
+      const skillPath = '.github/skills/my-skill/SKILL.md';
+      const wheelPath = '.github/skills/my-skill/dist/example.whl';
+      const promptPath = 'prompts/example.prompt.md';
+      const wheel = Buffer.from(Uint8Array.from({ length: 181_447 }, (_, index) => index % 256));
+      const text = Buffer.from('\uFEFF# Café — 日本語\r\n');
+      fs.seed(
+        '/collections-root/collections/my-collection.collection.yml',
+        `${collectionYaml({
+          items: [
+            { path: skillPath, kind: 'skill' },
+            { path: promptPath, kind: 'prompt' }
+          ]
+        })}\nmcp:\n  items:\n    example-server:\n      command: uvx\n      args: [--from, ${wheelPath}, example-server]\n`
+      );
+      fs.seed(`/collections-root/${skillPath}`, text);
+      fs.seed(`/collections-root/${wheelPath}`, wheel);
+      fs.seed(`/collections-root/${promptPath}`, text);
+
+      const adapter = new LocalAwesomeCopilotAdapter(makeSource(), fs);
+      const [bundle] = await adapter.fetchBundles();
+      const files = await new ZipBundleExtractor().extract(await adapter.downloadBundle(bundle));
+      const archivedWheel = files.get(wheelPath);
+
+      expect(archivedWheel).toBeDefined();
+      expect(archivedWheel?.byteLength).toBe(wheel.byteLength);
+      expect(createHash('sha256').update(archivedWheel!).digest('hex')).toBe(createHash('sha256').update(wheel).digest('hex'));
+      expect(Buffer.from(files.get(skillPath)!)).toEqual(text);
+      expect(Buffer.from(files.get(promptPath)!)).toEqual(text);
     });
 
     it('wraps a download failure with a descriptive error', async () => {

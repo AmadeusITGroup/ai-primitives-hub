@@ -15,6 +15,8 @@
  */
 import * as path from 'node:path';
 import {
+  applyReleaseLayout,
+  type BundleArchiveLayout,
   createLegacyReleaseManifestPlan,
   createReleaseManifestPlan,
   isMissingSourceLicenseError,
@@ -47,6 +49,7 @@ export interface PlanBundleReleaseOptions {
   version: string;
   /** Source reader; defaults to {@link NodeReleaseSourceReader}. */
   sources?: ReleaseSourceReader;
+  layout?: BundleArchiveLayout;
 }
 
 /** A release plan and the warnings raised while planning it. */
@@ -219,11 +222,13 @@ export async function planBundleRelease(options: PlanBundleReleaseOptions): Prom
       options.collectionFile
     );
     assertNoFatalPluginIssues(workingTreeFindings);
+    const legacyLayout = applyReleaseLayout(await createLegacyReleaseManifestPlan(planOptions, sources), options.layout);
     return {
-      plan: await createLegacyReleaseManifestPlan(planOptions, sources),
-      warnings: [LEGACY_RELEASE_WARNING, ...workingTreeFindings.warnings]
+      plan: legacyLayout.plan,
+      warnings: [LEGACY_RELEASE_WARNING, ...workingTreeFindings.warnings, ...legacyLayout.warnings]
     };
   }
   assertNoFatalPluginIssues(revisionFindings);
-  return { plan, warnings: revisionFindings.warnings };
+  const layout = applyReleaseLayout(plan, options.layout);
+  return { plan: layout.plan, warnings: [...revisionFindings.warnings, ...layout.warnings] };
 }
