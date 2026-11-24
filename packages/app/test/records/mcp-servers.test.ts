@@ -24,6 +24,7 @@ import {
   mcpServerChecksumOf,
   prepareMcpServers,
   RecordStore,
+  writeFileAtomically,
   writeMcpServers,
 } from '../../src/records';
 
@@ -353,5 +354,22 @@ describe('MCP servers in the install record: checks before writing', () => {
     await write();
 
     expect(fs.statSync(configPath()).mode % 0o1000).toBe(0o600);
+  });
+
+  it('stops the rewrite, leaving the file as it was, when the file cannot be checked', async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), '{"servers":{}}');
+    class FailingCheckFs extends NodeRecordFs {
+      public override async lstat(file: string): ReturnType<NodeRecordFs['lstat']> {
+        if (file === configPath()) {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return super.lstat(file);
+      }
+    }
+
+    await expect(writeFileAtomically(new FailingCheckFs(), configPath(), '{"servers":{"x":{}}}')).rejects.toThrow('EACCES');
+    expect(fs.readFileSync(configPath(), 'utf8')).toBe('{"servers":{}}');
+    expect(fs.readdirSync(path.dirname(configPath()))).toEqual(['mcp.json']);
   });
 });
