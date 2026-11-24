@@ -414,6 +414,18 @@ const uniqueMcpServers = (servers: readonly RecordedMcpServer[]): RecordedMcpSer
   return [...byKey.entries()].toSorted(([left], [right]) => compareCodeUnits(left, right)).map(([, server]) => server);
 };
 
+/**
+ * The readable id of an entry's source; a configured id an older record keeps is built from its `sources` entry.
+ * @param record - Record holding the entry.
+ * @param sourceId - The entry's `sourceId`.
+ */
+const readableSourceIdIn = (record: InstallRecord, sourceId: string): string => {
+  if (isRecordSourceId(sourceId) || !Object.hasOwn(record.sources, sourceId)) {
+    return sourceId;
+  }
+  return recordSourceIdOf(record.sources[sourceId]);
+};
+
 const isSameSource = (left: SourceRecord, right: SourceRecord): boolean => {
   const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
   return [...keys].every((key) => left[key] === right[key]);
@@ -859,6 +871,7 @@ export class InstallRecordService {
    * @param change.bundleId - Bundle id.
    * @param change.identity - Its bundle identity.
    * @param change.tool - The installed tool.
+   * @param change.sourceId - Readable id of its source; another source's entry is not a sibling.
    * @param change.version - Its new version.
    * @param change.files - Its new recorded files.
    * @param change.previousPaths - Paths its previous entry listed.
@@ -871,6 +884,7 @@ export class InstallRecordService {
       bundleId: string;
       identity: string;
       tool: string;
+      sourceId: string;
       version: string;
       files: readonly RecordedFile[];
       previousPaths: ReadonlySet<string>;
@@ -887,7 +901,8 @@ export class InstallRecordService {
       const handled = new Set<string>();
       for (const [key, bundle] of Object.entries(bundles)) {
         for (const [tool, entry] of Object.entries(bundle.tools)) {
-          const sameBundle = key === change.bundleId || recordIdentityOf(key, entry.version) === change.identity;
+          const sameBundle = (key === change.bundleId || recordIdentityOf(key, entry.version) === change.identity)
+            && readableSourceIdIn(file.record, entry.sourceId) === change.sourceId;
           if (!sameBundle || handled.has(tool) || tool === change.tool || tool === UNKNOWN_TOOL_NAME
             || !entry.files.some((recorded) => isShared(recorded)) || (key !== change.bundleId && holdsTool(tool))) {
             continue;
@@ -1042,6 +1057,7 @@ export class InstallRecordService {
         bundleId,
         identity,
         tool,
+        sourceId,
         version: input.version,
         files,
         previousPaths: new Set(previous.flatMap((prior) => prior.files.map((file) => file.path))),

@@ -590,6 +590,29 @@ describe('repository install record', () => {
     expect(fs.existsSync(path.join(root, '.github/prompts/b.prompt.md'))).toBe(true);
   });
 
+  it('a reinstall does not sync or clean up a sibling tool\'s entry from another source that shares its files', async () => {
+    const sourceA = { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' };
+    const sourceB = { type: 'github', url: 'https://github.com/other/tools' };
+    await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'coll', name: 'coll', source: sourceA });
+    const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    const [keyA] = Object.keys(raw.bundles);
+    const keyB = `${recordSourceIdOf(sourceB)}/coll`;
+    fs.writeFileSync(committed.path, JSON.stringify({
+      ...raw,
+      sources: { ...raw.sources, [recordSourceIdOf(sourceB)]: sourceB },
+      bundles: { ...raw.bundles, [keyB]: { name: 'coll', tools: { 'vscode-insiders': { ...raw.bundles[keyA].tools.vscode, version: '5.0.0' } } } }
+    }));
+
+    const change = await install('vscode', ['.github/prompts/new.prompt.md'], { bundleId: 'coll', name: 'coll', version: '2.0.0', source: sourceA });
+    await service.deleteSuperseded(change);
+
+    const saved = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    expect(saved.bundles[keyA].tools.vscode.version).toBe('2.0.0');
+    expect(saved.bundles[keyB].tools['vscode-insiders'].version).toBe('5.0.0');
+    expect(saved.bundles[keyB].tools['vscode-insiders'].files.map((file: { path: string }) => file.path)).toEqual(['.github/prompts/a.prompt.md']);
+    expect(fs.existsSync(path.join(root, '.github/prompts/a.prompt.md'))).toBe(true);
+  });
+
   it('keeps the bundle key when the bundle is upgraded', async () => {
     const options = (version: string): Partial<RecordInstallInput> => ({ bundleId: `acme-tools-coll-${version}`, version, name: 'coll' });
     await install('vscode', ['.github/prompts/a.prompt.md'], options('1.0.0'));
