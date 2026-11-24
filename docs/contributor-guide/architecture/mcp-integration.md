@@ -184,13 +184,19 @@ mcpServers:
     description: Custom operations
 ```
 
-## Uninstallation
+## Ownership in the install record
+
+Each install record entry lists the servers it wrote under `mcpServers[]`: the MCP file relative to the level root, the server name, the bundle item and a checksum of the definition (`disabled` left out). The CLI writes servers through `InstallRecordService.writeMcpServers` (`packages/app/src/records/mcp-servers.ts`); the extension writes them with `McpServerManager` and records them with `describeMcpServers`. Uninstall and update remove recorded servers through the record (`removeRecordedMcpServers`), so a changed server, or one another entry lists, stays.
+
+At a level with a record (repository always; user except in WSL), `BundleInstaller` gives `McpServerManager` the records' view (`ExtensionRecordAdapter.mcpOwnership()`), and the manager neither reads nor writes the tracking metadata for new installs: a name the record or the leftover tracking lists is the bundle's own and is written over; any other existing name is a conflict. Duplicate detection takes each server's bundle from the record. `migrateTrackingToRecord` hands tracked servers to their bundles' record entries (`addMcpServers`) and deletes the tracking file once nothing is left in it.
+
+## Uninstallation (tracking metadata, WSL user level and untracked leftovers)
 
 1. Read tracking metadata for bundle's servers
 2. Remove servers from `mcp.json`
 3. Remove **orphaned inputs** — any `${input:id}` no longer referenced by any remaining server is removed from the `inputs` array
 4. Update tracking metadata
-5. Atomic operations with backup/rollback
+5. The file is replaced atomically (temp file, then rename), so a failed write leaves it intact; no `.backup` copy is kept, and one an earlier release left is removed
 
 > **Shared inputs are preserved**: if another installed bundle's server still references an input, it is kept.
 

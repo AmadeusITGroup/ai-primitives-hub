@@ -13,6 +13,8 @@ export interface RecordFileStat {
   kind: RecordFileKind;
   /** Reported size in bytes. Never trusted to bound a read. */
   size: number;
+  /** Permission bits (`mode & 0o777`), when the filesystem reports them. */
+  mode?: number;
 }
 
 /** Filesystem operations for install records. All paths are absolute. */
@@ -25,8 +27,8 @@ export interface RecordFs {
   readCapped(path: string, maxBytes: number): Promise<Uint8Array>;
   /** Streamed SHA-256 of a file's bytes, as `sha256:` plus 64 lowercase hex digits. */
   hashFile(path: string): Promise<string>;
-  /** Create a file exclusively and write UTF-8 text; rejects when the path exists. */
-  writeFile(path: string, contents: string): Promise<void>;
+  /** Create a file exclusively and write UTF-8 text; rejects when the path exists. `mode` sets its permission bits exactly. */
+  writeFile(path: string, contents: string, options?: { mode?: number }): Promise<void>;
   /** Rename a file, replacing the destination atomically. */
   rename(from: string, to: string): Promise<void>;
   /** Remove a file or a symlink (never followed). Rejects for a directory. */

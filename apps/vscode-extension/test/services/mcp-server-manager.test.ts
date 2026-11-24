@@ -190,6 +190,20 @@ suite('McpServerManager Test Suite', () => {
       const tracking = await fs.readJson(path.join(testDir, 'mcp-tracking.json'));
       assert.strictEqual(tracking.managedServers[sampleKey].bundleId, 'acme-org-sample-collections-sample-mcp-1.0.0');
     });
+
+    test('installServers reports the servers it wrote when a step after the write fails', async () => {
+      sandbox.stub((manager as any).configService, 'detectAndDisableDuplicates').rejects(new Error('duplicate check failed'));
+
+      const result = await manager.installServers(
+        'acme-org-sample-collections-sample-mcp-1.0.0', '1.0.0', testDir,
+        { gateway: { type: 'http', url: 'https://example.invalid/mcp' } },
+        { ...base, manifestRepository: 'https://github.com/acme-org/sample-collections' }
+      );
+
+      assert.strictEqual(result.success, false);
+      assert.deepStrictEqual(result.installedServers, [sampleKey]);
+      assert.deepStrictEqual(Object.keys((await fs.readJson(path.join(testDir, 'mcp.json'))).servers), [sampleKey]);
+    });
   });
 
   test('Manager instance can be created', () => {

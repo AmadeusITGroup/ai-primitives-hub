@@ -6,6 +6,7 @@
 import type {
   McpEnvPlaceholderStyle,
   McpServerKeyRequest,
+  McpServersKey,
 } from '@ai-primitives-hub/core';
 
 export type { McpServersKey } from '@ai-primitives-hub/core';
@@ -166,6 +167,8 @@ export interface McpInstallResult {
   success: boolean;
   serversInstalled: number;
   installedServers: string[];
+  /** The MCP file the servers were written to; set when it was written. */
+  config?: { path: string; serversKey: McpServersKey };
   errors?: string[];
   warnings?: string[];
 }
@@ -184,7 +187,6 @@ export interface McpInstallOptions extends McpServerNaming {
   scope: 'user' | 'workspace';
   overwrite?: boolean;
   skipOnConflict?: boolean;
-  createBackup?: boolean;
 }
 
 /**
@@ -194,5 +196,4 @@ export interface McpWorkspaceInstallOptions extends McpServerNaming {
   commitMode: 'commit' | 'local-only';
   overwrite?: boolean;
   skipOnConflict?: boolean;
-  createBackup?: boolean;
 }

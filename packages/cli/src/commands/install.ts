@@ -88,6 +88,10 @@ import {
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
+  bundleMcpOf,
+  checkPlannedInstallMcp,
+  checkRecordSourceHub,
+  checkRepositoryInstallMcp,
   Command,
   configuredRecordSources,
   type Context,
@@ -1146,6 +1150,8 @@ async function performLocalInstall(
     }
     // Check the record files before the writer runs, so a RECORD.* error writes nothing.
     const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
+    const mcp = bundleMcpOf(manifest, ctx.env);
+    await checkRepositoryInstallMcp(prepared, { bundleId: manifest.id, version: manifest.version, tool: effectiveTarget.type, mcp });
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
@@ -1159,7 +1165,9 @@ async function performLocalInstall(
       version: manifest.version,
       tool: effectiveTarget.type,
       source: { sourceId: localSourceId, type: 'local', url: localSourceUrl },
-      writtenPaths: result.written
+      writtenPaths: result.written,
+      bundle: { name: manifest.id, files },
+      mcp
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
       const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');
@@ -1429,10 +1437,13 @@ async function performRecordReplay(run: RecordReplayRun): Promise<number> {
         expectedVersion: entry.version,
         sourceRepoSlug: githubRepoSlugForSource(source)
       });
+      const mcp = bundleMcpOf(manifest, ctx.env, source.type === 'github' ? source.url : undefined);
+      await checkPlannedInstallMcp(service, item, target, ctx, manifest.version, mcp);
       const { result } = await writeBundleSafely(writerFactory(target), target, files, manifest);
       written = [...result.written];
       changes.push(await recordPlannedInstall(
-        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type, hubId: item.source.hubId }, target, ctx, manifest.version, written, false
+        service, { ...item, sourceId: entry.sourceId, source, sourceType: source.type, hubId: item.source.hubId }, target, ctx, manifest.version, written, false,
+        { name: manifest.id, files }, mcp
       ));
       data.replayed.push({ bundleId, tool, version: manifest.version, target: target.name });
     } catch (cause) {
@@ -1633,15 +1644,19 @@ async function performRemoteInstall(
     const prepared = await prepareRecordForTarget(ctx, effectiveTarget);
     // Optional hub metadata, looked up before any file is written; a failed lookup records no hub.
     const hub = prepared === undefined ? undefined : await recordHubOf(ctx, opts.sourceConfig).catch(() => undefined);
+    // No configured source: the GitHub repository the bundle was resolved from.
+    const recordSource = opts.sourceConfig === undefined
+      ? { type: 'github', url: `https://github.com/${repoSlug}` }
+      : toRecordSource(opts.sourceConfig, installable.ref.sourceId, hub);
+    // A source recorded from another hub is refused before any file is written.
+    await checkRecordSourceHub(prepared, { ...recordSource, sourceId: installable.ref.sourceId }, hub);
+    const mcp = bundleMcpOf(manifest, ctx.env, `https://github.com/${repoSlug}`);
+    await checkRepositoryInstallMcp(prepared, { bundleId: lockKey, version: manifest.version, tool: effectiveTarget.type, mcp });
     const writerFactory = createWriterFactory(ctx, opts, prepared?.exclusion);
     const writer = writerFactory(effectiveTarget);
     const { installableFiles: targetFiles, result, skipped } = await writeBundleForInstall(
       writer, effectiveTarget, files, manifest, { skipUnsupported: opts.skipUnsupported === true }
     );
-    // No configured source: the GitHub repository the bundle was resolved from.
-    const recordSource = opts.sourceConfig === undefined
-      ? { type: 'github', url: `https://github.com/${repoSlug}` }
-      : toRecordSource(opts.sourceConfig, installable.ref.sourceId, hub);
     // The old lockfile never kept a branch.
     const { branch: _branch, ...sourceDetails } = toLockfileSourceEntry(recordSource);
     const { lockPath, warnings } = await persistInstall(prepared, {
@@ -1650,7 +1665,9 @@ async function performRemoteInstall(
       tool: effectiveTarget.type,
       source: { ...recordSource, sourceId: installable.ref.sourceId },
       ...(hub === undefined ? {} : { hub }),
-      writtenPaths: result.written
+      writtenPaths: result.written,
+      bundle: { name: manifest.id, files },
+      mcp
     }, async () => {
       const legacyLockPath = lockfilePathForTarget(ctx, effectiveTarget);
       const existing = await readLockfile(legacyLockPath, ctx.fs) ?? emptyLockfile('ai-primitives-hub-cli');

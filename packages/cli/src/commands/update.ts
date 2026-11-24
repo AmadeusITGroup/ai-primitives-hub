@@ -52,7 +52,6 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   IMPORTED_USER_LOCKFILE_FIELD,
-  isRecordError,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -76,6 +75,8 @@ import {
   ZipBundleExtractor,
 } from '@ai-primitives-hub/infra';
 import {
+  bundleMcpOf,
+  checkPlannedInstallMcp,
   CLI_RECORD_GENERATED_BY,
   Command,
   configuredRecordSources,
@@ -950,30 +951,34 @@ async function applyRecordUpdate(
   const { files, manifest } = await downloadCandidate(
     candidate, http, tokensForRecordSource(run.tokens, item.fromRecord), { bundleId, source: item.source }
   );
-  const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) =>
-    recordPlannedInstall(
+  const mcp = bundleMcpOf(manifest, ctx.env, item.source.type === 'github' ? item.source.url : undefined);
+  const record = async (tool: string, location: RecordLocation, target: Target, syncSiblings: false | ((sibling: string) => boolean)) => {
+    // An MCP server another writer put in the tool's file refuses the update before any file is written.
+    await checkPlannedInstallMcp(prepared.service, { bundleId, tool, location }, target, ctx, manifest.version, mcp);
+    return recordPlannedInstall(
       prepared.service, { ...item, bundleId, tool, location, sourceType: item.source.type }, target, ctx, manifest.version,
-      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings
+      await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings, { name: manifest.id, files }, mcp
     );
-  const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
+  };
+  // The primary save only finds the siblings: each keeps its entry, and the files it lists, until
+  // its own update succeeds, so a failed sibling keeps its version and the cleanup keeps its files.
+  const change = await record(item.tool, item.location, item.target, () => false);
   const changes = [change];
   const synced: string[] = [];
   const outOfDate: { tool: string; version: string }[] = [];
   const failed: { tool: string; reason: string }[] = [];
   for (const sibling of change.siblings) {
     const siblingTarget = siblingTargets.get(sibling.tool);
-    if (!sibling.synced || siblingTarget === undefined) {
+    if (siblingTarget === undefined) {
       outOfDate.push({ tool: sibling.tool, version: sibling.version });
       continue;
     }
-    // A failed sibling is reported; the changes already made are still finished by the caller.
+    // A failed sibling, MCP conflict or record error included, is reported; the primary change is
+    // already saved, so it is returned and the caller still finishes its cleanup.
     try {
       changes.push(await record(sibling.tool, sibling.location, siblingTarget, false));
       synced.push(sibling.tool);
     } catch (error) {
-      if (isRecordError(error)) {
-        throw error;
-      }
       failed.push({ tool: sibling.tool, reason: error instanceof Error ? error.message : String(error) });
     }
   }

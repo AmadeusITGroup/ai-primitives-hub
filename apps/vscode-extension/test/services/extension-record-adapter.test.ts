@@ -20,6 +20,9 @@ import {
   pathToFileURL,
 } from 'node:url';
 import {
+  mcpServerChecksumOf,
+  recordHubIdOf,
+  recordSourceIdOf,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import * as sinon from 'sinon';
@@ -68,9 +71,11 @@ import {
 import {
   createMockContext,
   initGitRoot,
+  integrityOf,
   isOnDisk,
   LOCAL_RECORD_FILE,
   overrideEnv,
+  readRecordView,
   RECORD_FILE,
   recordEntry,
   recordProfileInstall,
@@ -87,12 +92,16 @@ const OLD_LOCKFILE = 'prompt-registry.lock.json';
 const HELLO = '.github/prompts/hello.prompt.md';
 const STYLE = '.github/instructions/style.instructions.md';
 const SOURCE = { id: 'acme-github', name: 'Acme', type: 'github', url: 'https://github.com/acme/tools', enabled: true, priority: 0 };
+/** The record's id of {@link SOURCE}. */
+const SOURCE_RECORD_ID = recordSourceIdOf({ type: SOURCE.type, url: SOURCE.url });
 
 /** A bundle version: its bundle-relative files and manifest items. */
 interface BundleVersion {
   version: string;
   files: Record<string, string>;
   items: { id: string; file: string; type: string }[];
+  /** The manifest's `mcpServers`, as YAML lines under it. */
+  mcpServers?: string;
 }
 
 /** 1.0.0 writes a prompt and an instruction. */
@@ -113,7 +122,8 @@ const sha256 = (text: string): string => `sha256:${createHash('sha256').update(t
 
 const manifestOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): string => {
   const prompts = bundle.items.map((item) => `  - id: ${item.id}\n    file: ${item.file}\n    type: ${item.type}\n`).join('');
-  return `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}`;
+  const mcp = bundle.mcpServers === undefined ? '' : `mcpServers:\n${bundle.mcpServers}`;
+  return `id: ${bundleId}\nversion: ${bundle.version}\nname: Record Bundle\ndescription: Test\nauthor: test\nprompts:\n${prompts}${mcp}`;
 };
 
 const zipOf = (bundle: BundleVersion, bundleId = BUNDLE_ID): Buffer => {
@@ -151,7 +161,7 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
   const abs = (relative: string): string => path.join(root, ...relative.split('/'));
   const read = (relative: string): string => fs.readFileSync(abs(relative), 'utf8');
-  const readRecord = (file: string = RECORD_FILE): any => fs.existsSync(abs(file)) ? JSON.parse(read(file)) : null;
+  const readRecord = (file: string = RECORD_FILE): any => fs.existsSync(abs(file)) ? readRecordView(abs(file)) : null;
   const toolsOf = (file: string = RECORD_FILE, bundleId = BUNDLE_ID): Record<string, any> => readRecord(file)?.bundles[bundleId]?.tools ?? {};
 
   const install = (bundle: BundleVersion, options: { commitMode?: RepositoryCommitMode; sourceId?: string } = {}): Promise<InstalledBundle> =>
@@ -215,14 +225,15 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.ok(!Number.isNaN(Date.parse(installedAt)));
     assert.deepStrictEqual(entry, {
       version: '1.0.0',
-      sourceId: SOURCE.id,
+      sourceId: SOURCE_RECORD_ID,
       sourceType: 'github',
+      integrity: integrityOf({ 'deployment-manifest.yml': manifestOf(V1), ...V1.files }),
       files: [
-        { path: STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']) },
-        { path: HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']) }
+        { path: STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']), sourcePath: 'instructions/style.instructions.md' },
+        { path: HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']), sourcePath: 'prompts/hello.prompt.md' }
       ]
     });
-    assert.deepStrictEqual(record.sources[SOURCE.id], { type: 'github', url: SOURCE.url });
+    assert.deepStrictEqual(record.sources[SOURCE_RECORD_ID], { type: 'github', url: SOURCE.url });
     assert.strictEqual(read(HELLO), V1.files['prompts/hello.prompt.md']);
   });
 
@@ -233,23 +244,78 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
 
     await install(V1);
 
-    assert.deepStrictEqual(readRecord().sources[SOURCE.id], { type: 'github', url: SOURCE.url, branch: 'main' });
+    const recorded = { type: 'github', url: SOURCE.url, branch: 'main' };
+    assert.deepStrictEqual(readRecord().sources[recordSourceIdOf(recorded)], recorded);
   });
 
-  test('install from a hub source records its hubId and the hub import reference from the HubManager', async () => {
-    ((manager as any).storage.getSources as sinon.SinonStub).resolves([{ ...SOURCE, hubId: 'acme-hub' }]);
+  /**
+   * Configure {@link SOURCE} from a hub at `location`, imported here as `hubId`.
+   * @param hubId
+   * @param location
+   */
+  const useHub = (hubId: string, location = 'acme/hub'): void => {
+    ((manager as any).storage.getSources as sinon.SinonStub).resolves([{ ...SOURCE, hubId }]);
     (manager as any).hubManager = {
-      getActiveHubId: () => Promise.resolve('acme-hub'),
-      getHub: (hubId: string) => Promise.resolve(hubId === 'acme-hub'
-        ? { id: hubId, config: { metadata: { name: 'Acme Hub' } }, reference: { type: 'github', location: 'acme/hub', ref: 'main', credentialRef: 'HUB_TOKEN' } }
+      getActiveHubId: () => Promise.resolve(hubId),
+      getHub: (id: string) => Promise.resolve(id === hubId
+        ? { id, config: { metadata: { name: 'Acme Hub' } }, reference: { type: 'github', location, ref: 'main', credentialRef: 'HUB_TOKEN' } }
         : null)
     };
+  };
+  const HUB_ENTRY = { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' };
+  const HUB_RECORD_ID = recordHubIdOf(HUB_ENTRY);
+
+  test('install from a hub source records its hub under the readable hub id, with the import reference from the HubManager', async () => {
+    useHub('acme-hub');
 
     await install(V1);
 
     const record = readRecord();
-    assert.deepStrictEqual(record.sources[SOURCE.id], { type: 'github', url: SOURCE.url, hubId: 'acme-hub' });
-    assert.deepStrictEqual(record.hubs, { 'acme-hub': { name: 'Acme Hub', type: 'github', location: 'acme/hub', ref: 'main' } });
+    assert.deepStrictEqual(record.sources[SOURCE_RECORD_ID], { type: 'github', url: SOURCE.url, hubId: HUB_RECORD_ID });
+    assert.deepStrictEqual(record.hubs, { [HUB_RECORD_ID]: HUB_ENTRY });
+  });
+
+  test('install from the same hub imported under another id, as the CLI recorded it, is not a conflict', async () => {
+    useHub('acme-hub-171538');
+    await recordOtherTool('kiro', ['.kiro/steering/hello.md']);
+    const cliRecord = JSON.parse(fs.readFileSync(abs(RECORD_FILE), 'utf8'));
+    cliRecord.hubs = { 'acme-hub-171538': HUB_ENTRY };
+    for (const source of Object.values<{ hubId?: string }>(cliRecord.sources)) {
+      source.hubId = 'acme-hub-171538';
+    }
+    fs.writeFileSync(abs(RECORD_FILE), JSON.stringify(cliRecord));
+    useHub('acme-hub-196473');
+
+    await install(V1);
+
+    assert.deepStrictEqual(Object.keys(toolsOf()).toSorted(), ['kiro', 'vscode']);
+    assert.deepStrictEqual(readRecord().hubs, { [HUB_RECORD_ID]: HUB_ENTRY });
+  });
+
+  test('install of a source recorded from another hub is refused before any file is written', async () => {
+    useHub('other-hub', 'other/hub');
+    await install(V1);
+    useHub('acme-hub');
+    fs.rmSync(abs(HELLO));
+    fs.rmSync(abs(STYLE));
+    const before = snapshotTree(root);
+
+    await assert.rejects(install(V1), { code: 'RECORD.HUB_CONFLICT' });
+
+    assert.deepStrictEqual(snapshotTree(root), before);
+  });
+
+  test('an update of a source recorded from another hub is refused before the old MCP servers are removed', async () => {
+    useHub('other-hub', 'other/hub');
+    await install(V1);
+    useHub('acme-hub');
+    const removeMcp = sandbox.spy(installer as any, 'uninstallMcpServers');
+    const before = snapshotTree(root);
+
+    await assert.rejects(update(V2), { code: 'RECORD.HUB_CONFLICT' });
+
+    assert.strictEqual(removeMcp.callCount, 0);
+    assert.deepStrictEqual(snapshotTree(root), before);
   });
 
   const refusedInstalls: { name: string; arrange: () => void; sourceId?: string; expected: RegExp | { code: string }; errorShown: boolean }[] = [
@@ -288,6 +354,125 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(Object.keys(toolsOf()).toSorted(), ['kiro', 'vscode']);
     assert.strictEqual(JSON.stringify(toolsOf().kiro), kiroBefore);
     assert.strictEqual((await listed()).version, V1.version);
+  });
+
+  suite('MCP servers', () => {
+    const MCP_FILE = '.vscode/mcp.json';
+    const SERVER = 'ai-primitives-hub:record-bundle:db';
+    const WITH_SERVER: BundleVersion = { ...V1, mcpServers: '  db:\n    command: db-server\n' };
+    const readMcp = (): { servers: Record<string, unknown> } => JSON.parse(read(MCP_FILE)) as { servers: Record<string, unknown> };
+
+    test('install records the server it wrote in the MCP file, and uninstall removes it through the record, keeping the user\'s own', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { mine: { command: 'my-server' } } }));
+
+      await install(WITH_SERVER);
+
+      assert.deepStrictEqual(toolsOf().vscode.mcpServers, [{ config: MCP_FILE, name: SERVER, item: 'db', checksum: mcpServerChecksumOf({ command: 'db-server' }) }]);
+      assert.deepStrictEqual(Object.keys(readMcp().servers).toSorted(), [SERVER, 'mine']);
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.deepStrictEqual(readMcp().servers, { mine: { command: 'my-server' } });
+    });
+
+    test('uninstall keeps a server the user changed since the install', async () => {
+      await install(WITH_SERVER);
+      const edited = readMcp();
+      edited.servers[SERVER] = { command: 'db-server', args: ['--verbose'] };
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify(edited));
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.deepStrictEqual(readMcp().servers, { [SERVER]: { command: 'db-server', args: ['--verbose'] } });
+    });
+
+    test('an update to a version without the server removes it and records none', async () => {
+      await install(WITH_SERVER);
+
+      await update(V2);
+
+      assert.strictEqual(toolsOf().vscode.mcpServers, undefined);
+      assert.ok(!fs.existsSync(abs(MCP_FILE)) || !Object.hasOwn(readMcp().servers, SERVER), 'the dropped server is gone');
+    });
+
+    const TRACKING_FILE = '.vscode/prompt-registry-mcp-tracking.json';
+
+    test('install keeps no backup copy of the MCP file and removes one an earlier release left', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { mine: { command: 'my-server' } } }));
+      fs.writeFileSync(abs(`${MCP_FILE}.backup`), 'old copy');
+
+      await install(WITH_SERVER);
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.deepStrictEqual(fs.readdirSync(abs('.vscode')), ['mcp.json']);
+      assert.deepStrictEqual(readMcp().servers, { mine: { command: 'my-server' } });
+    });
+
+    test('a server already in the file exactly as the install writes it, from a failed earlier install, is taken over and recorded', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { [SERVER]: { command: 'db-server' } } }));
+
+      await install(WITH_SERVER);
+
+      assert.deepStrictEqual(toolsOf().vscode.mcpServers?.map((server: { name: string }) => server.name), [SERVER]);
+      assert.ok(!showError.called && !showWarning.called, 'no conflict reported');
+    });
+
+    test('a server of that name with another definition, that no entry records, is a conflict and is left as it is', async () => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({ servers: { [SERVER]: { command: 'hand-written' } } }));
+
+      await install(WITH_SERVER);
+
+      assert.deepStrictEqual(readMcp().servers, { [SERVER]: { command: 'hand-written' } });
+      assert.deepStrictEqual(toolsOf().vscode.mcpServers, undefined);
+    });
+
+    test('install writes no tracking file, and installing the same version again writes over its own server', async () => {
+      await install(WITH_SERVER);
+      await install(WITH_SERVER);
+
+      assert.ok(!fs.existsSync(abs(TRACKING_FILE)), 'the record is the only store');
+      assert.deepStrictEqual(readMcp().servers, { [SERVER]: { command: 'db-server' } });
+      assert.strictEqual(toolsOf().vscode.mcpServers?.length, 1);
+    });
+
+    const writeOlderInstall = (bundleIds: string[]): void => {
+      fs.mkdirSync(abs('.vscode'), { recursive: true });
+      fs.writeFileSync(abs(MCP_FILE), JSON.stringify({
+        servers: Object.fromEntries(bundleIds.map((bundleId) => [`ai-primitives-hub:${bundleId}:db`, { command: 'db-server' }]))
+      }));
+      fs.writeFileSync(abs(TRACKING_FILE), JSON.stringify({
+        managedServers: Object.fromEntries(bundleIds.map((bundleId) => [`ai-primitives-hub:${bundleId}:db`, {
+          bundleId, bundleVersion: '1.0.0', originalName: 'db', originalConfig: { command: 'db-server' }, installedAt: '2026-10-01T10:00:00.000Z', scope: 'workspace'
+        }])),
+        lastUpdated: '2026-10-01T10:00:00.000Z',
+        version: '1.0.0'
+      }));
+    };
+
+    test('an older install\'s tracked server moves into its record entry, the tracking file goes, and uninstall removes the server', async () => {
+      await install(V1);
+      writeOlderInstall([BUNDLE_ID]);
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      assert.ok(!fs.existsSync(abs(TRACKING_FILE)), 'the tracking file is removed');
+      assert.ok(!fs.existsSync(abs(MCP_FILE)), 'the server, the last one in the file, is gone with the file');
+    });
+
+    test('a tracked server of a bundle no record entry holds stays tracked', async () => {
+      await install(V1);
+      writeOlderInstall([BUNDLE_ID, 'gone-bundle']);
+
+      await manager.uninstallBundle(BUNDLE_ID, 'repository');
+
+      const tracking = JSON.parse(read(TRACKING_FILE)) as { managedServers: Record<string, unknown> };
+      assert.deepStrictEqual(Object.keys(tracking.managedServers), ['ai-primitives-hub:gone-bundle:db']);
+      assert.deepStrictEqual(Object.keys(readMcp().servers), ['ai-primitives-hub:gone-bundle:db']);
+    });
   });
 
   test('uninstall removes only the vscode entry; the kiro entry and its files stay byte-identical', async () => {
@@ -353,7 +538,8 @@ suite('ExtensionRecordAdapter: repository installs through the extension', funct
     assert.deepStrictEqual(Object.keys(tools).toSorted(), ['copilot-cli', 'kiro', 'vscode']);
     for (const tool of ['vscode', 'copilot-cli']) {
       assert.strictEqual(tools[tool].version, '1.1.0', tool);
-      assert.deepStrictEqual(tools[tool].files, [{ path: HELLO, checksum: sha256(V2.files['prompts/hello.prompt.md']) }], tool);
+      assert.deepStrictEqual(tools[tool].files.map((file: { path: string; checksum: string }) => ({ path: file.path, checksum: file.checksum })),
+        [{ path: HELLO, checksum: sha256(V2.files['prompts/hello.prompt.md']) }], tool);
     }
     assert.deepStrictEqual(tools.kiro, kiroBefore);
     assert.ok(!fs.existsSync(abs(STYLE)), 'the dropped file is deleted');
@@ -562,7 +748,7 @@ suite('user record', function () {
 
   const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
   const userRecordPath = (): string => storage.getPaths().userRecord;
-  const readUserRecord = (): any => fs.existsSync(userRecordPath()) ? JSON.parse(fs.readFileSync(userRecordPath(), 'utf8')) : null;
+  const readUserRecord = (): any => fs.existsSync(userRecordPath()) ? readRecordView(userRecordPath()) : null;
   const listedUser = async (): Promise<InstalledBundle | undefined> =>
     (await manager.listInstalledBundles('user')).find((bundle) => bundle.bundleId === BUNDLE_ID);
   const installUser = (): Promise<InstalledBundle> => manager.installBundle(BUNDLE_ID, { scope: 'user' });
@@ -614,11 +800,12 @@ suite('user record', function () {
     assert.ok(!Number.isNaN(Date.parse(installedAt)));
     assert.deepStrictEqual(entry, {
       version: '1.0.0',
-      sourceId: localSource.id,
+      sourceId: recordSourceIdOf({ type: 'local', url: localSource.url }),
       sourceType: 'local',
+      integrity: integrityOf({ 'deployment-manifest.yml': manifestOf(V1), ...V1.files }),
       files: [
-        { path: USER_STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']) },
-        { path: USER_HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']) }
+        { path: USER_STYLE, checksum: sha256(V1.files['instructions/style.instructions.md']), sourcePath: 'instructions/style.instructions.md' },
+        { path: USER_HELLO, checksum: sha256(V1.files['prompts/hello.prompt.md']), sourcePath: 'prompts/hello.prompt.md' }
       ]
     });
     assert.strictEqual(fs.readFileSync(userPath(USER_HELLO), 'utf8'), V1.files['prompts/hello.prompt.md']);
@@ -1111,10 +1298,10 @@ suite('older records', function () {
   });
   const abs = (relative: string): string => path.join(root, ...relative.split('/'));
   const userPath = (relative: string): string => path.join(home, ...relative.split('/'));
-  const readRecord = (): any => fs.existsSync(abs(RECORD_FILE)) ? JSON.parse(fs.readFileSync(abs(RECORD_FILE), 'utf8')) : null;
+  const readRecord = (): any => fs.existsSync(abs(RECORD_FILE)) ? readRecordView(abs(RECORD_FILE)) : null;
   const readUserRecord = (): any => {
     const file = storage.getPaths().userRecord;
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    return fs.existsSync(file) ? readRecordView(file) : null;
   };
   const messages = (): string[] => [...showInfo.getCalls(), ...showWarning.getCalls()].map((call) => String(call.args[0]));
 
@@ -1195,7 +1382,7 @@ suite('older records', function () {
     assert.ok(!fs.existsSync(abs(OLD_LOCKFILE)), 'the old file is renamed');
     assert.deepStrictEqual(record.bundles['old-bundle'].tools, {
       unknown: {
-        version: '0.9.0', sourceId: localSource.id, sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
+        version: '0.9.0', sourceId: recordSourceIdOf({ type: 'local', url: localSource.url }), sourceType: 'local', installedAt: '2026-10-01T10:00:00.000Z',
         needsReinstall: true, files: [{ path: OLD_FILE, checksum: sha256('old content') }]
       }
     });
@@ -1260,7 +1447,7 @@ suite('older records', function () {
       assert.deepStrictEqual(Object.keys(record.bundles[OTHER_ID].tools), ['vscode'], 'the action ran');
       const { installedAt: _installedAt, ...entry } = record.bundles[BUNDLE_ID].tools.vscode;
       assert.deepStrictEqual(entry, {
-        version: V0.version, sourceId: localSource.id, sourceType: 'local',
+        version: V0.version, sourceId: recordSourceIdOf({ type: 'local', url: localSource.url }), sourceType: 'local',
         files: [{ path: USER_HELLO, checksum: sha256(V0.files['prompts/hello.prompt.md']) }]
       });
       if (removeFailsOnce) {
@@ -1336,5 +1523,37 @@ suite('older records', function () {
         assert.ok(messages().some((shownMessage) => message.test(shownMessage)), messages().join('\n'));
       }
     });
+  });
+});
+
+suite('ExtensionRecordAdapter: configured source of a recorded source', () => {
+  const memento = (): Pick<vscode.Memento, 'get' | 'update'> => ({ get: () => undefined, update: () => Promise.resolve() });
+  const source = (id: string, hubId: string): any => ({
+    id, name: id, type: 'github', url: 'https://github.com/acme/tools', enabled: true, priority: 0, hubId
+  });
+  const hubs: Record<string, { name: string; reference: { type: string; location: string; ref?: string } }> = {
+    'hub-a': { name: 'Hub A', reference: { type: 'github', location: 'acme/hub-a', ref: 'main' } },
+    'hub-b': { name: 'Hub B', reference: { type: 'github', location: 'acme/hub-b', ref: 'main' } }
+  };
+  const adapter = (): ExtensionRecordAdapter => new ExtensionRecordAdapter({
+    sources: {
+      // The recorded hub's source is listed last, and another hub is active.
+      listSources: () => Promise.resolve([source('tools-a', 'hub-a'), source('tools-b', 'hub-b')]),
+      getActiveHubId: () => Promise.resolve('hub-a'),
+      getHub: (hubId: string) => Promise.resolve(hubs[hubId] ?? null)
+    },
+    memento: memento()
+  });
+  const recordedId = recordSourceIdOf({ type: 'github', url: 'https://github.com/acme/tools' });
+
+  test('returns the configured source from the hub the record names, whatever the order and the active hub', async () => {
+    const hubB = recordHubIdOf({ type: 'github', location: 'acme/hub-b', ref: 'main' });
+
+    assert.strictEqual(await adapter().configuredSourceIdOf(recordedId, hubB), 'tools-b');
+  });
+
+  test('falls back to the active hub\'s source without a recorded hub, and to the recorded id without a match', async () => {
+    assert.strictEqual(await adapter().configuredSourceIdOf(recordedId), 'tools-a');
+    assert.strictEqual(await adapter().configuredSourceIdOf('src:github:github.com/other/repo'), 'src:github:github.com/other/repo');
   });
 });

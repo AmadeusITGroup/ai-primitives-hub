@@ -30,11 +30,13 @@ import {
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  fromRecordFile,
   resolveUserConfigPaths,
 } from '@ai-primitives-hub/app';
 import {
   createLegacyReleaseManifestPlan,
   createReleaseManifestPlan,
+  type InstallRecord,
   PRIMITIVE_KINDS,
   type ReleaseManifestPlan,
   type ReleaseSourceReader,
@@ -362,7 +364,8 @@ const readRecordEntry = async (sandbox: Sandbox, bundleId: string, targetType: s
     if (text === null) {
       continue;
     }
-    const record = JSON.parse(text) as { bundles?: Record<string, { tools?: Record<string, LockEntry> }> };
+    // As the services see it: keyed by bundle id.
+    const record = fromRecordFile(JSON.parse(text) as InstallRecord) as { bundles?: Record<string, { tools?: Record<string, LockEntry> }> };
     const entry = record.bundles?.[bundleId]?.tools?.[targetType];
     if (entry !== undefined) {
       return {

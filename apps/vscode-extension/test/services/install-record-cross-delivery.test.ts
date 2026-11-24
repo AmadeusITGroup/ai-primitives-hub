@@ -35,6 +35,7 @@ import {
   initGitRoot,
   isOnDisk,
   overrideEnv,
+  readRecordView,
   RECORD_FILE,
   recordProfileInstall,
   setupUserRecordManager,
@@ -390,7 +391,7 @@ suite('Cross-delivery: the shared user record, CLI and extension', function () {
   const PROFILE_ID = 'profile-bundle';
   /** The home-relative file this profile synced for {@link PROFILE_ID}. */
   const PROFILE_FILE = '.copilot/prompts/profile-hello.prompt.md';
-  const readUserRecord = (): any => JSON.parse(fs.readFileSync(manager.getStorage().getPaths().userRecord, 'utf8'));
+  const readUserRecord = (): any => readRecordView(manager.getStorage().getPaths().userRecord);
   const oldUserLockfile = (): string => resolveUserConfigPaths(process.env).userLockfile;
 
   /** This profile's 0.9.0 install of {@link PROFILE_ID}: its bundle cache, its synced file and the RegistryStorage entry. */
@@ -528,7 +529,7 @@ suite('Cross-delivery: an old file in a workspace folder below the git root', fu
     assert.ok(!listed.some((item) => item.bundleId === 'sub-old'), 'not listed by the extension');
     assert.ok(!status.entries.some((entry: { bundleId: string }) => entry.bundleId === 'sub-old'), 'not listed by the CLI');
     assert.deepStrictEqual(fs.readFileSync(oldFile), before);
-    const record = JSON.parse(fs.readFileSync(path.join(root, RECORD_FILE), 'utf8'));
+    const record = readRecordView(path.join(root, RECORD_FILE));
     assert.deepStrictEqual(Object.keys(record.bundles), [BUNDLE_ID]);
     assert.deepStrictEqual(Object.keys(record.bundles[BUNDLE_ID].tools).toSorted(), ['kiro', 'vscode']);
   });

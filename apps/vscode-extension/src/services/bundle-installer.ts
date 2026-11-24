@@ -37,6 +37,8 @@ import type {
   BundleSpec,
   ExtractedFiles,
   Installable,
+  McpServersKey,
+  RecordedMcpServer,
   RecordLocation,
   Target,
   TargetType,
@@ -44,7 +46,9 @@ import type {
   TargetWriteResult,
 } from '@ai-primitives-hub/core';
 import {
+  isRecordError,
   relativeInside,
+  resolveMcpServerKey,
 } from '@ai-primitives-hub/core';
 import {
   ZipBundleExtractor,
@@ -55,6 +59,7 @@ import {
   RegistryStorage,
 } from '../storage/registry-storage';
 import type {
+  McpInstallResult,
   McpServerNaming,
 } from '../types/mcp';
 import {
@@ -155,6 +160,22 @@ interface PreparedUserInstall {
   profileEntryIds: string[];
 }
 
+/** The installed bundle as the record describes it: the manifest id and the bundle's files by bundle path. */
+interface InstalledContent {
+  name: string;
+  files: ReadonlyMap<string, Uint8Array>;
+  /** The MCP servers the install wrote; absent when the install does not handle MCP servers. */
+  mcp?: InstalledMcpServers;
+}
+
+/** MCP servers an install wrote into the host tool's MCP file. */
+interface InstalledMcpServers {
+  /** The MCP file; absent when nothing was written. */
+  file?: { path: string; serversKey: McpServersKey };
+  /** Server names with the bundle item each came from. */
+  servers: { name: string; item: string }[];
+}
+
 /** What {@link BundleInstaller.recordHostInstall} records, at either level. */
 interface HostInstallToRecord {
   location: RecordLocation;
@@ -167,6 +188,8 @@ interface HostInstallToRecord {
   written: readonly string[];
   /** Writer-group siblings brought along; repository level only. */
   syncSiblings?: (tool: string) => boolean;
+  /** The installed bundle's manifest id and files: the record's bundle name, `integrity` and `sourcePath`s. */
+  content?: InstalledContent;
   /**
    * The host entry an update replaces when the bundle id changes. With
    * `deleteFilesNow` (repository) its files go with the entry; otherwise with
@@ -201,6 +224,7 @@ export class BundleInstaller {
     this.storage = new RegistryStorage(context);
     this.targetType = targetType ?? detectHostApp();
     this.records = records ?? new ExtensionRecordAdapter({ sources: { listSources: () => this.storage.getSources() }, hostTool: this.targetType });
+    this.mcpManager.setRecordOwnership(this.records.mcpOwnership());
   }
 
   /**
@@ -252,6 +276,7 @@ export class BundleInstaller {
     const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
     try {
       const location = inPlace?.location ?? await this.records.prepareInstall(workspaceRoot, commitMode);
+      await this.records.checkSourceHub(location, source, hub);
       return { workspaceRoot, location, source, hub, modified: inPlace?.modified ?? await this.modifiedOfSameIdentity(workspaceRoot, bundle) };
     } catch (error) {
       this.rethrowRecordError(error);
@@ -282,16 +307,19 @@ export class BundleInstaller {
    * @param written - Absolute paths the writer wrote.
    * @param routeKeys - Kinds the bundle wrote, as `kindRoutes` keys.
    * @param inPlace - The old entry, for an update.
+   * @param content - The installed bundle's manifest id and files.
    */
   private async recordRepositoryInstall(
     bundle: Bundle,
     prepared: PreparedRepositoryInstall,
     written: readonly string[],
     routeKeys: readonly string[],
-    inPlace?: RepositoryUpdateInPlace
+    inPlace?: RepositoryUpdateInPlace,
+    content?: InstalledContent
   ): Promise<void> {
     const group = writerGroupFor(this.records.hostTool, routeKeys);
     const warnings = await this.recordHostInstall(bundle, {
+      content,
       location: prepared.location,
       source: prepared.source,
       hub: prepared.hub,
@@ -317,6 +345,80 @@ export class BundleInstaller {
    * @param beforeDelete - Runs after the saves, before the superseded files are deleted.
    * @throws {RegistryError} A `RECORD.*` error, after it was shown once.
    */
+  /**
+   * Run the file sync and record step of an install; when it fails, remove the
+   * MCP servers the install wrote that no record entry lists, so nothing is left
+   * that no record or tracking file knows.
+   * @param location - Record file the install is recorded in.
+   * @param mcp - The servers the install wrote.
+   * @param step - Sync and record.
+   */
+  private async removingUnrecordedMcpServersOnFailure(location: RecordLocation, mcp: InstalledMcpServers | undefined, step: () => Promise<void>): Promise<void> {
+    try {
+      await step();
+    } catch (error) {
+      if (mcp?.file !== undefined && mcp.servers.length > 0) {
+        try {
+          const recorded = await this.records.service.recordedMcpServersIn(location, mcp.file.path);
+          const unrecorded = mcp.servers.filter((server) => !recorded.has(server.name));
+          const servers = await this.records.service.describeMcpServers(location.root, mcp.file, unrecorded);
+          const removal = await this.records.service.removeRecordedMcpServers(location.root, servers);
+          this.logWarnings(removal.warnings);
+        } catch (cleanup) {
+          this.logger.warn(`[BundleInstaller] Could not remove the MCP servers of the failed install: ${cleanup instanceof Error ? cleanup.message : String(cleanup)}`);
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * The MCP servers the record lists for the host entry an uninstall removes.
+   * @param installed - Bundle being uninstalled.
+   * @param userEntry - Its user record entry, at user level.
+   */
+  private async recordedHostMcpServers(installed: InstalledBundle, userEntry: LocatedToolEntry | undefined): Promise<RecordedMcpServer[]> {
+    if (userEntry !== undefined) {
+      return userEntry.entry.mcpServers ?? [];
+    }
+    const workspaceRoot = installed.scope === 'repository' ? getWorkspaceRoot() : undefined;
+    if (workspaceRoot === undefined) {
+      return [];
+    }
+    try {
+      return (await this.records.findHostEntries(workspaceRoot, installed.bundleId))
+        .filter((located) => located.bundleId === installed.bundleId)
+        .flatMap((located) => located.entry.mcpServers ?? []);
+    } catch {
+      // The uninstall reports the record error itself.
+      return [];
+    }
+  }
+
+  /**
+   * The MCP servers an install wrote, as the record lists them; `undefined` when
+   * the install does not handle MCP servers or the MCP file is outside the level root.
+   * @param root - Level root.
+   * @param mcp - What the install wrote.
+   */
+  private async recordedMcpServersOf(root: string, mcp: InstalledMcpServers | undefined): Promise<RecordedMcpServer[] | undefined> {
+    if (mcp === undefined) {
+      return undefined;
+    }
+    if (mcp.file === undefined || mcp.servers.length === 0) {
+      return [];
+    }
+    try {
+      return await this.records.service.describeMcpServers(root, mcp.file, mcp.servers);
+    } catch (error) {
+      if (isRecordError(error, 'RECORD.PATH_OUTSIDE_ROOT')) {
+        this.logger.warn(`MCP servers in ${mcp.file.path} are not recorded: the file is outside ${root}`);
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   private async recordHostInstall(
     bundle: Bundle,
     input: HostInstallToRecord,
@@ -327,6 +429,7 @@ export class BundleInstaller {
     const changes: RecordInstallResult[] = [];
     const warnings: string[] = [];
     try {
+      const mcpServers = await this.recordedMcpServersOf(root, input.content?.mcp);
       const change = await this.records.service.recordInstall({
         location: input.location,
         bundleId: bundle.id,
@@ -337,7 +440,9 @@ export class BundleInstaller {
         sourceType: input.source.type,
         writtenPaths: input.written,
         workspaceRoot: input.workspaceRoot,
-        syncSiblings: input.syncSiblings
+        syncSiblings: input.syncSiblings,
+        ...(input.content === undefined ? {} : { name: input.content.name, bundleFiles: input.content.files }),
+        ...(mcpServers === undefined ? {} : { mcpServers })
       });
       changes.push(change);
       warnings.push(...change.warnings);
@@ -362,7 +467,8 @@ export class BundleInstaller {
     await beforeDelete?.(changes[0]);
     const removal = await this.records.service.deleteSupersededAfterAll(changes.map((change) => ({
       location: change.location,
-      deletedFiles: change.deletedFiles.filter((file) => !input.modified.has(file))
+      deletedFiles: change.deletedFiles.filter((file) => !input.modified.has(file)),
+      ...(change.removedMcpServers === undefined ? {} : { removedMcpServers: change.removedMcpServers })
     }))).catch((error: unknown) => this.rethrowRecordError(error, [], root));
     return [...warnings, ...removal.warnings];
   }
@@ -421,6 +527,7 @@ export class BundleInstaller {
     const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
     try {
       const location = await this.records.prepareUserInstall(this.copilotSync.userFolders());
+      await this.records.checkSourceHub(location, source, hub);
       // Every host entry the install replaces: any version of the bundle, and the installed id of an update.
       const replaced = await this.records.findUserHostEntries(bundle.id, bundle.version);
       if (previousBundleId !== undefined && !replaced.some((located) => located.bundleId === previousBundleId)) {
@@ -460,10 +567,17 @@ export class BundleInstaller {
    * @param bundle - Installed bundle.
    * @param prepared - Result of {@link prepareUserInstall}.
    * @param written - Absolute paths the writer wrote.
+   * @param content - The installed bundle's manifest id and files.
    */
-  private async recordUserInstall(bundle: Bundle, prepared: PreparedUserInstall, written: readonly string[]): Promise<void> {
+  private async recordUserInstall(
+    bundle: Bundle,
+    prepared: PreparedUserInstall,
+    written: readonly string[],
+    content?: InstalledContent
+  ): Promise<void> {
     const root = prepared.location.root;
     const warnings = await this.records.serialize(prepared.location.path, () => this.recordHostInstall(bundle, {
+      content,
       location: prepared.location,
       source: prepared.source,
       hub: prepared.hub,
@@ -750,11 +864,16 @@ export class BundleInstaller {
     commitMode?: RepositoryCommitMode,
     // What the server keys are built from: `ai-primitives-hub:<owner>:<repo>:<manifestId>:<server>`.
     naming: McpServerNaming = {}
-  ): Promise<void> {
+  ): Promise<InstalledMcpServers> {
     if (!manifest.mcpServers || Object.keys(manifest.mcpServers).length === 0) {
       this.logger.debug(`No MCP servers to install for bundle ${bundleId}`);
-      return;
+      return { servers: [] };
     }
+    const itemOf = new Map(Object.keys(manifest.mcpServers).map((item) => [resolveMcpServerKey({ ...naming, bundleId, serverName: item }), item]));
+    const installedOf = (result: McpInstallResult): InstalledMcpServers => ({
+      ...(result.config === undefined ? {} : { file: result.config }),
+      servers: result.installedServers.map((name) => ({ name, item: itemOf.get(name) ?? name }))
+    });
 
     this.logger.info(`Installing MCP servers for bundle ${bundleId}`);
 
@@ -764,7 +883,7 @@ export class BundleInstaller {
         const workspaceRoot = getWorkspaceRoot();
         if (!workspaceRoot) {
           this.logger.warn(`Cannot install MCP servers for repository scope: no workspace root`);
-          return;
+          return { servers: [] };
         }
 
         const workspaceInstallationResult = await this.mcpManager.installServersToWorkspace(
@@ -776,7 +895,6 @@ export class BundleInstaller {
             commitMode: commitMode ?? 'commit',
             overwrite: false,
             skipOnConflict: false,
-            createBackup: true,
             ...naming
           },
           manifest.mcpInputs
@@ -789,7 +907,7 @@ export class BundleInstaller {
         }
 
         this.notifyMcpInstallWarnings(bundleId, workspaceInstallationResult.warnings);
-        return;
+        return installedOf(workspaceInstallationResult);
       }
 
       // Handle user/workspace scope with existing logic
@@ -802,7 +920,6 @@ export class BundleInstaller {
           scope,
           overwrite: false,
           skipOnConflict: false,
-          createBackup: true,
           ...naming
         },
         manifest.mcpInputs
@@ -815,9 +932,11 @@ export class BundleInstaller {
       }
 
       this.notifyMcpInstallWarnings(bundleId, result.warnings);
+      return installedOf(result);
     } catch (error) {
       this.logger.error(`Failed to install MCP servers for bundle ${bundleId}`, error as Error);
       // Don't fail the entire bundle installation if MCP installation fails
+      return { servers: [] };
     }
   }
 
@@ -936,11 +1055,36 @@ export class BundleInstaller {
     options: InstallOptions,
     inPlace: RepositoryUpdateInPlace
   ): Promise<InstalledBundle> {
+    // A source recorded from another hub is refused before the old MCP servers are removed.
+    await this.checkUpdateSourceHub(bundle, options, inPlace);
     // MCP config entries are merged, not recorded: refresh them as before.
     await this.uninstallMcpServers(installed.bundleId, options.scope);
     const updated = await this.installFromBuffer(bundle, bundleBuffer, options, sourceType, inPlace);
     this.logger.info('Bundle updated successfully');
     return updated;
+  }
+
+  /**
+   * Refuse an update whose source is recorded from another hub, before anything changes.
+   * @param bundle - New version.
+   * @param options - Scope and commit mode of the update.
+   * @param inPlace - The old entry.
+   */
+  private async checkUpdateSourceHub(bundle: Bundle, options: InstallOptions, inPlace: RepositoryUpdateInPlace): Promise<void> {
+    const workspaceRoot = getWorkspaceRoot();
+    const repository = options.scope === 'repository' && workspaceRoot !== undefined;
+    if (!repository && !(options.scope === 'user' && this.records.usesSharedUserRecord())) {
+      return;
+    }
+    const { source, hub } = await this.records.buildRecordSource(bundle.sourceId);
+    try {
+      const location = repository
+        ? inPlace.location ?? await this.records.prepareInstall(workspaceRoot, options.commitMode ?? 'commit')
+        : await this.records.prepareUserInstall(this.copilotSync.userFolders());
+      await this.records.checkSourceHub(location, source, hub);
+    } catch (error) {
+      this.rethrowRecordError(error);
+    }
   }
 
   /**
@@ -1073,9 +1217,12 @@ export class BundleInstaller {
     };
 
     let installDir = '';
+    // The files the writer got: what the record describes as the installed bundle.
+    let installedFiles: ExtractedFiles | undefined;
 
     const writer: TargetWriter = {
       write: async (_target: Target, files: ExtractedFiles): Promise<TargetWriteResult> => {
+        installedFiles = files;
         const written: string[] = [];
 
         if (installSkillsToCopilotDir) {
@@ -1173,6 +1320,9 @@ export class BundleInstaller {
     try {
       const outcome = await pipeline.run(spec, target);
       const manifest = outcome.manifest as unknown as DeploymentManifest;
+      let installedMcp: InstalledMcpServers | undefined;
+      const contentOf = (): InstalledContent | undefined =>
+        installedFiles === undefined ? undefined : { name: outcome.manifest.id, files: installedFiles, ...(installedMcp === undefined ? {} : { mcp: installedMcp }) };
 
       // Create installation record
       const installed: InstalledBundle = {
@@ -1199,7 +1349,7 @@ export class BundleInstaller {
       } else {
         // Skills bundles going through repository scope should still skip MCP servers
         if (!isSkillsBundle) {
-          await this.installMcpServers(
+          installedMcp = await this.installMcpServers(
             bundle.id,
             bundle.version,
             installDir,
@@ -1222,12 +1372,16 @@ export class BundleInstaller {
         if (repository) {
           // Step 11: record the written files in the shared install record.
           const repoService = this.getRepositoryScopeService();
-          const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
-          await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace);
+          await this.removingUnrecordedMcpServersOnFailure(repository.location, installedMcp, async () => {
+            const written = await repoService.syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
+            await this.recordRepositoryInstall(bundle, repository, written, repoService.routeKeysFor(manifest), inPlace, contentOf());
+          });
         } else if (user) {
           // The user record is the store of this install: RegistryStorage is not written.
-          const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode, owned: user.owned });
-          await this.recordUserInstall(bundle, user, written);
+          await this.removingUnrecordedMcpServersOnFailure(user.location, installedMcp, async () => {
+            const written = await this.copilotSync.syncBundle(bundle.id, installDir, { commitMode: options.commitMode, owned: user.owned });
+            await this.recordUserInstall(bundle, user, written, contentOf());
+          });
           installed.recordOrigin = 'install-record';
         } else {
           await this.getScopeService(options.scope).syncBundle(bundle.id, installDir, { commitMode: options.commitMode });
@@ -1263,14 +1417,28 @@ export class BundleInstaller {
         return;
       }
 
+      const mcpLevel = installed.scope === 'repository' ? 'repository' : (installed.scope === 'user' ? 'user' : undefined);
+      const mcpRoot = installed.scope === 'repository' ? getWorkspaceRoot() : undefined;
+      // Tracked servers move to their record entries first, so the record removes them with the entry.
+      if (mcpLevel !== undefined) {
+        await this.mcpManager.migrateTrackingToRecord(mcpLevel, mcpRoot);
+      }
       const userEntry = await this.findUserRecordEntry(installed, 'uninstall');
-
-      // Uninstall MCP servers
-      await this.uninstallMcpServers(installed.bundleId, installed.scope);
-      this.logger.debug('MCP servers uninstalled');
+      const recordedMcp = await this.recordedHostMcpServers(installed, userEntry);
+      if (recordedMcp.length === 0) {
+        // A bundle no record entry holds the servers of: only the tracking file knows them.
+        await this.uninstallMcpServers(installed.bundleId, installed.scope);
+        this.logger.debug('MCP servers uninstalled');
+      }
+      const forgetMcp = async (): Promise<void> => {
+        if (mcpLevel !== undefined && recordedMcp.length > 0) {
+          await this.mcpManager.afterRecordRemoval(recordedMcp.map((server) => server.name), mcpLevel, mcpRoot);
+        }
+      };
 
       if (userEntry !== undefined) {
         await this.uninstallUserRecordEntry(installed.bundleId, userEntry);
+        await forgetMcp();
         this.logger.info('Bundle uninstalled successfully');
         return;
       }
@@ -1278,6 +1446,7 @@ export class BundleInstaller {
       // Unsync from appropriate scope directory (repository: the record entry and its files)
       const scopeService = this.getScopeService(installed.scope);
       await scopeService.unsyncBundle(installed.bundleId);
+      await forgetMcp();
       this.logger.debug(`Removed from ${installed.scope} scope`);
 
       // Remove installation directory (bundle cache)

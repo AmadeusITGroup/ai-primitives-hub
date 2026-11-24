@@ -73,6 +73,8 @@ export interface InstallRecordListingOptions {
   showProblem?: (message: string) => void;
   /** Tool whose entries are listed as installed; `detectHostApp()` by default. */
   hostTool?: string;
+  /** The configured source id of a recorded source id and its recorded hub; the id itself by default. */
+  configuredSourceIdOf?: (recordedId: string, recordedHubId?: string) => Promise<string>;
 }
 
 /** Problem kinds the listing reports. */
@@ -90,6 +92,14 @@ interface LocatedEntry {
   tool: string;
   entry: ToolEntry;
   location: RecordLocation;
+  /** The recorded `hubId` of the entry's source, from the snapshot the entry was read from. */
+  hubId?: string;
+}
+
+/** A record file's bundles, and the recorded `hubId` of each source, from one load. */
+interface LoadedBundles {
+  bundles: Map<string, BundleRecord>;
+  hubIds: Map<string, string>;
 }
 
 /** The user record's listing items. */
@@ -127,6 +137,7 @@ export class InstallRecordListing {
   private readonly store: RecordStore;
   private readonly showProblem: (message: string) => void;
   private readonly hostTool: string;
+  private readonly configuredSourceIdOf: (recordedId: string, recordedHubId?: string) => Promise<string>;
   private readonly logger = Logger.getInstance();
   /** Problem keys already shown to the user. */
   private readonly shown = new Set<string>();
@@ -138,6 +149,7 @@ export class InstallRecordListing {
       void vscode.window.showWarningMessage(message);
     });
     this.hostTool = options.hostTool ?? detectHostApp();
+    this.configuredSourceIdOf = options.configuredSourceIdOf ?? ((recordedId) => Promise.resolve(recordedId));
   }
 
   private async readRecords(workspaceRoot: string): Promise<RecordItems> {
@@ -151,20 +163,22 @@ export class InstallRecordListing {
       return { items, identities };
     }
     const [committed, localOnly] = locations;
-    const committedBundles = await this.loadBundles(committed);
-    const localBundles = await this.loadBundles(localOnly);
+    const { bundles: committedBundles, hubIds: committedHubs } = await this.loadBundles(committed);
+    const { bundles: localBundles, hubIds: localHubs } = await this.loadBundles(localOnly);
     const candidates: LocatedEntry[] = [];
     for (const bundleId of new Set([...committedBundles.keys(), ...localBundles.keys()])) {
       // Tools may be split across the files; the same tool in both is a conflict and the committed entry wins.
       const committedTools = committedBundles.get(bundleId)?.tools ?? {};
-      candidates.push(...Object.entries(committedTools).map(([tool, entry]) => ({ bundleId, tool, entry, location: committed })));
+      candidates.push(...Object.entries(committedTools).map(([tool, entry]) => ({
+        bundleId, tool, entry, location: committed, hubId: committedHubs.get(entry.sourceId)
+      })));
       const duplicateTools: string[] = [];
       for (const [tool, entry] of Object.entries(localBundles.get(bundleId)?.tools ?? {})) {
         if (Object.hasOwn(committedTools, tool)) {
           duplicateTools.push(tool);
           continue;
         }
-        candidates.push({ bundleId, tool, entry, location: localOnly });
+        candidates.push({ bundleId, tool, entry, location: localOnly, hubId: localHubs.get(entry.sourceId) });
       }
       if (duplicateTools.length > 0) {
         this.report(await this.conflictProblem(bundleId, duplicateTools, committed, localOnly));
@@ -188,26 +202,28 @@ export class InstallRecordListing {
     for (const bundleId of new Set(candidates.map((candidate) => candidate.bundleId))) {
       const latest = latestEntry(candidates.filter((candidate) => candidate.bundleId === bundleId && listed.has(candidate)));
       if (latest !== undefined) {
-        await this.addItem(items, latest.location, bundleId, latest.entry);
+        await this.addItem(items, latest.location, bundleId, latest.entry, latest.hubId);
       }
     }
     return { items, identities };
   }
 
   /**
-   * Bundles of one record file; a `RECORD.*` error is reported and gives none.
+   * Bundles of one record file, with each source's recorded hub; a `RECORD.*` error is reported and gives none.
    * @param location - Record file.
    */
-  private async loadBundles(location: RecordLocation): Promise<Map<string, BundleRecord>> {
+  private async loadBundles(location: RecordLocation): Promise<LoadedBundles> {
     try {
       const { record } = await this.store.load(location);
-      return new Map(Object.entries(record.bundles));
+      const hubIds = new Map(Object.entries(record.sources)
+        .flatMap(([sourceId, source]): [string, string][] => (typeof source.hubId === 'string' ? [[sourceId, source.hubId]] : [])));
+      return { bundles: new Map(Object.entries(record.bundles)), hubIds };
     } catch (error) {
       if (!isRecordError(error)) {
         throw error;
       }
       this.report(await this.errorProblem(location, error));
-      return new Map();
+      return { bundles: new Map(), hubIds: new Map() };
     }
   }
 
@@ -217,8 +233,9 @@ export class InstallRecordListing {
    * @param location - File holding the entry; gives `commitMode`.
    * @param bundleId - Bundle id.
    * @param entry - The bundle's latest listed entry.
+   * @param hubId - The recorded `hubId` of the entry's source.
    */
-  private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry): Promise<void> {
+  private async addItem(items: Map<string, InstalledBundle>, location: RecordLocation, bundleId: string, entry: ToolEntry, hubId?: string): Promise<void> {
     // Use `.github`: never the git root, which uninstall would delete recursively.
     const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(entry), {
       installPath: path.join(location.root, '.github'),
@@ -226,6 +243,7 @@ export class InstallRecordListing {
       commitModeOverride: location.commitMode ?? 'commit'
     });
     item.recordOrigin = 'install-record';
+    item.sourceId = await this.configuredSourceIdOf(entry.sourceId, hubId);
     items.set(bundleId, item);
   }
 
@@ -322,8 +340,9 @@ export class InstallRecordListing {
     installPathFor: (bundleId: string) => string
   ): Promise<UserRecordItems> {
     const candidates: LocatedEntry[] = [];
-    for (const [bundleId, bundle] of await this.loadBundles(location)) {
-      candidates.push(...Object.entries(bundle.tools).map(([tool, entry]) => ({ bundleId, tool, entry, location })));
+    const { bundles, hubIds } = await this.loadBundles(location);
+    for (const [bundleId, bundle] of bundles) {
+      candidates.push(...Object.entries(bundle.tools).map(([tool, entry]) => ({ bundleId, tool, entry, location, hubId: hubIds.get(entry.sourceId) })));
     }
     const byIdentity = new Map<string, LocatedEntry[]>();
     const hostKeys = new Map<string, string>();
@@ -352,7 +371,8 @@ export class InstallRecordListing {
       const item = createInstalledBundleFromLockfile(bundleId, toLockfileBundleEntry(chosen.entry), {
         installPath: installPathFor(bundleId), filesMissing: await this.filesMissing(location.root, chosen.entry)
       });
-      items.push({ ...item, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
+      const sourceId = await this.configuredSourceIdOf(chosen.entry.sourceId, chosen.hubId);
+      items.push({ ...item, sourceId, scope: 'user', commitMode: undefined, recordOrigin: 'install-record' });
     }
     return { items, hostBundleIds, hostKeys };
   }

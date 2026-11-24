@@ -27,6 +27,7 @@ import {
   LOCAL_SOURCE_OUTSIDE_REASON,
   planRecordEntries,
   type RecordPlan,
+  recordSourceIdOf,
   toLockfileBundleEntry,
   toLockfileSourceEntry,
 } from '../../src/records';
@@ -128,7 +129,9 @@ describe('record plan and services', () => {
       });
 
       expect(services.fs).toBeInstanceOf(NodeRecordFs);
-      expect(JSON.parse(fs.readFileSync(committed.path, 'utf8'))).toMatchObject({ generatedBy: GENERATED_BY, bundles: { b1: { tools: { vscode: { version: '1.0.0' } } } } });
+      expect(JSON.parse(fs.readFileSync(committed.path, 'utf8'))).toMatchObject({
+        generatedBy: GENERATED_BY, bundles: { [`${recordSourceIdOf(acme)}/b1`]: { name: 'b1', tools: { vscode: { version: '1.0.0' } } } }
+      });
     });
 
     it('uses the given filesystem port', () => {
@@ -306,7 +309,7 @@ describe('record plan and services', () => {
         { deletedFiles: ['docs/old.md', 'docs/gone.md', 'docs/missing.md'], location: committed }
       ]);
 
-      expect(result).toEqual({ deleted: ['docs/old.md', 'docs/gone.md'], warnings: [] });
+      expect(result).toEqual({ deleted: ['docs/old.md', 'docs/gone.md'], mcpServersRemoved: [], mcpServersModified: [], warnings: [] });
       expect(fs.existsSync(path.join(root, 'docs', 'still.md'))).toBe(true);
       expect(fs.existsSync(path.join(root, 'docs', 'old.md'))).toBe(false);
     });
@@ -316,7 +319,7 @@ describe('record plan and services', () => {
 
       const result = await services.service.deleteSuperseded({ deletedFiles: ['docs/folder'], location: committed });
 
-      expect(result).toEqual({ deleted: [], warnings: ['Did not remove docs/folder: it is a folder.'] });
+      expect(result).toEqual({ deleted: [], mcpServersRemoved: [], mcpServersModified: [], warnings: ['Did not remove docs/folder: it is a folder.'] });
       expect(fs.existsSync(path.join(root, 'docs', 'folder'))).toBe(true);
     });
   });
