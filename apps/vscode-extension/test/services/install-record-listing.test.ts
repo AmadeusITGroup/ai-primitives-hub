@@ -125,6 +125,37 @@ suite('Install record listing (repository scope)', () => {
     assert.ok(showWarning.notCalled);
   });
 
+  test('resolves each entry\'s configured source with the hub recorded in the file the entry was read from', async () => {
+    writeInstallRecord(root, RECORD_FILE, {
+      committed: { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.github/prompts/committed.prompt.md' } }
+    });
+    writeInstallRecord(root, LOCAL_RECORD_FILE, {
+      local: { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.github/prompts/local.prompt.md' } }
+    });
+    const withHub = (fileName: string, hubId: string): void => {
+      const file = path.join(root, fileName);
+      const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+      record.sources['acme-github'].hubId = hubId;
+      fs.writeFileSync(file, JSON.stringify(record));
+    };
+    withHub(RECORD_FILE, 'hub:github:github.com/acme/hub-a');
+    withHub(LOCAL_RECORD_FILE, 'hub:github:github.com/acme/hub-b');
+    const calls: string[] = [];
+    const listing = new InstallRecordListing({
+      hostTool: 'vscode',
+      showProblem: () => undefined,
+      configuredSourceIdOf: (recordedId, recordedHubId) => {
+        calls.push(`${recordedId} ${String(recordedHubId)}`);
+        return Promise.resolve(recordedHubId === undefined ? recordedId : recordedHubId.slice(recordedHubId.lastIndexOf('/') + 1));
+      }
+    });
+
+    const items = await listing.listRepositoryBundles(root, () => Promise.resolve([]));
+
+    assert.deepStrictEqual(Object.fromEntries(items.map((item) => [item.bundleId, item.sourceId])), { committed: 'hub-a', local: 'hub-b' });
+    assert.deepStrictEqual(calls.toSorted(), ['acme-github hub:github:github.com/acme/hub-a', 'acme-github hub:github:github.com/acme/hub-b']);
+  });
+
   test('the same bundle and tool in both files is warned about once', async () => {
     writeInstallRecord(root, RECORD_FILE, {
       dup: { vscode: { version: '1.0.0', installedAt: '2026-10-27T10:00:00.000Z', file: '.github/prompts/dup.prompt.md' } }

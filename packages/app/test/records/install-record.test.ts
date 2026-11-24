@@ -613,6 +613,30 @@ describe('repository install record', () => {
     expect(fs.existsSync(path.join(root, '.github/prompts/a.prompt.md'))).toBe(true);
   });
 
+  it('a reinstall syncs the same source\'s sibling tool even when it is held under the plain key of a merged record', async () => {
+    const sourceA = { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' };
+    const sourceB = { sourceId: 'other-github', type: 'github', url: 'https://github.com/other/tools' };
+    await install('vscode', ['.github/prompts/a.prompt.md'], { bundleId: 'coll', name: 'coll', source: sourceA });
+    const raw = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    const [keyA] = Object.keys(raw.bundles);
+    const keyB = `${recordSourceIdOf(sourceB)}/coll`;
+    const entryB = { ...raw.bundles[keyA].tools.vscode, version: '2.0.0' };
+    fs.writeFileSync(committed.path, JSON.stringify({
+      ...raw,
+      sources: { ...raw.sources, [recordSourceIdOf(sourceB)]: { type: 'github', url: sourceB.url } },
+      bundles: { ...raw.bundles, [keyB]: { name: 'coll', tools: { vscode: entryB, 'vscode-insiders': entryB } } }
+    }));
+
+    await install('vscode', ['.github/prompts/b.prompt.md'], { bundleId: 'coll', name: 'coll', version: '3.0.0', source: sourceB });
+
+    const saved = JSON.parse(fs.readFileSync(committed.path, 'utf8')) as Record<string, any>;
+    expect(saved.bundles[keyA].tools.vscode.version).toBe('1.0.0');
+    expect(Object.fromEntries(Object.entries(saved.bundles[keyB].tools).map(([tool, entry]: [string, any]) => [tool, entry.version])))
+      .toEqual({ vscode: '3.0.0', 'vscode-insiders': '3.0.0' });
+    // The path the new version dropped is no longer recorded for the sibling.
+    expect(saved.bundles[keyB].tools['vscode-insiders'].files).toEqual([]);
+  });
+
   it('keeps the bundle key when the bundle is upgraded', async () => {
     const options = (version: string): Partial<RecordInstallInput> => ({ bundleId: `acme-tools-coll-${version}`, version, name: 'coll' });
     await install('vscode', ['.github/prompts/a.prompt.md'], options('1.0.0'));

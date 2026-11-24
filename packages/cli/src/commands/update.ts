@@ -52,7 +52,6 @@ import type {
 } from '@ai-primitives-hub/core';
 import {
   IMPORTED_USER_LOCKFILE_FIELD,
-  isRecordError,
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
@@ -972,14 +971,12 @@ async function applyRecordUpdate(
       outOfDate.push({ tool: sibling.tool, version: sibling.version });
       continue;
     }
-    // A failed sibling is reported; the changes already made are still finished by the caller.
+    // A failed sibling, MCP conflict or record error included, is reported; the primary change is
+    // already saved, so it is returned and the caller still finishes its cleanup.
     try {
       changes.push(await record(sibling.tool, sibling.location, siblingTarget, false));
       synced.push(sibling.tool);
     } catch (error) {
-      if (isRecordError(error)) {
-        throw error;
-      }
       failed.push({ tool: sibling.tool, reason: error instanceof Error ? error.message : String(error) });
     }
   }

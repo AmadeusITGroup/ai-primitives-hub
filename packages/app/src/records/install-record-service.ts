@@ -415,6 +415,12 @@ const uniqueMcpServers = (servers: readonly RecordedMcpServer[]): RecordedMcpSer
 };
 
 /**
+ * The bundle id a key names: the name after the source id of a source-qualified `<sourceId>/<name>` key, else the key.
+ * @param key - In-memory bundle key.
+ */
+const logicalBundleIdOf = (key: string): string => (isRecordSourceId(key) && key.includes('/') ? key.slice(key.lastIndexOf('/') + 1) : key);
+
+/**
  * The readable id of an entry's source; a configured id an older record keeps is built from its `sources` entry.
  * @param record - Record holding the entry.
  * @param sourceId - The entry's `sourceId`.
@@ -895,13 +901,15 @@ export class InstallRecordService {
     const isShared = (recorded: RecordedFile): boolean => change.previousPaths.has(recorded.path) || newByPath.has(recorded.path);
     const siblings: SiblingSync[] = [];
     const changed = new Set<LoadedRecord>();
+    const logicalIdentity = recordIdentityOf(logicalBundleIdOf(change.bundleId), change.version);
     for (const file of loaded) {
       const { bundles } = file.record;
       const holdsTool = (tool: string): boolean => Object.hasOwn(bundles, change.bundleId) && Object.hasOwn(bundles[change.bundleId].tools, tool);
       const handled = new Set<string>();
       for (const [key, bundle] of Object.entries(bundles)) {
         for (const [tool, entry] of Object.entries(bundle.tools)) {
-          const sameBundle = (key === change.bundleId || recordIdentityOf(key, entry.version) === change.identity)
+          // Compared by logical name: a source-qualified key holds the same bundle as the plain one.
+          const sameBundle = (key === change.bundleId || recordIdentityOf(logicalBundleIdOf(key), entry.version) === logicalIdentity)
             && readableSourceIdIn(file.record, entry.sourceId) === change.sourceId;
           if (!sameBundle || handled.has(tool) || tool === change.tool || tool === UNKNOWN_TOOL_NAME
             || !entry.files.some((recorded) => isShared(recorded)) || (key !== change.bundleId && holdsTool(tool))) {
