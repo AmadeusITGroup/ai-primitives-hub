@@ -35,6 +35,9 @@ import type {
   ProfileDeactivationResult,
   ProfileLifecycleSync,
 } from '@ai-primitives-hub/core';
+import {
+  findMissingRequiredBundles,
+} from '@ai-primitives-hub/core';
 import type {
   LoadHubResult,
   ProfileActivationStore,
@@ -238,8 +241,13 @@ export async function setProfileActiveFlag(
  * profile's bundles. When the registry sync reports what it installed
  * (a `ProfileBundleSyncResult`), the activation state is re-saved with
  * only those bundles and their installed versions. An install failure is
- * logged and tolerated; a failure to save that outcome is not, and makes
- * the activation fail.
+ * logged and tolerated for optional bundles. When a `required: true`
+ * bundle is not installed (or the batch install throws while the
+ * profile has required bundles), the profile is deactivated again
+ * (through the registry sync, then its flag and activation state are
+ * cleared) and the activation fails, listing the bundles in
+ * `missingRequiredBundles`. A failure to save the installed outcome
+ * also makes the activation fail.
  *
  * Never throws — failures are captured in the returned result's
  * `success`/`error` fields, mirroring the extension's original
@@ -322,9 +330,11 @@ export async function activateProfile(
         }
       }));
 
-      // Install failures are tolerated (logged); persisting the outcome is
-      // not, so the save below stays outside this try.
+      // Install failures are logged here and judged against `required`
+      // below; persisting the outcome must succeed, so the save stays
+      // outside this try.
       let syncResult: ProfileBundleSyncResult | undefined;
+      let installFailed = false;
       try {
         const reported = await deps.profileSync.installBundles(bundlesToInstall);
         if (reported) {
@@ -332,15 +342,43 @@ export async function activateProfile(
         }
         log(onLog, 'info', 'Bundle installation complete');
       } catch (error) {
+        installFailed = true;
         log(onLog, 'error', 'Batch bundle installation failed', error instanceof Error ? error : new Error(String(error)));
       }
-      if (syncResult) {
-        // The sync reported what it actually installed: record only that.
-        await deps.activationStore.save(hubId, profileId, {
-          ...activationState,
-          syncedBundles: syncResult.synced.map((s) => s.bundleId),
-          syncedBundleVersions: Object.fromEntries(syncResult.synced.map((s) => [s.bundleId, s.version]))
-        });
+
+      // Without a report, a sync that did not throw installed everything.
+      const installedIds = syncResult
+        ? syncResult.synced.map((s) => s.bundleId)
+        : (installFailed ? [] : resolvedBundles.map((rb) => rb.bundle.id));
+      // The sync reported what it actually installed: record only that.
+      const installedState: ProfileActivationState | undefined = syncResult && {
+        ...activationState,
+        syncedBundles: syncResult.synced.map((s) => s.bundleId),
+        syncedBundleVersions: Object.fromEntries(syncResult.synced.map((s) => [s.bundleId, s.version]))
+      };
+      const missingRequiredBundles = findMissingRequiredBundles(resolvedBundles.map((rb) => rb.bundle), installedIds);
+      if (missingRequiredBundles.length > 0) {
+        await rollbackActivation(deps, hubId, profileId, installedState, onLog);
+        const error = `Required bundles were not installed: ${missingRequiredBundles.join(', ')}. `
+          + `Profile "${profileId}" was not activated. Check each bundle's install error in the logs `
+          + '(source configured, reachable, and authenticated), then activate the profile again.';
+        log(onLog, 'error', error);
+        return {
+          success: false,
+          hubId,
+          profileId,
+          resolvedBundles: resolvedBundles.map((rb) => ({ bundle: rb.bundle, url: rb.url })),
+          error,
+          missingRequiredBundles
+        };
+      }
+      if (installedState) {
+        try {
+          await deps.activationStore.save(hubId, profileId, installedState);
+        } catch (error) {
+          await rollbackActivation(deps, hubId, profileId, undefined, onLog);
+          throw error;
+        }
       }
     } else if (options.installBundles && !deps.profileSync) {
       log(onLog, 'warn', 'Bundle installation requested but registry sync not available');
@@ -360,6 +398,45 @@ export async function activateProfile(
       resolvedBundles: [],
       error: error instanceof Error ? error.message : 'Unknown error'
     };
+  }
+}
+
+/**
+ * Undo a failed activation: remove what the registry sync installed for
+ * the profile, then clear its activation state and hub `active` flag so
+ * it can be activated again. Best effort: the activation failure is what
+ * the caller reports.
+ * @param deps Store/registry-sync dependencies.
+ * @param hubId Hub identifier.
+ * @param profileId Profile identifier.
+ * @param installedState Activation state listing only the bundles this attempt installed, when the sync reported them.
+ * Saved first, so a sync that removes the bundles listed in the state leaves bundles it did not install alone.
+ * @param onLog Optional sink for diagnostic log events.
+ */
+async function rollbackActivation(
+  deps: ProfileLifecycleDeps,
+  hubId: string,
+  profileId: string,
+  installedState: ProfileActivationState | undefined,
+  onLog: OnLogEvent | undefined
+): Promise<void> {
+  if (installedState) {
+    try {
+      await deps.activationStore.save(hubId, profileId, installedState);
+    } catch (error) {
+      log(onLog, 'error', `Failed to record the installed bundles of profile ${profileId} before rolling back`, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+  try {
+    await deps.profileSync?.deactivateProfile(profileId);
+  } catch (error) {
+    log(onLog, 'error', `Failed to remove bundles of profile ${profileId} after a failed activation`, error instanceof Error ? error : new Error(String(error)));
+  }
+  try {
+    await deps.activationStore.delete(hubId, profileId);
+    await setProfileActiveFlag(deps.store, hubId, profileId, false);
+  } catch (error) {
+    log(onLog, 'error', `Failed to clear activation state of profile ${profileId}`, error instanceof Error ? error : new Error(String(error)));
   }
 }
 

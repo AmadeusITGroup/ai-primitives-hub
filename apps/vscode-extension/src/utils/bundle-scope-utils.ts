@@ -2,13 +2,22 @@
  * Bundle Scope Utilities
  *
  * Shared utilities for working with bundle scopes across different services.
- * Handles the complexity of repository scope bundles being tracked via LockfileManager
- * while user/workspace scopes use RegistryStorage.
+ * Repository scope bundles come from the install record and the old
+ * lockfiles; user/workspace scopes use RegistryStorage, and user scope also
+ * the shared user record.
  */
 
+import * as path from 'node:path';
 import {
-  LockfileManager,
-} from '../services/lockfile-manager';
+  recordIdentityOf,
+} from '@ai-primitives-hub/app';
+import {
+  ExtensionRecordAdapter,
+} from '../services/extension-record-adapter';
+import {
+  InstallRecordListing,
+  type UserRecordItems,
+} from '../services/install-record-listing';
 import {
   RegistryStorage,
 } from '../storage/registry-storage';
@@ -23,20 +32,110 @@ import {
   getWorkspaceRoot,
 } from './scope-selection-ui';
 
+/** Lists the repository bundles of a workspace folder. */
+export type RepositoryBundleLister = (workspaceRoot: string) => Promise<InstalledBundle[]>;
+
+/**
+ * A repository bundle lister for callers that hold only a `RegistryStorage`.
+ * @param storage - The RegistryStorage instance.
+ */
+export const createRepositoryBundleLister = (storage: RegistryStorage): RepositoryBundleLister => {
+  const adapter = new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() } });
+  const listing = new InstallRecordListing({ fs: adapter.fs, store: adapter.store, hostTool: adapter.hostTool });
+  return (workspaceRoot) => listing.listRepositoryBundles(workspaceRoot, () => adapter.listOldBundles(workspaceRoot));
+};
+
+/** Where the shared user record's items are read from. */
+export interface UserRecordReader {
+  /** Adapter holding the user record location and the host tool. */
+  adapter: ExtensionRecordAdapter;
+  /** RegistryStorage, for an item's bundle cache folder. */
+  storage: RegistryStorage;
+  /** Listing to read with; a new one by default. */
+  listing?: InstallRecordListing;
+}
+
+const noUserRecordItems = (): UserRecordItems => ({ items: [], hostBundleIds: new Set(), hostKeys: new Map() });
+
+/**
+ * User-scope items of the shared user record and its host-tool keys;
+ * none in WSL or when the record cannot be read.
+ * @param reader - Adapter, storage and listing to read with.
+ */
+export const listUserRecordBundles = async (reader: UserRecordReader): Promise<UserRecordItems> => {
+  const { adapter, storage } = reader;
+  if (!adapter.usesSharedUserRecord()) {
+    return noUserRecordItems();
+  }
+  try {
+    const listing = reader.listing ?? new InstallRecordListing({ fs: adapter.fs, store: adapter.store });
+    return await listing.listUserBundles(
+      adapter.userLocation(),
+      adapter.hostTool,
+      (bundleId) => path.join(storage.getPaths().root, 'bundles', bundleId)
+    );
+  } catch (error) {
+    Logger.getInstance().warn('Failed to query user bundles from the user record:', error instanceof Error ? error : undefined);
+    return noUserRecordItems();
+  }
+};
+
+/**
+ * Whether a user-scope item is the same bundle as a host-tool key of the user
+ * record, at any version; the record's item then wins over it.
+ * @param listed - Result of {@link listUserRecordBundles}.
+ * @param bundle - Item from elsewhere, e.g. RegistryStorage.
+ */
+export const isInUserRecord = (listed: UserRecordItems, bundle: Pick<InstalledBundle, 'bundleId' | 'version'>): boolean =>
+  listed.hostKeys.has(bundle.bundleId) || new Set(listed.hostKeys.values()).has(recordIdentityOf(bundle.bundleId, bundle.version));
+
+/**
+ * The shared user record's host-tool item of a bundle: under its key, or the
+ * one listed for the same identity; with `withLoneUnknown` also the item of a
+ * bundle whose only user record entry is `unknown`. `undefined` in WSL or when
+ * the record cannot be read.
+ * @param reader - Adapter, storage and listing to read with.
+ * @param bundleId - Bundle id.
+ * @param options - Lookup options.
+ * @param options.version - Version `bundleId` carries; without it, a key of the user record or a bare identity.
+ * @param options.withLoneUnknown - Also give a bundle whose only user record entry is `unknown`.
+ * @throws {RegistryError} Any `RECORD.*` error from the `unknown` entry lookup.
+ */
+export const findUserRecordBundle = async (
+  reader: UserRecordReader,
+  bundleId: string,
+  options: { version?: string; withLoneUnknown?: boolean } = {}
+): Promise<InstalledBundle | undefined> => {
+  const { items, hostBundleIds, hostKeys } = await listUserRecordBundles(reader);
+  if (hostBundleIds.has(bundleId)) {
+    return items.find((bundle) => bundle.bundleId === bundleId);
+  }
+  const identity = hostKeys.get(bundleId) ?? (options.version === undefined ? bundleId : recordIdentityOf(bundleId, options.version));
+  const host = items.find((bundle) => hostBundleIds.has(bundle.bundleId) && hostKeys.get(bundle.bundleId) === identity);
+  if (host !== undefined || options.withLoneUnknown !== true) {
+    return host;
+  }
+  const item = items.find((bundle) => bundle.bundleId === bundleId);
+  return item !== undefined && (await reader.adapter.findLoneUnknownEntry(bundleId)) !== undefined ? item : undefined;
+};
+
 /**
  * Get installed bundle from the appropriate source based on scope.
  *
- * Repository scope bundles are tracked via LockfileManager, not RegistryStorage.
- * Falls back to RegistryStorage if no workspace is available or lockfile doesn't have the bundle.
+ * Falls back to RegistryStorage when no workspace is open or the repository listing lacks the bundle.
  * @param storage - The RegistryStorage instance
  * @param bundleId - The bundle ID to look up
  * @param scope - The scope to check
+ * @param listRepository - Repository listing; built over `storage` by default
+ * @param userRecord - Adapter and listing for the shared user record; built over `storage` by default
  * @returns InstalledBundle if found, undefined otherwise
  */
 export async function getInstalledBundleForScope(
     storage: RegistryStorage,
     bundleId: string,
-    scope: InstallationScope
+    scope: InstallationScope,
+    listRepository?: RepositoryBundleLister,
+    userRecord?: Omit<UserRecordReader, 'storage'>
 ): Promise<InstalledBundle | undefined> {
   const logger = Logger.getInstance();
 
@@ -48,24 +147,30 @@ export async function getInstalledBundleForScope(
     }
 
     try {
-      const lockfileManager = LockfileManager.getInstance(workspaceRoot);
-      // Use getInstalledBundles() to search both main and local lockfiles
-      const installedBundles = await lockfileManager.getInstalledBundles();
-      const bundle = installedBundles.find((b) => b.bundleId === bundleId);
-
+      const lister = listRepository ?? createRepositoryBundleLister(storage);
+      const bundle = (await lister(workspaceRoot)).find((b) => b.bundleId === bundleId);
       if (bundle) {
         return bundle;
       }
-
-      // Fall back to storage if lockfile doesn't have the bundle (for testing/backward compatibility)
+      // Fall back to storage if the record doesn't have the bundle (for testing/backward compatibility)
       return storage.getInstalledBundle(bundleId, scope);
     } catch (error) {
-      logger.warn(`[bundleScopeUtils] Failed to read lockfile for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
-      // Fall back to storage on error
+      logger.warn(`[bundleScopeUtils] Failed to read the install record for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
       return storage.getInstalledBundle(bundleId, scope);
     }
   }
 
-  // User and workspace scopes use RegistryStorage
-  return storage.getInstalledBundle(bundleId, scope);
+  // At user scope, fall back to the shared user record's host-tool item, or a lone `unknown` one.
+  const stored = await storage.getInstalledBundle(bundleId, scope);
+  if (stored !== undefined || scope !== 'user') {
+    return stored;
+  }
+  try {
+    const adapter = userRecord?.adapter
+      ?? new ExtensionRecordAdapter({ sources: { listSources: () => storage.getSources() }, userRecordPath: storage.getPaths().userRecord });
+    return await findUserRecordBundle({ adapter, storage, listing: userRecord?.listing }, bundleId, { withLoneUnknown: true });
+  } catch (error) {
+    logger.warn(`[bundleScopeUtils] Failed to read the user record for bundle ${bundleId}:`, error instanceof Error ? error : undefined);
+    return undefined;
+  }
 }

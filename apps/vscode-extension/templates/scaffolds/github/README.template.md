@@ -381,7 +381,7 @@ items:
 - `id`: lowercase, hyphens/numbers only
 - `name`: 1-100 characters
 - `description`: 1-500 characters
-- `items`: 1-50 items, paths must exist
+- `items`: no upper limit, paths must exist
 - `kind`: `prompt`, `instruction`, `chat-mode`, `agent`, or `skill`
 
 ### MCP Servers (Optional)

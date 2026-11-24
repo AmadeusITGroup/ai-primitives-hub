@@ -3,6 +3,12 @@
 
 (() => {
   const vscode = acquireVsCodeApi();
+  const escapeHtml = (value) => String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
   let allBundles = [];
   let filterOptions = { tags: [], sources: [], environments: [] };
   let selectedSource = 'all';
@@ -88,13 +94,20 @@
     sourceList.append(allItem);
 
     // Add source options
-    filterOptions.sources.forEach((source) => {
+    filterOptions.sources.forEach((source, index) => {
       var sourceItem = document.createElement('div');
       sourceItem.className = 'source-item' + (selectedSource === source.id ? ' active' : '');
       sourceItem.dataset.source = source.id;
-      sourceItem.innerHTML =
-        '<input type="radio" name="source" id="source-' + source.id + '" value="' + source.id + '" ' + (selectedSource === source.id ? 'checked' : '') + '>'
-        + '<label for="source-' + source.id + '">' + source.name + ' (' + source.bundleCount + ')</label>';
+      var sourceInput = document.createElement('input');
+      sourceInput.type = 'radio';
+      sourceInput.name = 'source';
+      sourceInput.id = 'source-' + index;
+      sourceInput.value = source.id;
+      sourceInput.checked = selectedSource === source.id;
+      var sourceLabel = document.createElement('label');
+      sourceLabel.htmlFor = sourceInput.id;
+      sourceLabel.textContent = source.name + ' (' + source.bundleCount + ')';
+      sourceItem.append(sourceInput, sourceLabel);
       sourceList.append(sourceItem);
 
       // Add click handler
@@ -454,9 +467,9 @@
       selectedTags.forEach((tag) => activeFilters.push({ filter: 'tag', value: tag, label: 'Tag: ' + tag }));
       selectedContentTypes.forEach((type) => activeFilters.push({ filter: 'content', value: type, label: 'Content: ' + type }));
       chips.innerHTML = activeFilters.map((activeFilter) => '<span class="filter-chip">'
-        + '<span class="filter-chip-label">' + activeFilter.label + '</span>'
-        + '<button class="filter-chip-remove" type="button" data-filter="' + activeFilter.filter
-        + '" data-value="' + (activeFilter.value || '') + '" aria-label="Remove ' + activeFilter.label + '">×</button>'
+        + '<span class="filter-chip-label">' + escapeHtml(activeFilter.label) + '</span>'
+        + '<button class="filter-chip-remove" type="button" data-filter="' + escapeHtml(activeFilter.filter)
+        + '" data-value="' + escapeHtml(activeFilter.value || '') + '" aria-label="Remove ' + escapeHtml(activeFilter.label) + '">×</button>'
         + '</span>').join('');
       chips.querySelectorAll('.filter-chip-remove').forEach((button) => {
         button.addEventListener('click', () => clearFilter(button.dataset.filter, button.dataset.value));
@@ -799,6 +812,7 @@
 
   // Shorten hash-based versions for compact UI labels.
   const formatVersionLabel = (version) => {
+    version = String(version == null ? '' : version);
     if (!version) {
       return '';
     }
@@ -1144,16 +1158,16 @@
     }
 
     marketplace.innerHTML = filteredBundles.map((bundle) => {
-      return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + bundle.id + '" data-action="openDetails">'
+      return '<div class="bundle-card ' + (bundle.installed ? 'installed' : '') + '" data-bundle-id="' + escapeHtml(bundle.id) + '" data-action="openDetails">'
         + (bundle.contributable
           ? '<button class="btn btn-link contribute-collection-button" data-action="contributeCollection"'
-          + ' data-bundle-id="' + bundle.id + '" data-source-id="' + (bundle.sourceId || '') + '" data-stop-propagation="true"'
+          + ' data-bundle-id="' + escapeHtml(bundle.id) + '" data-source-id="' + escapeHtml(bundle.sourceId || '') + '" data-stop-propagation="true"'
           + ' title="Contribute / Edit Collection in Visual Editor" aria-label="Contribute / Edit Collection in Visual Editor">'
           + '✏️'
           + '</button>'
           : '')
         + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo"'
-        + ' data-bundle-id="' + bundle.id + '" data-stop-propagation="true"'
+        + ' data-bundle-id="' + escapeHtml(bundle.id) + '" data-stop-propagation="true"'
         + ' title="Open Source Repository" aria-label="Open Source Repository">'
         + '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">'
         + '<path d="M4.5 3A1.5 1.5 0 0 0 3 4.5v7A1.5 1.5 0 0 0 4.5 13h7a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 1 1 0v2'
@@ -1162,12 +1176,12 @@
         + '</svg>'
         + '</button>'
         + '<div class="bundle-header">'
-        + '<div class="bundle-title">' + bundle.name + '</div>'
-        + '<div class="bundle-author">by ' + (bundle.author || 'Unknown') + ' • ' + formatVersionLabel(bundle.version) + '</div>'
+        + '<div class="bundle-title">' + escapeHtml(bundle.name) + '</div>'
+        + '<div class="bundle-author">by ' + escapeHtml(bundle.author || 'Unknown') + ' • ' + escapeHtml(formatVersionLabel(bundle.version)) + '</div>'
         + '</div>'
 
         + '<div class="bundle-description">'
-        + (bundle.description || 'No description available')
+        + escapeHtml(bundle.description || 'No description available')
         + '</div>'
 
         + '<div class="content-breakdown">'
@@ -1180,13 +1194,13 @@
 
         + '<div class="bundle-tags">'
         + (bundle.tags || []).slice(0, 4).map((tag) => {
-          return '<span class="tag">' + tag + '</span>';
+          return '<span class="tag">' + escapeHtml(tag) + '</span>';
         }).join('')
         + '</div>'
 
         + '<div class="bundle-actions" data-stop-propagation="true">'
         + renderBundleButtons(bundle)
-        + '<button class="btn btn-link details-button" data-action="openDetails" data-bundle-id="' + bundle.id + '" title="Open Details" aria-label="Open Details">Details</button>'
+        + '<button class="btn btn-link details-button" data-action="openDetails" data-bundle-id="' + escapeHtml(bundle.id) + '" title="Open Details" aria-label="Open Details">Details</button>'
         + '</div>'
         + '</div>';
     }).join('') + setupBanner;
@@ -1203,25 +1217,27 @@
   };
 
   const renderBundleButtons = (bundle) => {
+    const bundleId = escapeHtml(bundle.id);
     if (bundle.buttonState === 'update') {
       if (bundle.availableVersions && bundle.availableVersions.length > 1) {
         return '<div class="version-selector-group">'
           + '<button class="btn btn-primary" data-action="updateBundle" data-bundle-id="'
-          + bundle.id + '">Update'
-          + (bundle.installedVersion ? formatUpdateLabel(bundle.installedVersion, bundle.version) : '') + '</button>'
+          + bundleId + '">Update'
+          + (bundle.installedVersion ? escapeHtml(formatUpdateLabel(bundle.installedVersion, bundle.version)) : '') + '</button>'
           + '<button class="version-selector-arrow" data-action="toggleVersionDropdown" data-dropdown-id="'
-          + bundle.id + '-update">▾</button>'
-          + '<div class="version-dropdown" id="version-dropdown-' + bundle.id + '-update">'
-          + '<div class="version-item uninstall" data-action="uninstallBundle" data-bundle-id="' + bundle.id + '">'
+          + bundleId + '-update">▾</button>'
+          + '<div class="version-dropdown" id="version-dropdown-' + bundleId + '-update">'
+          + '<div class="version-item uninstall" data-action="uninstallBundle" data-bundle-id="' + bundleId + '">'
           + '<span>Uninstall</span>'
           + '</div>'
           + '<div class="version-dropdown-header">Switch Version</div>'
           + (bundle.availableVersions || []).map((versionObj, index) => {
+            const version = escapeHtml(versionObj.version);
             return '<div class="version-item '
               + (versionObj.version === bundle.installedVersion ? 'current' : '')
-              + '" data-action="installBundleVersion" data-bundle-id="' + bundle.id
-              + '" data-version="' + versionObj.version + '">'
-              + '<span>v' + versionObj.version + '</span>'
+              + '" data-action="installBundleVersion" data-bundle-id="' + bundleId
+              + '" data-version="' + version + '">'
+              + '<span>v' + version + '</span>'
               + (versionObj.version === bundle.installedVersion
                 ? '<span class="version-badge">Current</span>'
                 : (index === 0 ? '<span class="version-badge latest">Latest</span>' : ''))
@@ -1231,8 +1247,8 @@
           + '</div>';
       }
       return '<button class="btn btn-primary" data-action="updateBundle" data-bundle-id="'
-        + bundle.id + '">Update'
-        + (bundle.installedVersion ? formatUpdateLabel(bundle.installedVersion, bundle.version) : '')
+        + bundleId + '">Update'
+        + (bundle.installedVersion ? escapeHtml(formatUpdateLabel(bundle.installedVersion, bundle.version)) : '')
         + '</button>';
     }
 
@@ -1240,20 +1256,21 @@
       if (bundle.availableVersions && bundle.availableVersions.length > 1) {
         return '<div class="version-selector-group">'
           + '<button class="btn btn-danger" data-action="uninstallBundle" data-bundle-id="'
-          + bundle.id + '">Uninstall</button>'
+          + bundleId + '">Uninstall</button>'
           + '<button class="version-selector-arrow danger" data-action="toggleVersionDropdown" data-dropdown-id="'
-          + bundle.id + '-installed">▾</button>'
-          + '<div class="version-dropdown" id="version-dropdown-' + bundle.id + '-installed">'
-          + '<div class="version-item uninstall" data-action="uninstallBundle" data-bundle-id="' + bundle.id + '">'
+          + bundleId + '-installed">▾</button>'
+          + '<div class="version-dropdown" id="version-dropdown-' + bundleId + '-installed">'
+          + '<div class="version-item uninstall" data-action="uninstallBundle" data-bundle-id="' + bundleId + '">'
           + '<span>Uninstall</span>'
           + '</div>'
           + '<div class="version-dropdown-header">Switch Version</div>'
           + (bundle.availableVersions || []).map((versionObj, index) => {
+            const version = escapeHtml(versionObj.version);
             return '<div class="version-item '
               + (versionObj.version === bundle.installedVersion ? 'current' : '')
-              + '" data-action="installBundleVersion" data-bundle-id="' + bundle.id
-              + '" data-version="' + versionObj.version + '">'
-              + '<span>v' + versionObj.version + '</span>'
+              + '" data-action="installBundleVersion" data-bundle-id="' + bundleId
+              + '" data-version="' + version + '">'
+              + '<span>v' + version + '</span>'
               + (versionObj.version === bundle.installedVersion
                 ? '<span class="version-badge">Current</span>'
                 : (index === 0 ? '<span class="version-badge latest">Latest</span>' : ''))
@@ -1262,26 +1279,27 @@
           + '</div>'
           + '</div>';
       }
-      return '<button class="btn btn-danger" data-action="uninstallBundle" data-bundle-id="' + bundle.id + '">Uninstall</button>';
+      return '<button class="btn btn-danger" data-action="uninstallBundle" data-bundle-id="' + bundleId + '">Uninstall</button>';
     }
 
     // Default: install
     if (bundle.availableVersions && bundle.availableVersions.length > 1) {
       return '<div class="version-selector-group">'
-        + '<button class="btn btn-primary" data-action="installBundle" data-bundle-id="' + bundle.id + '">Install</button>'
-        + '<button class="version-selector-arrow" data-action="toggleVersionDropdown" data-dropdown-id="' + bundle.id + '">▾</button>'
-        + '<div class="version-dropdown" id="version-dropdown-' + bundle.id + '">'
+        + '<button class="btn btn-primary" data-action="installBundle" data-bundle-id="' + bundleId + '">Install</button>'
+        + '<button class="version-selector-arrow" data-action="toggleVersionDropdown" data-dropdown-id="' + bundleId + '">▾</button>'
+        + '<div class="version-dropdown" id="version-dropdown-' + bundleId + '">'
         + '<div class="version-dropdown-header">Select Version</div>'
         + (bundle.availableVersions || []).map((versionObj, index) => {
-          return '<div class="version-item" data-action="installBundleVersion" data-bundle-id="' + bundle.id + '" data-version="' + versionObj.version + '">'
-            + '<span>v' + versionObj.version + '</span>'
+          const version = escapeHtml(versionObj.version);
+          return '<div class="version-item" data-action="installBundleVersion" data-bundle-id="' + bundleId + '" data-version="' + version + '">'
+            + '<span>v' + version + '</span>'
             + (index === 0 ? '<span class="version-badge latest">Latest</span>' : '')
             + '</div>';
         }).join('')
         + '</div>'
         + '</div>';
     }
-    return '<button class="btn btn-primary" data-action="installBundle" data-bundle-id="' + bundle.id + '">Install</button>';
+    return '<button class="btn btn-primary" data-action="installBundle" data-bundle-id="' + bundleId + '">Install</button>';
   };
 
   const renderContentItem = (icon, label, count) => {
@@ -1291,7 +1309,7 @@
     var displayLabel = count === 1 ? label : label + 's';
     return '<div class="content-item">'
       + '<span class="content-icon fa-icon ' + icon + '" aria-hidden="true"></span>'
-      + '<span class="content-count">' + count + '</span>'
+      + '<span class="content-count">' + escapeHtml(count) + '</span>'
       + '<span>' + displayLabel + '</span>'
       + '</div>';
   };

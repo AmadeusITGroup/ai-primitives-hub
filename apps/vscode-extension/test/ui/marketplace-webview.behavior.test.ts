@@ -103,11 +103,11 @@ const pressEscape = (harness: WebviewHarness): void => {
   }));
 };
 
-const loadBundles = (harness: WebviewHarness): void => {
+const loadBundles = (harness: WebviewHarness, bundle = makeBundle()): void => {
   harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
     data: {
       type: 'bundlesLoaded',
-      bundles: [makeBundle()],
+      bundles: [bundle],
       filterOptions: {
         tags: ['alpha', 'beta', 'gamma'],
         sources: [],
@@ -120,6 +120,43 @@ const loadBundles = (harness: WebviewHarness): void => {
 };
 
 suite('Marketplace webview behavior', () => {
+  test('renders untrusted bundle and source metadata without creating forged controls', () => {
+    const harness = createHarness();
+    try {
+      const bundle = {
+        ...makeBundle(),
+        id: 'source/bundle" data-action="uninstallBundle" data-bundle-id="victim',
+        name: '<img id="name-xss" src=x onerror=alert(1)>',
+        description: '<button id="description-xss" data-action="uninstallBundle" data-bundle-id="victim">Click</button>',
+        tags: ['<svg id="tag-xss" onload=alert(1)>']
+      };
+      harness.dom.window.dispatchEvent(new harness.dom.window.MessageEvent('message', {
+        data: {
+          type: 'bundlesLoaded',
+          bundles: [bundle],
+          filterOptions: {
+            tags: ['<img id="filter-tag-xss" src=x>'],
+            sources: [{ id: 'source" data-action="uninstallBundle', name: '<img id="source-xss" src=x>', bundleCount: 1 }],
+            environments: []
+          },
+          setupState: 'complete',
+          sourcesCount: 1
+        }
+      }));
+
+      const { document } = harness.dom.window;
+      assert.strictEqual(document.querySelector('#name-xss'), null);
+      assert.strictEqual(document.querySelector('#description-xss'), null);
+      assert.strictEqual(document.querySelector('#tag-xss'), null);
+      assert.strictEqual(document.querySelector('#filter-tag-xss'), null);
+      assert.strictEqual(document.querySelector('#source-xss'), null);
+      assert.strictEqual(document.querySelector('[data-action="uninstallBundle"][data-bundle-id="victim"]'), null);
+      assert.ok(document.querySelector('.bundle-description')?.textContent?.includes('<button'));
+    } finally {
+      harness.dom.window.close();
+    }
+  });
+
   test('updates the tag selector and checkboxes when an active tag is removed', () => {
     const harness = createHarness();
     try {

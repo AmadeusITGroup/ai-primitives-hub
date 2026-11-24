@@ -3,6 +3,7 @@
  * @module registry
  */
 export * from './activate-registry-profile';
+export * from './batch-install-profile';
 export * from './create-source-adapter';
 export * from './deactivate-registry-profile';
 export * from './detect-updates';

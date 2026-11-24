@@ -37,6 +37,17 @@ global.__mockShowWarningMessage = global.__mockShowWarningMessage || null;
 global.__mockOpenExternal = global.__mockOpenExternal || null;
 
 const windowState = {
+  createWebviewPanel: () => ({
+    webview: {
+      html: '',
+      asWebviewUri: (uri) => uri,
+      cspSource: "'self'",
+      postMessage: async () => true,
+      onDidReceiveMessage: () => ({ dispose: () => {} })
+    },
+    onDidDispose: () => ({ dispose: () => {} }),
+    dispose: () => {}
+  }),
   showInformationMessage: () => Promise.resolve(),
   showWarningMessage: () => Promise.resolve(),
   showErrorMessage: () => Promise.resolve(),
@@ -72,6 +83,13 @@ const windowState = {
     };
     return channel;
   },
+  createStatusBarItem: () => ({
+    text: '',
+    tooltip: '',
+    show: () => undefined,
+    hide: () => undefined,
+    dispose: () => undefined
+  }),
   withProgress: async (options, task) => {
     const progress = { report: () => undefined };
     return await task(progress);
@@ -210,6 +228,7 @@ const vscode = {
     SymbolicLink: 64
   },
   workspace: {
+    isTrusted: true,
     fs: {
       createDirectory: (uri) => {
         if (uri?.scheme === 'file' && uri?.fsPath) {
@@ -263,6 +282,7 @@ const vscode = {
     textDocuments: [],
     onDidChangeTextDocument: () => ({ dispose: () => {} }),
     onDidOpenTextDocument: () => ({ dispose: () => {} }),
+    onDidCloseTextDocument: () => ({ dispose: () => {} }),
     onDidSaveTextDocument: () => ({ dispose: () => {} }),
     onDidChangeConfiguration: () => ({ dispose: () => {} }),
     openTextDocument: async (uriOrOptions) => ({
@@ -329,6 +349,7 @@ const vscode = {
     Window: 10,
     SourceControl: 1
   },
+  StatusBarAlignment: { Left: 1, Right: 2 },
   commands: {
     registerCommand: (command, callback) => ({ dispose: () => {} }),
     executeCommand: (command, ...args) => Promise.resolve(undefined),
@@ -339,7 +360,7 @@ const vscode = {
     getSession: async () => undefined,
     onDidChangeSessions: () => ({ dispose: () => {} })
   },
-  Uri: {
+  Uri: Object.assign(class Uri {}, {
     file: (path) => ({
       fsPath: path,
       scheme: 'file',
@@ -368,7 +389,7 @@ const vscode = {
         path: value,
         toString: () => value
     })
-  },
+  }),
   EventEmitter: class EventEmitter {
     constructor() {
       this.listeners = [];

@@ -37,6 +37,9 @@ export { default as DEPLOYMENT_MANIFEST_SCHEMA } from './public/schemas/deployme
  */
 export { default as HUB_CONFIG_SCHEMA } from './public/schemas/hub-config.schema.json';
 
+/** Install record format 3.0.0 schema (`ai-primitives-hub.lock.json`). */
+export { default as INSTALL_RECORD_SCHEMA } from './public/schemas/install-record.schema.json';
+
 /** Artifactory source index JSON schema. */
 export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/artifactory-source-index.schema.json';
 
@@ -48,6 +51,9 @@ export { default as ARTIFACTORY_SOURCE_INDEX_SCHEMA } from './public/schemas/art
  * The validation rules live in `domain/plugin/agent-plugin-spec.ts`.
  */
 export { default as AGENT_PLUGIN_MANIFEST_SCHEMA } from './public/schemas/agent-plugins/1.0.0/plugin.schema.json';
+
+/** Security rating report (`security rate`) JSON schema. */
+export { default as SECURITY_RATING_REPORT_SCHEMA } from './public/schemas/security-rating-report.schema.json';
 
 /**
  * Schema for the optional consumer governance configuration (`hub-governance.yml`).

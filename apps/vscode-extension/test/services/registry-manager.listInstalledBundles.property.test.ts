@@ -16,9 +16,6 @@ import * as fc from 'fast-check';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RegistryManager,
 } from '../../src/services/registry-manager';
 import {
@@ -108,15 +105,11 @@ suite('RegistryManager.listInstalledBundles Property Tests', () => {
     // Stub getWorkspaceRoot to return our temp directory
     const scopeSelectionUI = require('../../src/utils/scope-selection-ui');
     getWorkspaceRootStub = sandbox.stub(scopeSelectionUI, 'getWorkspaceRoot').returns(tempDir);
-
-    // Reset LockfileManager instances
-    LockfileManager.resetInstance();
   });
 
   teardown(() => {
     sandbox.restore();
     cleanupTestWorkspace(tempDir);
-    LockfileManager.resetInstance();
     (RegistryManager as any).instance = undefined;
   });
 

@@ -22,11 +22,13 @@ export * from './hub-editor';
 export * from './install';
 export * from './mcp';
 export * from './writers';
+export * from './records';
 export * from './stores';
 export * from './update';
 export * from './registry';
 export * from './release';
 export * from './search';
+export * from './security';
 export * from './transform';
 export * from './replicate/replicate';
 

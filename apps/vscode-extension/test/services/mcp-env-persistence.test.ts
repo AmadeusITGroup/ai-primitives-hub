@@ -60,7 +60,7 @@ suite('MCP environment persistence', () => {
             const written = JSON.parse(content) as {
               mcpServers: Record<string, { headers: Record<string, string>; disabled: boolean }>;
             };
-            assert.deepStrictEqual(written.mcpServers['prompt-registry:bundle-env:gateway'], {
+            assert.deepStrictEqual(written.mcpServers['ai-primitives-hub:bundle-env:gateway'], {
               type: 'http', url: 'https://example.invalid/mcp', disabled,
               headers: {
                 'x-token': '${APH_TEST_MCP_TOKEN}',

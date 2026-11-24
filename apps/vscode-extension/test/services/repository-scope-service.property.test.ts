@@ -463,7 +463,7 @@ suite('RepositoryScopeService Property Tests', () => {
     const skillStructureGen = (): fc.Arbitrary<{ skillName: string; files: { relativePath: string; content: string }[] }> => {
       return fc.tuple(
         skillNameGen(),
-        fc.array(
+        fc.uniqueArray(
           fc.tuple(
             fc.constantFrom('', 'src/', 'lib/', 'config/'),
             skillFileNameGen(),
@@ -472,7 +472,11 @@ suite('RepositoryScopeService Property Tests', () => {
             relativePath: `${dir}${name}`,
             content
           })),
-          { minLength: 1, maxLength: 5 }
+          {
+            minLength: 1,
+            maxLength: 5,
+            selector: (file) => file.relativePath.toLowerCase()
+          }
         )
       ).map(([skillName, files]) => {
         // Always include SKILL.md

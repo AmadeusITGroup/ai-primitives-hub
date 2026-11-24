@@ -9,6 +9,9 @@ import {
   createHash,
 } from 'node:crypto';
 import {
+  realpathSync,
+} from 'node:fs';
+import {
   chmod,
   mkdir,
   mkdtemp,
@@ -27,8 +30,12 @@ import type {
   HttpClient,
   HttpRequest,
   HttpResponse,
+  InstallRecord,
   RegistrySource,
   Target,
+} from '@ai-primitives-hub/core';
+import {
+  parseBundleId,
 } from '@ai-primitives-hub/core';
 import {
   buildZip,
@@ -52,8 +59,20 @@ import {
   InstallCommand,
 } from '../../src/commands/install';
 import {
+  SourceAddCommand,
+} from '../../src/commands/source';
+import {
+  StatusCommand,
+} from '../../src/commands/status';
+import {
   TargetAddCommand,
 } from '../../src/commands/target-add';
+import {
+  TargetRemoveCommand,
+} from '../../src/commands/target-remove';
+import {
+  UninstallCommand,
+} from '../../src/commands/uninstall';
 import {
   UpdateCommand,
 } from '../../src/commands/update';
@@ -67,6 +86,20 @@ import {
   createLegacyReleaseArchive,
   writeReleaseArchive,
 } from '../fixtures/release-archives';
+import {
+  addRepositoryTargets,
+  initGitRoot,
+  makeGitWorktree,
+  makeRun,
+  readExcludeLines,
+  readInstallRecord,
+  readRecord,
+  recordPathIn,
+  userRecordPath,
+  workspaceEnv,
+  writeOldLockfile,
+  writeRecord,
+} from '../helpers/install-record-fixtures';
 
 const COMMAND_CLASSES = [
   TargetAddCommand,
@@ -76,6 +109,7 @@ const COMMAND_CLASSES = [
 interface JsonEnvelope<T> {
   status: string;
   data: T;
+  errors?: { code: string; context?: Record<string, unknown> }[];
 }
 
 describe('install command (local --from mode)', () => {
@@ -83,19 +117,7 @@ describe('install command (local --from mode)', () => {
   let bundleDir: string;
   let targetDir: string;
 
-  const run = (argv: string[]): ReturnType<typeof runCommand> => runCommand(argv, {
-    commandClasses: COMMAND_CLASSES,
-    context: {
-      cwd: workspace,
-      fs: new NodeFileSystem(),
-      env: {
-        HOME: workspace,
-        USERPROFILE: workspace,
-        XDG_CONFIG_HOME: path.join(workspace, 'xdg-config'),
-        XDG_CACHE_HOME: path.join(workspace, 'xdg-cache')
-      }
-    }
-  });
+  const run = makeRun(() => workspace, COMMAND_CLASSES);
 
   const parseJson = <T>(stdout: string): JsonEnvelope<T> => JSON.parse(stdout) as JsonEnvelope<T>;
 
@@ -166,10 +188,10 @@ describe('install command (local --from mode)', () => {
     const extraEntries: { path: string; bytes: Uint8Array; mode?: number }[] = [];
     let indexFailuresRemaining = 0;
     let archiveFailureBundleId: string | undefined;
-    const archiveFor = (): Uint8Array => {
-      const key = `${version}:${manifestVersion}`;
+    const archiveFor = (bundleId = catalogId): Uint8Array => {
+      const key = `${bundleId}:${version}:${manifestVersion}`;
       if (!archives.has(key)) {
-        const files = createLegacyReleaseArchive({ id: 'bundle', version: manifestVersion });
+        const files = createLegacyReleaseArchive({ id: parseBundleId(bundleId, 'owner/repo').name, version: manifestVersion });
         archives.set(key, buildZip([...[...files].map(([filePath, bytes]) => ({ path: filePath, bytes })), ...extraEntries]));
       }
       return archives.get(key)!;
@@ -198,10 +220,11 @@ describe('install command (local --from mode)', () => {
           body = new TextEncoder().encode(JSON.stringify({
             formatVersion: 1, source: { id: source.id, name: source.name, updatedAt: '2026-01-01T00:00:00Z' },
             bundles: [catalogId, ...additionalCatalogIds].map((id) => {
-              const bytes = archiveFor();
+              const bytes = archiveFor(id);
               return {
                 id, version, name: 'Bundle', description: '', author: 'Test', environments: ['vscode'],
                 tags: [], dependencies: [], license: 'Apache-2.0', lastUpdated: '2026-01-01T00:00:00Z',
+                canonicalSource: 'https://github.com/owner/repo',
                 manifest: { path: `${version}/${id}/deployment-manifest.yml`, size: 1, sha256: 'a'.repeat(64) },
                 archive: { path: `${version}/${id}.zip`, size: bytes.length,
                   sha256: createHash('sha256').update(bytes).digest('hex'), mediaType: 'application/zip' }
@@ -212,7 +235,11 @@ describe('install command (local --from mode)', () => {
           if (archiveFailureBundleId !== undefined && request.url.endsWith(`/${archiveFailureBundleId}.zip`)) {
             return Promise.resolve({ statusCode: 403, body: new Uint8Array(), finalUrl: request.url, headers: {} });
           }
-          body = archiveFor();
+          const bundleId = [catalogId, ...additionalCatalogIds].find((id) => request.url.endsWith(`/${id}.zip`));
+          if (bundleId === undefined) {
+            throw new Error(`Unexpected Artifactory archive: ${request.url}`);
+          }
+          body = archiveFor(bundleId);
         } else {
           throw new Error(`Unexpected Artifactory request: ${request.url}`);
         }
@@ -222,7 +249,21 @@ describe('install command (local --from mode)', () => {
     const tokens = { getToken: () => Promise.reject(new Error('GitHub credentials must not be used')) };
     const context = () => createTestContext({ cwd: workspace, fs: new NodeFileSystem(), env });
     const target: Target = { name: 'copilot', type: 'copilot-cli', scope: 'user', path: targetDir };
+    // The source trust gate fetches only configured sources with credentials, so configure it first.
+    let sourceConfigured = false;
+    const configureSource = async () => {
+      if (sourceConfigured) {
+        return;
+      }
+      const added = await runCli([
+        'source', 'add', '--type', 'artifactory', '--url', root, '--id', source.id,
+        '--auth', 'bearer', '--credential-ref', 'ARTIFACTORY_TOKEN', '-o', 'json'
+      ], { ctx: context(), http, tokens, commandClasses: [SourceAddCommand], commands: [], name: 'test', version: 'test' });
+      expect(added).toBe(0);
+      sourceConfigured = true;
+    };
     const install = async (bundleId = catalogId) => {
+      await configureSource();
       const ctx = context();
       const exitCode = await installBundleWithSource(bundleId, source, target, ctx, http, tokens, 'json');
       return { exitCode, ctx, lockPath: JSON.parse(ctx.stdout.captured()).data.lockfile as string };
@@ -259,22 +300,25 @@ describe('install command (local --from mode)', () => {
     const installed = await fixture.install();
     const installEnvelope = JSON.parse(installed.ctx.stdout.captured());
     expect(installEnvelope.data.bundle).toEqual({ id: fixture.catalogId, version: '1.0.0' });
-    const lock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
+    // User-scope installs are in the user record: one entry per tool, home-relative paths.
+    const lock = await readInstallRecord(installed.lockPath);
     expect(Object.keys(lock.bundles)).toEqual([fixture.catalogId]);
+    expect(lock.bundles[fixture.catalogId].tools['copilot-cli'].files.map((file) => file.path)).toContain('target/prompts/hello.prompt.md');
     expect(lock.sources['artifact-source']).toMatchObject({ type: 'artifactory', credentialRef: 'ARTIFACTORY_TOKEN' });
     expect(JSON.stringify(lock)).not.toContain('reader-token');
     await rm(path.join(targetDir, 'prompts', 'hello.prompt.md'));
     const replay = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replay.exitCode).toBe(0);
-    expect(JSON.parse(replay.ctx.stdout.captured()).data.replayed).toEqual([fixture.catalogId]);
+    expect(JSON.parse(replay.ctx.stdout.captured()).data.replayed)
+      .toEqual([{ bundleId: fixture.catalogId, tool: 'copilot-cli', version: '1.0.0', target: 'copilot' }]);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
     fixture.setVersion('2.0.0');
     const updated = await fixture.command(['update', '--lockfile', installed.lockPath, '--target', 'copilot', '--no-hub-sync', '-o', 'json']);
     expect(updated.exitCode).toBe(0);
     expect(JSON.parse(updated.ctx.stdout.captured()).data.updated).toBe(1);
-    const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as Lockfile;
+    const nextLock = JSON.parse(await readFile(installed.lockPath, 'utf8')) as { bundles: Record<string, { tools: Record<string, { version: string }> }> };
     expect(Object.keys(nextLock.bundles)).toEqual([fixture.catalogId]);
-    expect(nextLock.bundles[fixture.catalogId].version).toBe('2.0.0');
+    expect(nextLock.bundles[fixture.catalogId].tools['copilot-cli'].version).toBe('2.0.0');
     const replayUpdated = await fixture.command(['install', '--lockfile', installed.lockPath, '--target', 'copilot', '-o', 'json']);
     expect(replayUpdated.exitCode).toBe(0);
   });
@@ -334,9 +378,11 @@ describe('install command (local --from mode)', () => {
     const output = result.ctx.stdout.captured();
 
     expect(result.exitCode).toBe(1);
+    // The user record update lists one line per (bundle, tool) entry.
     expect(output).toContain('Available updates (1):');
-    expect(output).toContain(`${secondBundleId}: 1.0.0 → 2.0.0`);
-    expect(output).toContain('Update check is incomplete.');
+    expect(output).toContain(`${secondBundleId} (copilot-cli): 1.0.0 → 2.0.0`);
+    expect(output).toContain('1 update check or installation failed.');
+    expect(result.ctx.stderr.captured()).toContain(fixture.catalogId);
   });
 
   it('shows completed updates alongside installation failures in text output', async () => {
@@ -354,9 +400,11 @@ describe('install command (local --from mode)', () => {
     const output = result.ctx.stdout.captured();
 
     expect(result.exitCode).toBe(1);
-    expect(output).toContain('Updated 1 bundle:');
-    expect(output).toContain(`${secondBundleId}: 1.0.0 → 2.0.0`);
+    // The user record update lists one line per (bundle, tool) entry.
+    expect(output).toContain('Updated 1 entry:');
+    expect(output).toContain(`${secondBundleId} (copilot-cli): 1.0.0 → 2.0.0`);
     expect(output).toContain('1 update check or installation failed.');
+    expect(result.ctx.stderr.captured()).toContain(`Failed to update ${fixture.catalogId}`);
   });
 
   it('rejects an Artifactory latest install with a different embedded version before writing', async () => {
@@ -418,11 +466,10 @@ describe('install command (local --from mode)', () => {
     await expect(readFile(path.join(targetDir, 'metadata', 'source-collection.yml'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(targetDir, 'LICENSE'), 'utf8')).rejects.toThrow();
     await expect(readFile(path.join(targetDir, 'ignored', 'build', 'cache.pyc'), 'utf8')).rejects.toThrow();
-    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { files: { path: string }[] }>;
-    };
-    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
-      'prompts/hello.prompt.md'
+    // User-scope installs go to the user record: per-tool entries, paths relative to home.
+    const lockfile = await readInstallRecord(envelope.data.lockfile);
+    expect(lockfile.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
+      'target/prompts/hello.prompt.md'
     ]);
   });
 
@@ -435,11 +482,9 @@ describe('install command (local --from mode)', () => {
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
-    const lockfile = JSON.parse(await readFile(envelope.data.lockfile, 'utf8')) as {
-      bundles: Record<string, { files: { path: string }[] }>;
-    };
-    expect(lockfile.bundles['local-foo'].files.map((file) => file.path)).toEqual([
-      'prompts/hello.prompt.md'
+    const lockfile = await readInstallRecord(envelope.data.lockfile);
+    expect(lockfile.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toEqual([
+      'target/prompts/hello.prompt.md'
     ]);
   });
 
@@ -457,8 +502,8 @@ describe('install command (local --from mode)', () => {
     ]);
 
     expect(replay.exitCode).toBe(0);
-    const replayEnvelope = parseJson<{ replayed: string[]; failures: unknown[] }>(replay.stdout);
-    expect(replayEnvelope.data.replayed).toEqual(['local-foo']);
+    const replayEnvelope = parseJson<{ replayed: { bundleId: string }[]; failures: unknown[] }>(replay.stdout);
+    expect(replayEnvelope.data.replayed.map((row) => row.bundleId)).toEqual(['local-foo']);
     expect(replayEnvelope.data.failures).toEqual([]);
     await expect(readFile(path.join(targetDir, 'prompts', 'hello.prompt.md'), 'utf8'))
       .resolves.toContain('Hello Prompt');
@@ -502,6 +547,24 @@ describe('install command (local --from mode)', () => {
   });
 
   describe('--source resolved through the hub', () => {
+    const SHARED_HUB_URL = 'https://hubs.example/hub-config.yml';
+    const hubYaml = (name: string): string => [
+      'version: 1.0.0',
+      'metadata:',
+      `  name: ${name}`,
+      '  description: Hub with a GitHub source',
+      '  maintainer: test',
+      "  updatedAt: '2026-01-01T00:00:00Z'",
+      'sources:',
+      '  - id: sample-collections',
+      '    name: Sample Collections',
+      '    type: github',
+      '    url: https://github.com/acme-org/sample-skills',
+      '    enabled: true',
+      '    priority: 0',
+      'profiles: []',
+      ''
+    ].join('\n');
     const bundleZip = buildZip([...createLegacyReleaseArchive({ id: 'sample-skills', version: '1.8.1' })]
       .map(([filePath, bytes]) => ({ path: filePath, bytes })));
     const http: HttpClient = {
@@ -519,6 +582,9 @@ describe('install command (local --from mode)', () => {
         }
         if (request.url === 'https://api.github.com/assets/sample') {
           return { statusCode: 200, body: bundleZip, finalUrl: request.url, headers: {} };
+        }
+        if (request.url === SHARED_HUB_URL) {
+          return { statusCode: 200, body: new TextEncoder().encode(hubYaml('Shared Hub')), finalUrl: request.url, headers: {} };
         }
         throw new Error(`Unexpected request: ${request.url}`);
       }
@@ -538,7 +604,7 @@ describe('install command (local --from mode)', () => {
         ctx,
         http,
         tokens: { getToken: async () => undefined },
-        commandClasses: [...COMMAND_CLASSES, HubAddCommand, HubUseCommand],
+        commandClasses: [...COMMAND_CLASSES, HubAddCommand, HubUseCommand, StatusCommand],
         commands: [],
         name: 'test',
         version: 'test'
@@ -581,6 +647,52 @@ describe('install command (local --from mode)', () => {
         .resolves.toContain('Hello Prompt');
     });
 
+    const installIntoRepository = async (): Promise<void> => {
+      await initGitRoot(workspace);
+      expect((await runWithHub(['target', 'add', 'repo-vscode', '--type', 'vscode', '--scope', 'repository', '--workspace-root', workspace, '-o', 'json'])).exitCode).toBe(0);
+      const result = await runWithHub([
+        'install', 'acme-org-sample-skills-sample-skills', '--source', 'sample-collections', '--target', 'repo-vscode', '-o', 'json'
+      ]);
+      expect(result.exitCode, result.stdout).toBe(0);
+    };
+
+    it('records the shared hub of the source in the repository record, and status shows it', async () => {
+      expect((await runWithHub(['hub', 'add', '--type', 'url', '--location', SHARED_HUB_URL, '--id', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runWithHub(['hub', 'use', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+
+      await installIntoRepository();
+
+      const record = await readRecord(workspace);
+      expect(Object.values(record.sources)).toEqual([{ type: 'github', url: 'https://github.com/acme-org/sample-skills', hubId: 'shared-hub' }]);
+      expect(record.hubs).toEqual({ 'shared-hub': { name: 'Shared Hub', type: 'url', location: SHARED_HUB_URL } });
+      const status = parseJson<{ entries: { bundleId: string; hubId?: string }[] }>((await runWithHub(['status', '-o', 'json'])).stdout);
+      expect(status.data.entries).toEqual([expect.objectContaining({ bundleId: 'sample-skills', tool: 'vscode', hubId: 'shared-hub' })]);
+      expect((await runWithHub(['status'])).stdout).toContain('(vscode)  hub shared-hub');
+    });
+
+    it('keeps the shared hub when the record is replayed', async () => {
+      expect((await runWithHub(['hub', 'add', '--type', 'url', '--location', SHARED_HUB_URL, '--id', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runWithHub(['hub', 'use', 'shared-hub', '-o', 'json'])).exitCode).toBe(0);
+      await installIntoRepository();
+      const recorded = await readFile(recordPathIn(workspace), 'utf8');
+
+      const replay = await runWithHub(['install', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(replay.exitCode, replay.stdout).toBe(0);
+      expect(parseJson<{ replayed: unknown[] }>(replay.stdout).data.replayed).toHaveLength(1);
+      const record = await readRecord(workspace);
+      expect(Object.values(record.sources).map((source) => source.hubId)).toEqual(['shared-hub']);
+      expect(record.hubs).toEqual(JSON.parse(recorded).hubs);
+    });
+
+    it('does not record a hub that is only a local path', async () => {
+      await installIntoRepository();
+
+      const record = await readRecord(workspace);
+      expect(Object.values(record.sources).map((source) => source.hubId)).toEqual([undefined]);
+      expect(record.hubs).toBeUndefined();
+    });
+
     it('installs <id> --source <hub-id> using that hub\'s source', async () => {
       const result = await runWithHub([
         'install', 'acme-org-sample-skills-sample-skills',
@@ -599,6 +711,18 @@ describe('install command (local --from mode)', () => {
       expect(result.stdout).toContain('BUNDLE.NOT_FOUND');
       expect(result.stdout).toContain('no-such-source');
       expect(result.stdout).toMatch(/source id.*hub id.*owner\/repo/);
+    });
+
+    it('reports why an interactive install from a hub fails instead of crashing (#700)', async () => {
+      const result = await runWithHub([
+        'install', '--source', 'no-such-hub', '--interactive', '--target', 'copilot', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.status).toBe('error');
+      expect(envelope.errors[0].code).toMatch(/^HUB\./);
+      expect(envelope.errors[0].message).toContain('no-such-hub');
     });
 
     it('reports a malformed active hub configuration instead of BUNDLE.NOT_FOUND', async () => {
@@ -671,7 +795,7 @@ agents:
     expect(result.exitCode).toBe(0);
 
     const envelope = parseJson<{ lockfile: string }>(result.stdout);
-    expect(envelope.data.lockfile).toBe(path.join(workspace, 'prompt-registry.local.lock.json'));
+    expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.local.lock.json'));
     await expect(
       readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello Prompt');
@@ -776,6 +900,8 @@ agents:
     await expect(
       readFile(path.join(workspace, '.github', 'prompts', 'hello.prompt.md'), 'utf8')
     ).resolves.toContain('Hello from a remote bundle');
+    const envelope = JSON.parse(ctx.stdout.captured()) as JsonEnvelope<{ lockfile: string }>;
+    expect(envelope.data.lockfile).toBe(path.join(workspace, 'ai-primitives-hub.lock.json'));
     await expect(
       readFile(path.join(workspace, '.github', 'copilot', 'prompts', 'hello.prompt.md'), 'utf8')
     ).rejects.toThrow();
@@ -947,8 +1073,12 @@ agents:
     const isExecutable = async (filePath: string): Promise<boolean> =>
       // eslint-disable-next-line no-bitwise -- test reads the POSIX execute bits
       ((await stat(filePath)).mode & 0o111) !== 0;
-    const lockedFiles = async (lockfilePath: string): Promise<unknown> =>
-      (JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile).bundles['exec-demo'].files;
+    // User scope uses `bundles.<id>.files`; the repository record uses `bundles.<id>.tools.<type>.files`.
+    const lockedFiles = async (lockfilePath: string): Promise<unknown> => {
+      const parsed = JSON.parse(await readFile(lockfilePath, 'utf8')) as Lockfile | InstallRecord;
+      const bundle = parsed.bundles['exec-demo'] as { files?: unknown; tools?: Record<string, { files: unknown }> };
+      return bundle.tools === undefined ? bundle.files : bundle.tools['copilot-cli'].files;
+    };
     const installFrom = async (extra: string[] = []): Promise<string> => {
       const result = await run(['install', 'exec-demo', '--from', execBundleDir, '--target', 'copilot', ...extra, '-o', 'json']);
       expect(result.exitCode, result.stdout).toBe(0);
@@ -1057,6 +1187,418 @@ agents:
       expect(await isExecutable(path.join(skillDir(), 'SKILL.md'))).toBe(false);
       expect(await readFile(path.join(skillDir(), 'scripts', 'run.sh'), 'utf8')).toBe(SCRIPT);
       expect(await lockedFiles(lockfilePath)).toEqual(baselineLock);
+    });
+  });
+
+  describe('repository install record (ai-primitives-hub.lock.json, format 3.0.0)', () => {
+    const recordPath = (): string => recordPathIn(workspace);
+    const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    const installTo = (targetName: string): ReturnType<typeof runCommand> =>
+      run(['install', 'local-foo', '--from', bundleDir, '--target', targetName, '-o', 'json']);
+
+    beforeEach(async () => {
+      await initGitRoot(workspace);
+      await addRepositoryTargets(run, workspace, [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']]);
+    });
+
+    it('records vscode then kiro installs of one bundle in one record', async () => {
+      expect((await installTo('repo-vscode')).exitCode).toBe(0);
+      const result = await installTo('repo-kiro');
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(recordPath());
+      expect(Object.keys((await readRecord(workspace)).bundles['local-foo'].tools).toSorted()).toEqual(['kiro', 'vscode']);
+    });
+
+    it.each(['json', 'text'])('migrates prompt-registry.lock.json into the new record before the install (-o %s)', async (output) => {
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, { 'old-bundle': { version: '0.1.0', sourceType: 'github', files: ['.github/prompts/gone.prompt.md'] } },
+        { 'old-src': { type: 'github', url: 'https://github.com/acme-org/old-bundle' } });
+
+      const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '-o', output]);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const record = await readRecord(workspace);
+      expect(Object.keys(record.bundles).toSorted()).toEqual(['local-foo', 'old-bundle']);
+      expect(record.bundles['old-bundle'].tools.unknown).toMatchObject({ version: '0.1.0', needsReinstall: true, files: [] });
+      await expect(readFile(oldPath, 'utf8')).rejects.toThrow();
+      if (output === 'json') {
+        expect(parseJson<{ migration: object }>(result.stdout).data.migration).toMatchObject({
+          level: 'repository',
+          renamed: [{ from: oldPath, to: recordPath() }],
+          needsReinstall: [{ bundleId: 'old-bundle', version: '0.1.0' }],
+          droppedFiles: [{ bundleId: 'old-bundle', path: '.github/prompts/gone.prompt.md' }]
+        });
+      } else {
+        expect(result.stdout).toContain('Migrated repository record:\n'
+          + `  renamed ${oldPath} → ${recordPath()}\n`
+          + '  needs reinstall: old-bundle@0.1.0 (tool unknown)\n'
+          + '  dropped 1 file path\n');
+      }
+    });
+
+    it.each([
+      ['RECORD.MALFORMED', '{ "version": "3.0.0", '],
+      ['RECORD.NEWER_FORMAT', '{"version":"4.0.0","bundles":{}}\n']
+    ])('exits 1 with %s and writes no file when the record is bad', async (code, text) => {
+      await writeFile(recordPath(), text);
+
+      const result = await installTo('repo-vscode');
+
+      expect(result.exitCode).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code, context: { file: 'ai-primitives-hub.lock.json' } });
+      await expect(readFile(vscodePrompt(), 'utf8')).rejects.toThrow();
+      expect(await readFile(recordPath(), 'utf8')).toBe(text);
+    });
+
+    it('removes a file the reinstall no longer writes', async () => {
+      const writeBundle = (withAgent: boolean): Promise<void> => writeReleaseArchive(bundleDir, new Map([
+        ['deployment-manifest.yml', new TextEncoder().encode([
+          'id: local-foo', 'version: 1.0.0', 'name: Local Bundle', 'prompts:',
+          '  - id: hello', '    file: prompts/hello.prompt.md', '    type: prompt',
+          ...(withAgent ? ['agents:', '  - id: hello-agent', '    file: agents/hello.agent.md', '    type: agent'] : [])
+        ].join('\n'))],
+        ['prompts/hello.prompt.md', new TextEncoder().encode('# Hello Prompt\n')],
+        ...(withAgent ? [['agents/hello.agent.md', new TextEncoder().encode('# Hello Agent\n')] as [string, Uint8Array]] : [])
+      ]));
+      const agentFile = path.join(workspace, '.github', 'agents', 'hello.agent.md');
+      await writeBundle(true);
+      expect((await installTo('repo-vscode')).exitCode).toBe(0);
+      await expect(readFile(agentFile, 'utf8')).resolves.toContain('Hello Agent');
+
+      await writeBundle(false);
+      expect((await installTo('repo-vscode')).exitCode).toBe(0);
+
+      await expect(readFile(agentFile, 'utf8')).rejects.toThrow();
+      await expect(readFile(vscodePrompt(), 'utf8')).resolves.toContain('Hello Prompt');
+    });
+
+    it.each([
+      { target: 'repo-vscode', tool: 'vscode', read: () => readRecord(workspace) },
+      { target: 'copilot', tool: 'copilot-cli', read: () => readInstallRecord(userRecordPath(workspaceEnv(workspace))) }
+    ])('keeps one entry when a versioned bundle id is upgraded and downgraded for $target', async ({ target, tool, read }) => {
+      for (const version of ['1.0.0', '2.0.0', '1.0.0']) {
+        await writeReleaseArchive(bundleDir, createLegacyReleaseArchive({ id: `acme-tools-coll-${version}`, version }));
+        const result = await run(['install', '--from', bundleDir, '--target', target, '-o', 'json']);
+        expect(result.exitCode, result.stdout).toBe(0);
+
+        const { bundles } = await read();
+        expect(Object.entries(bundles).map(([key, bundle]) => `${key} ${Object.keys(bundle.tools).join(',')} ${bundle.tools[tool]?.version}`))
+          .toEqual([`acme-tools-coll-${version} ${tool} ${version}`]);
+      }
+    });
+
+    it('lists the local-only record and its installed files in one info/exclude in a git worktree', async () => {
+      const commonDir = await makeGitWorktree(workspace);
+
+      const result = await run([
+        'install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '--commit-mode', 'local-only', '-o', 'json'
+      ]);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const lines = await readExcludeLines(commonDir);
+      expect(lines).toContain('# Prompt Registry (local)');
+      expect(lines).toContain('ai-primitives-hub.local.lock.json');
+      expect(lines).toContain('.github/prompts/hello.prompt.md');
+    });
+
+    it('records user-scope installs in the user record, never the old user lockfile', async () => {
+      const result = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const env = workspaceEnv(workspace);
+      expect(parseJson<{ lockfile: string }>(result.stdout).data.lockfile).toBe(userRecordPath(env));
+      await expect(readFile(resolveUserConfigPaths(env).userLockfile, 'utf8')).rejects.toThrow();
+      await expect(readFile(recordPath(), 'utf8')).rejects.toThrow();
+    });
+  });
+
+  describe('user install record (ai-primitives-hub.user.lock.json)', () => {
+    let userEnv: Record<string, string>;
+    const runUser = (argv: string[]): ReturnType<typeof runCommand> => makeRun(() => workspace, COMMAND_CLASSES, userEnv)(argv);
+    const exists = (file: string): Promise<boolean> => stat(file).then(() => true, () => false);
+
+    beforeEach(async () => {
+      userEnv = {
+        HOME: path.join(workspace, 'home'),
+        USERPROFILE: path.join(workspace, 'profile'),
+        XDG_CONFIG_HOME: path.join(workspace, 'user-xdg-config'),
+        XDG_CACHE_HOME: path.join(workspace, 'user-xdg-cache')
+      };
+      await mkdir(userEnv.HOME, { recursive: true });
+      await mkdir(userEnv.USERPROFILE, { recursive: true });
+    });
+
+    const MALFORMED_RECORD = '{ "version": "3.0.0", ';
+    it.each([
+      {
+        name: 'a target folder outside home',
+        targetFolder: (): string => path.join(workspace, 'outside', 'target'),
+        seedRecord: undefined,
+        error: (): object => ({
+          code: 'RECORD.PATH_OUTSIDE_ROOT',
+          hint: `Use a target under ${path.resolve(userEnv.HOME)} or a repository target.`
+        })
+      },
+      {
+        name: 'a malformed user record',
+        targetFolder: (): string => path.join(userEnv.HOME, 'target'),
+        seedRecord: MALFORMED_RECORD,
+        error: (): object => ({ code: 'RECORD.MALFORMED', context: { file: userRecordPath(userEnv) } })
+      }
+    ])('refuses a user-scope install into $name: exit 1, nothing written', async ({ targetFolder, seedRecord, error }) => {
+      if (seedRecord !== undefined) {
+        await mkdir(path.dirname(userRecordPath(userEnv)), { recursive: true });
+        await writeFile(userRecordPath(userEnv), seedRecord);
+      }
+      expect((await runUser([
+        'target', 'add', 'user-copilot', '--type', 'copilot-cli', '--path', targetFolder(), '-o', 'json'
+      ])).exitCode).toBe(0);
+
+      const result = await runUser(['install', 'local-foo', '--from', bundleDir, '--target', 'user-copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject(error());
+      expect(await exists(path.join(targetFolder(), 'prompts', 'hello.prompt.md'))).toBe(false);
+      if (seedRecord === undefined) {
+        expect(await exists(userRecordPath(userEnv))).toBe(false);
+      } else {
+        expect(await readFile(userRecordPath(userEnv), 'utf8')).toBe(seedRecord);
+      }
+    });
+
+    it('writes a default user-scope target under USERPROFILE when HOME is empty and records home-relative paths', async () => {
+      userEnv = {
+        ...userEnv,
+        HOME: '',
+        XDG_DATA_HOME: path.join(workspace, 'user-xdg-data'),
+        XDG_STATE_HOME: path.join(workspace, 'user-xdg-state')
+      };
+      // No --path: the copilot-cli layout's `${HOME}/.copilot` is expanded by the writer.
+      expect((await runUser(['target', 'add', 'user-copilot', '--type', 'copilot-cli', '-o', 'json'])).exitCode).toBe(0);
+
+      const result = await runUser(['install', 'local-foo', '--from', bundleDir, '--target', 'user-copilot', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      await expect(readFile(path.join(userEnv.USERPROFILE, '.copilot', 'prompts', 'hello.prompt.md'), 'utf8')).resolves.toContain('Hello Prompt');
+      const record = await readInstallRecord(userRecordPath(userEnv));
+      expect(record.bundles['local-foo'].tools['copilot-cli'].files.map((file) => file.path)).toContain('.copilot/prompts/hello.prompt.md');
+    });
+  });
+
+  describe('replay of the repository install record (format 3.0.0)', () => {
+    interface ReplayRecord {
+      bundles: Record<string, { tools: Record<string, Record<string, unknown> & { sourceId: string }> }>;
+      sources: Record<string, Record<string, unknown>>;
+    }
+    interface ReplayData {
+      level: string;
+      records: string[];
+      replayed: { bundleId: string; tool: string }[];
+      skipped: { bundleId: string; tool: string; reason: string }[];
+      needsReinstall: { bundleId: string; version: string }[];
+    }
+    const recordPath = (): string => recordPathIn(workspace);
+    const vscodePrompt = (): string => path.join(workspace, '.github', 'prompts', 'hello.prompt.md');
+    const readReplayRecord = (): Promise<ReplayRecord> => readRecord<ReplayRecord>(workspace);
+    const exists = (file: string): Promise<boolean> => readFile(file).then(() => true, () => false);
+    const runWithRemove = makeRun(() => workspace, [...COMMAND_CLASSES, TargetRemoveCommand]);
+    const runAll = makeRun(() => workspace, [...COMMAND_CLASSES, UpdateCommand, UninstallCommand]);
+
+    beforeEach(async () => {
+      // Real paths, so the record root and the local source agree (macOS /var → /private/var).
+      workspace = realpathSync.native(workspace);
+      bundleDir = path.join(workspace, 'bundle');
+      await initGitRoot(workspace);
+      await addRepositoryTargets(run, workspace, [['repo-vscode', 'vscode'], ['repo-kiro', 'kiro']], { bundleDir });
+      // A migrated entry the replay cannot restore.
+      const record = await readReplayRecord();
+      record.bundles['legacy-bar'] = { tools: { unknown: { ...record.bundles['local-foo'].tools.vscode, version: '0.5.0', needsReinstall: true } } };
+      await writeRecord(workspace, record);
+      await rm(path.join(workspace, '.github'), { recursive: true, force: true });
+      await rm(path.join(workspace, '.kiro'), { recursive: true, force: true });
+    });
+
+    it.each([
+      ['install --lockfile <record>', ['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']],
+      ['bare install finding the record', ['install', '-o', 'json']]
+    ])('%s replays vscode and kiro, re-records them in the same file and lists unknown as needs reinstall', async (_name, argv) => {
+      const result = await run(argv);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<ReplayData>(result.stdout);
+      expect(data).toMatchObject({ level: 'repository', records: [recordPath()], skipped: [], needsReinstall: [{ bundleId: 'legacy-bar', version: '0.5.0' }] });
+      expect(data.replayed.map((r) => r.tool)).toEqual(['kiro', 'vscode']);
+      expect(await exists(vscodePrompt())).toBe(true);
+      const kiroFiles = (await readReplayRecord()).bundles['local-foo'].tools.kiro.files as { path: string }[];
+      expect(kiroFiles.length).toBeGreaterThan(0);
+      for (const file of kiroFiles) {
+        expect(await exists(path.join(workspace, file.path)), file.path).toBe(true);
+      }
+      expect(Object.keys((await readReplayRecord()).bundles['local-foo'].tools).toSorted()).toEqual(['kiro', 'vscode']);
+      expect(await exists(path.join(workspace, 'ai-primitives-hub.local.lock.json'))).toBe(false);
+    });
+
+    it('skips an entry with no mapped target and one whose local source is outside the repository; nothing processed, exit 1', async () => {
+      expect((await runWithRemove(['target', 'remove', 'repo-kiro', '-o', 'json'])).exitCode).toBe(0);
+      const record = await readReplayRecord();
+      record.sources.outside = { type: 'local', url: path.dirname(workspace) };
+      record.bundles['local-foo'].tools.vscode.sourceId = 'outside';
+      await writeRecord(workspace, record);
+
+      const result = await run(['install', '--lockfile', recordPath(), '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const { status, data } = parseJson<ReplayData>(result.stdout);
+      expect(status).toBe('warning');
+      expect(data.replayed).toEqual([]);
+      expect(data.skipped).toEqual([
+        { bundleId: 'local-foo', tool: 'kiro', reason: expect.stringContaining('target add') },
+        { bundleId: 'local-foo', tool: 'vscode', reason: 'local source outside the repository' }
+      ]);
+      expect(await exists(vscodePrompt())).toBe(false);
+    });
+
+    it.each([
+      ['install --lockfile <record>', ['install', '--lockfile', 'ai-primitives-hub.lock.json', '-o', 'json']],
+      ['bare install', ['install', '-o', 'json']],
+      ['update', ['update', '--no-hub-sync', '-o', 'json']],
+      ['uninstall --lockfile <record>', ['uninstall', '--lockfile', 'ai-primitives-hub.lock.json', '--target', 'repo-vscode', '-o', 'json']]
+    ])('%s of a malformed record exits 1 with RECORD.MALFORMED and changes nothing', async (_name, argv) => {
+      await mkdir(path.dirname(vscodePrompt()), { recursive: true });
+      await writeFile(vscodePrompt(), '# Kept\n');
+      const text = '{ "version": "3.0.0", ';
+      await writeFile(recordPath(), text);
+
+      const result = await runAll(argv);
+
+      expect(result.exitCode).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code: 'RECORD.MALFORMED' });
+      expect(await readFile(vscodePrompt(), 'utf8')).toBe('# Kept\n');
+      expect(await readFile(recordPath(), 'utf8')).toBe(text);
+    });
+
+    it('--allow-target refuses a replay to a mapped target it does not list, before writing anything', async () => {
+      const result = await run(['install', '--lockfile', recordPath(), '--allow-target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(parseJson<null>(result.stdout).errors?.[0]).toMatchObject({ code: 'USAGE.MISSING_FLAG' });
+      expect(await exists(vscodePrompt())).toBe(false);
+    });
+
+    it('records the type of the configured source that replaces the recorded one', async () => {
+      const record = await readReplayRecord();
+      const { sourceId } = record.bundles['local-foo'].tools.vscode;
+      record.sources[sourceId] = { type: 'github', url: 'https://github.com/acme/foo' };
+      for (const entry of Object.values(record.bundles['local-foo'].tools)) {
+        entry.sourceType = 'github';
+      }
+      delete record.bundles['legacy-bar'];
+      await writeRecord(workspace, record);
+      expect((await makeRun(() => workspace, [...COMMAND_CLASSES, SourceAddCommand])(
+        ['source', 'add', '--type', 'local', '--url', bundleDir, '--id', sourceId, '-o', 'json']
+      )).exitCode).toBe(0);
+
+      const result = await run(['install', '--lockfile', recordPath(), '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const replayed = await readReplayRecord();
+      expect(replayed.bundles['local-foo'].tools.vscode.sourceType).toBe('local');
+      expect(replayed.sources[sourceId]).toMatchObject({ type: 'local' });
+    });
+
+    describe('in a git worktree, with the bundle recorded local-only', () => {
+      let commonDir: string;
+
+      beforeEach(async () => {
+        // No other entry lists the bundle's .github files, so uninstall removes them.
+        const record = await readReplayRecord();
+        delete record.bundles['legacy-bar'];
+        await writeRecord(workspace, record);
+        commonDir = await makeGitWorktree(workspace);
+        const installed = await run(['install', 'local-foo', '--from', bundleDir, '--target', 'repo-vscode', '--commit-mode', 'local-only', '-o', 'json']);
+        expect(installed.exitCode, installed.stdout).toBe(0);
+      });
+
+      it('replay lists the files it writes in the record\'s info/exclude', async () => {
+        await writeFile(path.join(commonDir, 'info', 'exclude'), '');
+        await rm(path.join(workspace, '.github'), { recursive: true, force: true });
+
+        const result = await run(['install', '--lockfile', 'ai-primitives-hub.local.lock.json', '--commit-mode', 'local-only', '-o', 'json']);
+
+        expect(result.exitCode, result.stdout).toBe(0);
+        expect(parseJson<ReplayData>(result.stdout).data.replayed.map((r) => r.tool)).toEqual(['vscode']);
+        expect(await readExcludeLines(commonDir)).toContain('.github/prompts/hello.prompt.md');
+      });
+
+      it('uninstall --lockfile drops the removed files from the record\'s info/exclude', async () => {
+        expect(await readExcludeLines(commonDir)).toContain('.github/prompts/hello.prompt.md');
+
+        const result = await runAll(['uninstall', '--lockfile', 'ai-primitives-hub.local.lock.json', '--target', 'repo-vscode', '-o', 'json']);
+
+        expect(result.exitCode, result.stdout).toBe(0);
+        expect((JSON.parse(result.stdout) as { warnings?: string[] }).warnings ?? []).toEqual([]);
+        expect(await exists(vscodePrompt())).toBe(false);
+        expect(await readExcludeLines(commonDir)).not.toContain('.github/prompts/hello.prompt.md');
+      });
+    });
+
+    it('bare install migrates the old prompt-registry file first: its bundles are listed as needs reinstall and the old file is gone', async () => {
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, { 'local-foo': { version: '0.9.0' }, 'old-only': { version: '0.1.0' } },
+        { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
+
+      const result = await run(['install', '--target', 'repo-vscode', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<ReplayData & { oldFile?: object; migration: { mergedFrom: string[]; droppedEntries: { bundleId: string }[] } }>(result.stdout);
+      expect(data.replayed.map((r) => `${r.bundleId}:${r.tool}`)).toEqual(['local-foo:vscode']);
+      expect(data.needsReinstall).toEqual([{ bundleId: 'legacy-bar', version: '0.5.0' }, { bundleId: 'old-only', version: '0.1.0' }]);
+      expect(data.oldFile).toBeUndefined();
+      expect(data.migration).toMatchObject({ mergedFrom: [oldPath], droppedEntries: [{ bundleId: 'local-foo', version: '0.9.0' }] });
+      expect(Object.keys((await readReplayRecord()).bundles).toSorted()).toEqual(['legacy-bar', 'local-foo', 'old-only']);
+      expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install in a repository with only prompt-registry.lock.json migrates it, then lists its bundles as needs reinstall', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
+
+      const result = await run(['install', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      const { data } = parseJson<ReplayData & { oldFile?: object; migration: { renamed: { from: string; to: string }[] } }>(result.stdout);
+      expect(data).toMatchObject({ level: 'repository', replayed: [], needsReinstall: [{ bundleId: 'old-only', version: '0.1.0' }] });
+      expect(data.oldFile).toBeUndefined();
+      expect(data.migration.renamed).toEqual([{ from: oldPath, to: recordPath() }]);
+      expect(Object.keys((await readReplayRecord()).bundles['old-only'].tools)).toEqual(['unknown']);
+      expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install with only an empty prompt-registry.lock.json stays at the repository level', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      await writeOldLockfile(oldPath, {}, {});
+
+      const result = await run(['install', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      expect(parseJson<ReplayData>(result.stdout).data).toMatchObject({ level: 'repository', replayed: [] });
+      expect(await exists(oldPath)).toBe(false);
+    });
+
+    it('bare install --dry-run with only prompt-registry.lock.json is refused and writes nothing', async () => {
+      await rm(recordPath());
+      const oldPath = path.join(workspace, 'prompt-registry.lock.json');
+      const oldBytes = await writeOldLockfile(oldPath, { 'old-only': { version: '0.1.0' } }, { 'old-src': { type: 'local', url: path.join(workspace, 'old-bundle') } });
+
+      const result = await run(['install', '--dry-run', '-o', 'json']);
+
+      expect(result.exitCode, result.stdout).not.toBe(0);
+      expect(result.stdout).toContain('USAGE.INVALID_FLAG');
+      expect(await readFile(oldPath, 'utf8')).toBe(oldBytes);
+      expect(await exists(recordPath())).toBe(false);
     });
   });
 });

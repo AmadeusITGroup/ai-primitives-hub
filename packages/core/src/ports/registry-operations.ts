@@ -20,6 +20,7 @@ import type {
 } from '../domain/bundle/types';
 import type {
   HubProfileWithMetadata,
+  ProfileActivationResult,
   ProfileActivationState,
 } from '../domain/hub/types';
 import type {
@@ -241,7 +242,8 @@ export interface HubProfileReader {
  * when the target profile turns out to be hub-provided.
  */
 export interface HubProfileSync extends HubProfileReader {
-  activateProfile(hubId: string, profileId: string, options: { installBundles: boolean }): Promise<unknown>;
+  /** Resolves to the activation outcome when the implementation reports one; a `success: false` outcome is an activation failure. */
+  activateProfile(hubId: string, profileId: string, options: { installBundles: boolean }): Promise<ProfileActivationResult | void>;
   deactivateProfile(hubId: string, profileId: string): Promise<unknown>;
 }
 

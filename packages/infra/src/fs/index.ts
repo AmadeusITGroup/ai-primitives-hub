@@ -3,3 +3,4 @@
  * @module fs
  */
 export * from './node-filesystem';
+export * from './workspace-path';

@@ -19,9 +19,6 @@ import nock from 'nock';
 import * as sinon from 'sinon';
 import * as vscode from 'vscode';
 import {
-  LockfileManager,
-} from '../../src/services/lockfile-manager';
-import {
   RepositoryActivationService,
 } from '../../src/services/repository-activation-service';
 import {
@@ -52,7 +49,8 @@ suite('E2E: Uninstall Preserves Unrelated .github Files', () => {
     baseVersion: '1.0.0'
   };
 
-  const LOCKFILE_NAME = 'prompt-registry.lock.json';
+  /** Install record the extension writes at the repository root. */
+  const LOCKFILE_NAME = 'ai-primitives-hub.lock.json';
   const GITHUB_PROMPTS_DIR = '.github/prompts';
 
   // Bundle ID format: owner-repo-manifestId-version
@@ -197,7 +195,6 @@ suite('E2E: Uninstall Preserves Unrelated .github Files', () => {
 
   teardown(async function () {
     this.timeout(10_000);
-    LockfileManager.resetInstance();
     RepositoryActivationService.resetInstance();
     await testContext.cleanup();
     sandbox.restore();

@@ -10,8 +10,9 @@
  * stderr-suffixed error messages, and `Dirent#isFile()` filtering (symlinks
  * are not listed from the working tree).
  *
- * `isExecutable` reports Git mode `100755` for a revision (from one
- * `git ls-tree` per opened tree) and the owner execute bit for the working
+ * Committed reads follow gitlinks at their pinned commits, not the submodule's
+ * checkout. `isExecutable` reports Git mode `100755` for a revision (from one
+ * `git ls-tree` per repository and commit) and the owner execute bit for the working
  * tree. Committed symlinks (`120000`) are still listed and read as regular
  * files holding the link target, and are never executable.
  *
@@ -42,9 +43,12 @@ const settle = <T>(operation: () => T): Promise<T> =>
 
 /** Upper bound for git stdout (blobs and `ls-tree` listings); Node's default is 1 MiB. */
 const GIT_MAX_BUFFER_BYTES = 512 * 1024 * 1024;
+const gitEnv = { ...process.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' };
 
 const runGit = (repoRoot: string, args: string[]): string => {
-  const result = spawnSync('git', args, { cwd: repoRoot, encoding: 'buffer', maxBuffer: GIT_MAX_BUFFER_BYTES });
+  const result = spawnSync('git', args, {
+    cwd: repoRoot, env: gitEnv, encoding: 'buffer', maxBuffer: GIT_MAX_BUFFER_BYTES
+  });
   if (result.error) {
     throw new Error(`Git command failed: git ${args.join(' ')}: ${result.error.message}`);
   }
@@ -55,10 +59,10 @@ const runGit = (repoRoot: string, args: string[]): string => {
   return Buffer.isBuffer(result.stdout) ? result.stdout.toString('utf8') : '';
 };
 
-const readGitBlob = (repoRoot: string, revision: string, repositoryPath: string): Buffer => {
-  const normalizedPath = normalizeRepoRelativePath(repositoryPath);
-  const result = spawnSync('git', ['show', `${revision}:${normalizedPath}`], {
+const readGitBlob = (repoRoot: string, revision: string, normalizedPath: string): Buffer => {
+  const result = spawnSync('git', ['cat-file', 'blob', `${revision}:${normalizedPath}`], {
     cwd: repoRoot,
+    env: gitEnv,
     encoding: 'buffer',
     maxBuffer: GIT_MAX_BUFFER_BYTES
   });
@@ -72,47 +76,113 @@ const readGitBlob = (repoRoot: string, revision: string, repositoryPath: string)
   return result.stdout;
 };
 
-const listGitTreeFiles = (repoRoot: string, revision: string, repositoryDirectory: string): string[] => {
-  const normalizedDirectory = normalizeRepoRelativePath(repositoryDirectory);
-  const output = normalizedDirectory === '.'
-    ? runGit(repoRoot, ['ls-tree', '-r', '-z', '--name-only', revision])
-    : runGit(repoRoot, ['ls-tree', '-r', '-z', '--name-only', revision, '--', normalizedDirectory]);
-  return output
-    .split('\0')
-    .filter((entry): entry is string => entry.length > 0)
-    .map((entry) => normalizeRepoRelativePath(entry))
-    .filter((entry) => normalizedDirectory === '.' || entry === normalizedDirectory || entry.startsWith(`${normalizedDirectory}/`));
-};
-
-/** Git tree mode of an executable regular file. */
 const GIT_EXECUTABLE_MODE = '100755';
+const GIT_SUBMODULE_MODE = '160000';
 
-/**
- * Read the Git mode of every file at a revision from one `git ls-tree` call.
- * Records are `<mode> SP <type> SP <oid> TAB <path>`, NUL-terminated
- * (`--format` needs Git 2.36+, so the default layout is parsed).
- * @param repoRoot - Repository root.
- * @param revision - Immutable commit id.
- * @returns Mode (`100644`, `100755`, `120000`, ...) keyed by normalized path.
- */
-const readGitTreeModes = (repoRoot: string, revision: string): Map<string, string> => {
-  const modes = new Map<string, string>();
+interface GitTreeEntry {
+  mode: string;
+  oid: string;
+}
+
+const readGitTreeEntries = (repoRoot: string, revision: string): Map<string, GitTreeEntry> => {
+  const entries = new Map<string, GitTreeEntry>();
   for (const record of runGit(repoRoot, ['ls-tree', '-r', '-z', revision]).split('\0')) {
     const tab = record.indexOf('\t');
     if (tab > 0) {
-      const mode = record.slice(0, tab).split(' ')[0];
-      modes.set(normalizeRepoRelativePath(record.slice(tab + 1)), mode);
+      const [mode, , oid] = record.slice(0, tab).split(' ');
+      entries.set(record.slice(tab + 1), { mode, oid });
     }
   }
-  return modes;
+  return entries;
 };
 
-const listWorkingTreeFiles = (directory: string, repoRoot: string): string[] => {
+class PinnedGitTree {
+  private entries?: Map<string, GitTreeEntry>;
+  private readonly submodules = new Map<string, PinnedGitTree>();
+
+  public constructor(private readonly root: string, public readonly revision: string) {}
+
+  private getEntries(): Map<string, GitTreeEntry> {
+    this.entries ??= readGitTreeEntries(this.root, this.revision);
+    return this.entries;
+  }
+
+  private openSubmodule(name: string, oid: string): PinnedGitTree {
+    const cached = this.submodules.get(name);
+    if (cached) {
+      return cached;
+    }
+    const root = path.join(this.root, name);
+    const revision = assertImmutableRevision(oid);
+    try {
+      // Do not follow a replacement symlink or let Git discover the enclosing repo.
+      if (fs.realpathSync(root) !== path.join(fs.realpathSync(this.root), name)
+        || !fs.existsSync(path.join(root, '.git'))
+        || runGit(root, ['rev-parse', '--show-prefix']).trim() !== '') {
+        throw new Error('No initialized submodule checkout at this path');
+      }
+      if (runGit(root, ['cat-file', '-t', revision]).trim() !== 'commit') {
+        throw new Error('The pinned object is not a commit');
+      }
+    } catch (error) {
+      throw new Error(
+        `Cannot read submodule "${name}" at pinned commit ${revision}. `
+        + 'Run `git submodule update --init --recursive` from the collection repository '
+        + 'and ensure the pinned commit is available locally.',
+        { cause: error }
+      );
+    }
+    const tree = new PinnedGitTree(root, revision);
+    this.submodules.set(name, tree);
+    return tree;
+  }
+
+  public resolveFile(file: string): { tree: PinnedGitTree; file: string } {
+    for (let ancestor = path.posix.dirname(file); ancestor !== '.'; ancestor = path.posix.dirname(ancestor)) {
+      const entry = this.getEntries().get(ancestor);
+      if (entry?.mode === GIT_SUBMODULE_MODE) {
+        return this.openSubmodule(ancestor, entry.oid).resolveFile(file.slice(ancestor.length + 1));
+      }
+    }
+    return { tree: this, file };
+  }
+
+  public readFile(file: string): Buffer {
+    const resolved = this.resolveFile(file);
+    return readGitBlob(resolved.tree.root, resolved.tree.revision, resolved.file);
+  }
+
+  public isExecutable(file: string): boolean {
+    const resolved = this.resolveFile(file);
+    return resolved.tree.getEntries().get(resolved.file)?.mode === GIT_EXECUTABLE_MODE;
+  }
+
+  public listFiles(directory: string, recursive: boolean): string[] {
+    const files: string[] = [];
+    for (const [file, { mode, oid }] of this.getEntries()) {
+      const inDirectory = directory === '.' || file.startsWith(`${directory}/`);
+      if (mode === GIT_SUBMODULE_MODE) {
+        // Descend only when the listing is inside the gitlink or recursively covers it.
+        if (file === directory || directory.startsWith(`${file}/`) || (recursive && inDirectory)) {
+          const subdirectory = directory.startsWith(`${file}/`) ? directory.slice(file.length + 1) : '.';
+          for (const child of this.openSubmodule(file, oid).listFiles(subdirectory, recursive)) {
+            files.push(`${file}/${child}`);
+          }
+        }
+      } else if (recursive ? inDirectory || file === directory : path.posix.dirname(file) === directory) {
+        files.push(file);
+      }
+    }
+    return files;
+  }
+}
+
+const listWorkingTreeFiles = (directory: string, repoRoot: string, recursive: boolean): string[] => {
   const files: string[] = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listWorkingTreeFiles(fullPath, repoRoot));
+    if (recursive && entry.isDirectory()) {
+      files.push(...listWorkingTreeFiles(fullPath, repoRoot, recursive));
     } else if (entry.isFile()) {
       files.push(normalizeRepoRelativePath(path.relative(repoRoot, fullPath)));
     }
@@ -124,19 +194,15 @@ const listWorkingTreeFiles = (directory: string, repoRoot: string): string[] => 
 export class NodeReleaseSourceReader implements ReleaseSourceReader {
   public openRevision(repoRoot: string, revision = 'HEAD'): Promise<RevisionedReleaseSourceTree> {
     return settle(() => {
-      const output = runGit(repoRoot, ['rev-parse', '--verify', `${revision}^{commit}`]);
+      const output = runGit(repoRoot, ['rev-parse', '--verify', '--end-of-options', `${revision}^{commit}`]);
       const commit = assertImmutableRevision(output.trim());
-      // One `ls-tree` per opened revision, read on first use.
-      let modes: Map<string, string> | undefined;
+      const tree = new PinnedGitTree(repoRoot, commit);
       return {
         revision: commit,
-        readFile: (repositoryPath: string) => settle(() => readGitBlob(repoRoot, commit, repositoryPath)),
-        listFiles: (repositoryDirectory: string) =>
-          settle(() => listGitTreeFiles(repoRoot, commit, repositoryDirectory)),
-        isExecutable: (repositoryPath: string) => settle(() => {
-          modes ??= readGitTreeModes(repoRoot, commit);
-          return modes.get(normalizeRepoRelativePath(repositoryPath)) === GIT_EXECUTABLE_MODE;
-        })
+        readFile: (repositoryPath) => settle(() => tree.readFile(normalizeRepoRelativePath(repositoryPath))),
+        listFiles: (repositoryDirectory, { recursive = true } = {}) => settle(() =>
+          tree.listFiles(normalizeRepoRelativePath(repositoryDirectory).replace(/\/$/, ''), recursive)),
+        isExecutable: (repositoryPath) => settle(() => tree.isExecutable(normalizeRepoRelativePath(repositoryPath)))
       };
     });
   }
@@ -145,12 +211,12 @@ export class NodeReleaseSourceReader implements ReleaseSourceReader {
     return {
       readFile: (repositoryPath) => settle(() =>
         fs.readFileSync(path.join(repoRoot, normalizeRepoRelativePath(repositoryPath)))),
-      listFiles: (repositoryDirectory) => settle(() => {
+      listFiles: (repositoryDirectory, { recursive = true } = {}) => settle(() => {
         const directory = path.join(repoRoot, normalizeRepoRelativePath(repositoryDirectory));
         if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
           return [];
         }
-        return listWorkingTreeFiles(directory, repoRoot);
+        return listWorkingTreeFiles(directory, repoRoot, recursive);
       }),
       // Git's rule for recording 100755: the owner execute bit of a regular
       // file. `lstat` keeps symlinks non-executable; absent paths are false.

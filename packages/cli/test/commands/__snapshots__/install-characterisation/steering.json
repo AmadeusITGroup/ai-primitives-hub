@@ -202,7 +202,6 @@
     },
     "kiro-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/hooks",
@@ -213,12 +212,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -231,10 +228,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -251,16 +249,13 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -273,10 +268,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -286,7 +282,6 @@
     },
     "kiro/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
@@ -295,12 +290,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -313,10 +306,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -331,16 +325,13 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "45cef5d8403ca2ef8e5861481aa12254d6e8d8795439d8038d1b835e7eb97fe0"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -353,10 +344,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -748,7 +740,6 @@
     },
     "kiro-cli/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/hooks",
@@ -759,12 +750,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "c4d43a4f050a4ee95af0359c96767e3e99193cd6602771c085b7d70b0d0def1a"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -777,10 +766,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -797,16 +787,13 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "a6e51b4e46e9c329dfc45db2e458b10ae3ef7df261d8abe22bcdfb1bddbad0f2"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -819,10 +806,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -832,7 +820,6 @@
     },
     "kiro/repository": {
       "dirsLeftAfterUninstall": [
-        "<workspace>/.ai-primitives-hub",
         "<workspace>/.kiro",
         "<workspace>/.kiro/agents",
         "<workspace>/.kiro/powers",
@@ -841,12 +828,10 @@
         "<workspace>/.kiro/steering"
       ],
       "files": {
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
         "<workspace>/ai-primitives-hub.yml": "fb51f009d3015555e3a8e5ebbae3cc3a2194c91685db36da6f7c5309b8fe9fa5"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -859,10 +844,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<workspace>/ai-primitives-hub.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },
@@ -877,16 +863,13 @@
         "$HOME/.kiro/powers",
         "$HOME/.kiro/skills",
         "$HOME/.kiro/specs",
-        "$HOME/.kiro/steering",
-        "<workspace>/.ai-primitives-hub"
+        "$HOME/.kiro/steering"
       ],
       "files": {
         "$HOME/.kiro/steering/x.md": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
-        "<workspace>/.ai-primitives-hub/target-state.json": "present",
         "<workspace>/ai-primitives-hub.yml": "45cef5d8403ca2ef8e5861481aa12254d6e8d8795439d8038d1b835e7eb97fe0"
       },
       "filesAfterUninstall": [
-        "<workspace>/.ai-primitives-hub/target-state.json",
         "<workspace>/ai-primitives-hub.yml"
       ],
       "gitExclude": null,
@@ -899,10 +882,11 @@
       "lockEntry": {
         "files": [
           {
-            "checksum": "e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
+            "checksum": "sha256:e01b17ff9af77056792f67c57e3d1908795b9d1ae4cfe72421d0a2838991b740",
             "path": ".kiro/steering/x.md"
           }
         ],
+        "record": "<xdg-config>/ai-primitives-hub/ai-primitives-hub.user.lock.json",
         "sourceType": "local",
         "version": "1.0.0"
       },

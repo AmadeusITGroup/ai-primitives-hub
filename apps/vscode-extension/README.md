@@ -21,6 +21,7 @@
 
 - [Quick Start](#-quick-start)
 - [Key Features](#-key-features)
+- [Markdown Security Scanner](#markdown-security-scanner)
 - [Core Concepts](#-core-concepts)
 - [Ask Copilot About AI Primitives Hub](#-ask-copilot-about-ai-primitives-hub)
 - [Documentation](#-documentation)
@@ -56,6 +57,18 @@ The extension automatically adds the Awesome Copilot source and syncs your selec
 - **👥 Profiles & Hubs** — Organize bundles by project/team and share configurations across your organization ([details](./docs/user-guide/profiles-and-hubs.md))
 - **🤖 Built-in Copilot Skill** — Ask GitHub Copilot questions about AI Primitives Hub directly in chat — setup, authoring, troubleshooting, and more
 - **🌍 Cross-Platform** — Works on macOS, Linux, and Windows with all VS Code flavors
+
+---
+
+## Markdown Security Scanner
+
+Use the Command Palette (`Ctrl+Shift+P`) to run **AI Primitives Hub: Security Scan Current File**, **Security Scan Workspace**, **Clear Security Diagnostics**, or **Show Last Security Report**. File scans read saved local `.md` and `.markdown` files; save edits before running a manual scan. Workspace scans combine all local workspace folders into one report.
+
+Automatic open/save scans are enabled by default only for trusted local documents in nonvirtual workspaces. Manual local scans remain available in untrusted workspaces and do not trust repository ignore files there. Evaluation runs in an isolated worker with resource limits, without executing document content.
+
+Findings appear in Problems and the security status bar. Rescanning a clean file clears its findings without deleting diagnostics for unrelated files. An incomplete or failed scan is **not** a clean result; open the report to review errors, skipped files, and ignored files. Clearing diagnostics does not establish that files are safe.
+
+Configure `promptregistry.security.scanOnOpen` and `scanOnSave` (both `true`), `debounceMs` (`300`, range `100–5000`), `minimumSeverity` (`INFO`), `includeLlmControls` (`false`), and `showInfoControls` (`true`) in Settings.
 
 ---
 

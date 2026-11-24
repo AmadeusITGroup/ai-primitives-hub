@@ -50,7 +50,7 @@ export const createLegacyReleaseArchive = (
  */
 export const createGovernedReleaseArchive = (
   options: ReleaseArchiveFixtureOptions = {}
-): ExtractedFiles => {
+): Map<string, Uint8Array> => {
   const id = options.id ?? 'governed-bundle';
   const version = options.version ?? '1.0.0';
   const sourceSnapshotPath = 'metadata/source/collections/governed.collection.yml';

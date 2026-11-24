@@ -3,6 +3,9 @@
  * Commands for browsing and managing profiles from imported hubs
  */
 
+import {
+  randomBytes,
+} from 'node:crypto';
 import * as vscode from 'vscode';
 import {
   HubManager,
@@ -16,6 +19,9 @@ import {
 import {
   HubProfile,
 } from '../types/hub';
+import {
+  escapeHtml,
+} from '../utils/html';
 import {
   Logger,
 } from '../utils/logger';
@@ -82,7 +88,7 @@ export class HubProfileCommands {
       'hubProfileDetails',
       `Profile: ${profile.name}`,
       vscode.ViewColumn.One,
-      { enableScripts: false }
+      { enableScripts: false, localResourceRoots: [] }
     );
 
     panel.webview.html = this.getProfileDetailsHtml(profile, message);
@@ -110,11 +116,12 @@ export class HubProfileCommands {
    * @param _markdown
    */
   private getProfileDetailsHtml(profile: HubProfile & { hubId: string; hubName: string }, _markdown: string): string {
+    const nonce = randomBytes(16).toString('hex');
     const bundleRows = profile.bundles.map((b) => `
             <tr>
-                <td>${b.id}</td>
-                <td>${b.version}</td>
-                <td>${b.source}</td>
+                <td>${escapeHtml(b.id)}</td>
+                <td>${escapeHtml(b.version)}</td>
+                <td>${escapeHtml(b.source)}</td>
                 <td>${b.required ? '✓' : ''}</td>
             </tr>
         `).join('');
@@ -123,8 +130,9 @@ export class HubProfileCommands {
 <html>
 <head>
     <meta charset="utf8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
+    <style nonce="${nonce}">
         body {
             font-family: var(--vscode-font-family);
             padding: 20px;
@@ -174,14 +182,14 @@ export class HubProfileCommands {
     </style>
 </head>
 <body>
-    <h1>${profile.icon || '📦'} ${profile.name}</h1>
+    <h1>${escapeHtml(profile.icon || '📦')} ${escapeHtml(profile.name)}</h1>
     <div class="meta">
-        <span class="badge">Hub: ${profile.hubName}</span>
-        <span class="badge">Hub ID: ${profile.hubId}</span>
+        <span class="badge">Hub: ${escapeHtml(profile.hubName)}</span>
+        <span class="badge">Hub ID: ${escapeHtml(profile.hubId)}</span>
     </div>
     
     <div class="section">
-        <p>${profile.description}</p>
+        <p>${escapeHtml(profile.description)}</p>
     </div>
 
     <div class="section">
@@ -210,15 +218,15 @@ export class HubProfileCommands {
         <table>
             <tr>
                 <td><strong>Profile ID:</strong></td>
-                <td>${profile.id}</td>
+                <td>${escapeHtml(profile.id)}</td>
             </tr>
             <tr>
                 <td><strong>Created:</strong></td>
-                <td>${profile.createdAt || 'Unknown'}</td>
+                <td>${escapeHtml(profile.createdAt || 'Unknown')}</td>
             </tr>
             <tr>
                 <td><strong>Updated:</strong></td>
-                <td>${profile.updatedAt || 'Unknown'}</td>
+                <td>${escapeHtml(profile.updatedAt || 'Unknown')}</td>
             </tr>
             <tr>
                 <td><strong>Active:</strong></td>
