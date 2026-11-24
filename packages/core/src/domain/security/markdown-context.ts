@@ -12,13 +12,14 @@ const EXAMPLE_SECTION = /example|attack|demo|test|vulnerable|bad[ -]?practice|do
 /**
  * Parse frontmatter, code-block, section, and artifact classification context.
  * @param content
+ * @param isMarkdown When false, skip the Markdown heading/fence heuristics (for non-Markdown files).
  */
-export const parseSecurityDocument = (content: string): ParsedSecurityDocument => {
+export const parseSecurityDocument = (content: string, isMarkdown = true): ParsedSecurityDocument => {
   const rawLines = content.split(/\r\n|\n|\r/);
   let frontmatter = '';
   let bodyStart = 0;
 
-  if (rawLines[0]?.trim() === '---') {
+  if (isMarkdown && rawLines[0]?.trim() === '---') {
     const end = rawLines.slice(1).findIndex((line) => ['---', '...'].includes(line.trim()));
     if (end !== -1) {
       const endIndex = end + 1;
@@ -33,22 +34,28 @@ export const parseSecurityDocument = (content: string): ParsedSecurityDocument =
   let section = '';
   let inExample = false;
   const lines = rawLines.map((text) => {
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
-    if (!inCodeBlock && fence !== null && !(fence[1][0] === '`' && fence[2].includes('`'))) {
-      inCodeBlock = true;
-      fenceCharacter = fence[1][0];
-      fenceLength = fence[1].length;
-    } else if (inCodeBlock) {
-      const closingFence = new RegExp(`^ {0,3}\\${fenceCharacter}{${fenceLength},}[ \\t]*$`);
-      if (closingFence.test(text)) {
-        inCodeBlock = false;
-        fenceCharacter = '';
-        fenceLength = 0;
+    // Non-Markdown files (install.sh, *.mcp.json, *.py ...) have no Markdown structure:
+    // `#` is a shell comment, not a heading, and ``` is not a fence. Applying the heading
+    // heuristic there would mark a `# Example` comment as an example section and wrongly
+    // suppress skipExample findings in the rest of the file, so skip it entirely.
+    if (isMarkdown) {
+      const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
+      if (!inCodeBlock && fence !== null && !(fence[1][0] === '`' && fence[2].includes('`'))) {
+        inCodeBlock = true;
+        fenceCharacter = fence[1][0];
+        fenceLength = fence[1].length;
+      } else if (inCodeBlock) {
+        const closingFence = new RegExp(`^ {0,3}\\${fenceCharacter}{${fenceLength},}[ \\t]*$`);
+        if (closingFence.test(text)) {
+          inCodeBlock = false;
+          fenceCharacter = '';
+          fenceLength = 0;
+        }
       }
-    }
-    if (!inCodeBlock && text.trimStart().startsWith('#')) {
-      section = text.trimStart().replace(/^#+/, '').trim();
-      inExample = EXAMPLE_SECTION.test(section);
+      if (!inCodeBlock && text.trimStart().startsWith('#')) {
+        section = text.trimStart().replace(/^#+/, '').trim();
+        inExample = EXAMPLE_SECTION.test(section);
+      }
     }
     return { text, section, inExample, inCodeBlock };
   });

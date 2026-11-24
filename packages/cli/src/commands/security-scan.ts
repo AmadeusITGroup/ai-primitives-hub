@@ -77,6 +77,36 @@ const reportJson = (result: SecurityScanResult): string => `${JSON.stringify({
   references: { rule_pack: result.engine.rulePackId }
 }, null, 2)}\n`;
 
+const SARIF_LEVEL: Record<SecuritySeverity, 'error' | 'warning' | 'note'> = {
+  CRITICAL: 'error', HIGH: 'error', MEDIUM: 'warning', LOW: 'note', INFO: 'note'
+};
+
+// SARIF 2.1.0 for GitHub code scanning. CRITICAL/HIGH -> error, MEDIUM -> warning, LOW/INFO -> note.
+const reportSarif = (result: SecurityScanResult): string => {
+  const rules = new Map<string, { id: string; name: string; helpUri?: string }>();
+  const results = result.findings.map((finding) => {
+    if (!rules.has(finding.ruleId)) {
+      rules.set(finding.ruleId, { id: finding.ruleId, name: finding.title, ...(finding.owasp ? { helpUri: finding.owasp.url } : {}) });
+    }
+    const region = finding.line === undefined ? {} : { region: { startLine: finding.line } };
+    return {
+      ruleId: finding.ruleId,
+      level: SARIF_LEVEL[finding.severity],
+      message: { text: `${finding.title}: ${finding.risk}` },
+      locations: [{ physicalLocation: { artifactLocation: { uri: finding.file.replaceAll('\\', '/') }, ...region } }],
+      properties: { severity: finding.severity, confidence: finding.confidence, category: finding.category }
+    };
+  });
+  return `${JSON.stringify({
+    $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
+    version: '2.1.0',
+    runs: [{
+      tool: { driver: { name: 'ai-primitives-hub-security', version: result.engine.version, informationUri: 'https://github.com/AmadeusITGroup/ai-primitives-hub', rules: [...rules.values()] } },
+      results
+    }]
+  }, null, 2)}\n`;
+};
+
 const escapeMarkdown = (value: string): string => value
   .replaceAll(/[\r\n]/g, ' ')
   .replaceAll('&', '&amp;')
@@ -213,6 +243,7 @@ const writeReports = async (
   outputName: string,
   reportJsonPath: string | undefined,
   reportMarkdownPath: string | undefined,
+  reportSarifPath: string | undefined,
   overwrite: string
 ): Promise<void> => {
   const destinations: { path: string; contents: string }[] = [];
@@ -223,6 +254,9 @@ const writeReports = async (
     if (reportMarkdownPath !== undefined) {
       destinations.push({ path: reportMarkdownPath, contents: reportMarkdown(result) });
     }
+    if (reportSarifPath !== undefined) {
+      destinations.push({ path: reportSarifPath, contents: reportSarif(result) });
+    }
   } else {
     const name = path.basename(outputName);
     if (name !== outputName || name === '.' || name === '..') {
@@ -230,7 +264,8 @@ const writeReports = async (
     }
     destinations.push(
       { path: path.join(outputDirectory, `${name}.json`), contents: reportJson(result) },
-      { path: path.join(outputDirectory, `${name}.md`), contents: reportMarkdown(result) }
+      { path: path.join(outputDirectory, `${name}.md`), contents: reportMarkdown(result) },
+      { path: path.join(outputDirectory, `${name}.sarif`), contents: reportSarif(result) }
     );
   }
   const store = new SecureAtomicSecurityReportStore(true);
@@ -288,7 +323,7 @@ export class SecurityScanCommand extends Command {
 
       Use --ci for fail-closed CI defaults, --ignore-trust none to disable repository suppressions,
       and --fail-on HIGH to gate on high or critical findings. Secret evidence is redacted by default.
-      Reports are opt-in with --report-json, --report-markdown, or --output-directory.
+      Reports are opt-in with --report-json, --report-markdown, --report-sarif, or --output-directory.
     `
   });
 
@@ -309,6 +344,7 @@ export class SecurityScanCommand extends Command {
   public baselineFileIgnore = Option.String('--baseline-file-ignore');
   public reportJson = Option.String('--report-json');
   public reportMarkdown = Option.String('--report-markdown');
+  public reportSarif = Option.String('--report-sarif');
   public outputDirectory = Option.String('--output-directory');
   public outputName = Option.String('--output-name', 'security-report');
   public reportOverwrite = Option.String('--report-overwrite', 'never');
@@ -406,7 +442,7 @@ export class SecurityScanCommand extends Command {
         limits
       });
       const visibleResult = presentResult(result, roots);
-      await writeReports(ctx, visibleResult, this.outputDirectory, this.outputName, this.reportJson, this.reportMarkdown, this.reportOverwrite);
+      await writeReports(ctx, visibleResult, this.outputDirectory, this.outputName, this.reportJson, this.reportMarkdown, this.reportSarif, this.reportOverwrite);
       if (output === 'ndjson') {
         writeNdjson(ctx, visibleResult);
       } else {

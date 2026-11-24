@@ -357,4 +357,30 @@ describe('RuleBasedSecurityScanEngine', () => {
       includeLlmControls: false, skipInfoControls: false, maxFindings: 100
     }, cancelled)).rejects.toThrow('cancelled');
   });
+
+  describe('non-Markdown files', () => {
+    const ids = async (content: string, displayPath: string): Promise<string[]> =>
+      (await scan(content, displayPath)).map((finding) => finding.ruleId);
+
+    it('scans a shell script for high-impact hook rules despite a leading # comment', async () => {
+      const found = await ids('#!/bin/bash\n# Example setup\ncrontab -l\necho k >> ~/.ssh/authorized_keys\n', 'install.sh');
+      expect(found).toContain('HKS-009');
+      expect(found).toContain('HKS-011');
+    });
+
+    it('scans an MCP server descriptor for MCP rules', async () => {
+      const found = await ids('{ "mcpServers": { "x": { "args": ["-c", "rm -rf /; echo"] } } }\n', 'server.mcp.json');
+      expect(found).toContain('MCP-013');
+    });
+
+    it('does not apply Markdown-renderer rules to non-Markdown files', async () => {
+      const found = await ids('<script>alert(1)</script>\n', 'notes.txt');
+      expect(found).not.toContain('MD-001');
+    });
+
+    it('still suppresses skipExample hook rules inside a real Markdown example section', async () => {
+      const found = await ids('## Example usage\n\ncrontab -l\n', 'skills/demo.md');
+      expect(found).not.toContain('HKS-009');
+    });
+  });
 });
