@@ -130,6 +130,24 @@ describe('governance source checks through the public app entry point', () => {
     expect(duplicate.verdict).toBe('fail');
     expect(duplicate.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL001', file: 'collections/z-duplicate.collection.yml' }));
   });
+  it('retains COL001 when the changed collection is listed before the unchanged duplicate', async () => {
+    git('init', '--quiet');
+    git('config', 'user.name', 'Order Test');
+    git('config', 'user.email', 'order@example.invalid');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Base');
+    const baseRef = git('rev-parse', 'HEAD');
+    await writeFile(path.join(root, 'collections/a-duplicate.collection.yml'),
+      'id: test\nname: Another\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+    git('add', '-A');
+    git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'Duplicate listed first');
+    const report = await runGovernance(new NodeFileSystem(), {
+      repoRoot: root, subject: 'collection', baseRef, headRef: git('rev-parse', 'HEAD'), processRunner: new NodeArgvProcessRunner()
+    });
+    expect(report.prScope?.validated).toEqual(['collections/a-duplicate.collection.yml']);
+    expect(report.verdict).toBe('fail');
+    expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'COL001' }));
+  });
   it('retains COL005 for a deleted skill entry while tracking remaining skill files in PR scope', async () => {
     const skillPath = 'skills/example/SKILL.md';
     const scriptPath = 'skills/example/scripts/run.js';

@@ -96,11 +96,14 @@ interface RepositoryOptions {
 
 /**
  * A finding belongs to a collection when it names the file in its `file` field or message prefix.
+ * A duplicate (COL001) is reported on the later file, so it also belongs to the earlier one it names.
  * @param finding
  * @param files
  */
 const concerns = (finding: GovernanceFinding, files: ReadonlySet<string>): boolean =>
-  (finding.file !== undefined && files.has(finding.file)) || [...files].some((file) => finding.message.startsWith(`${file}:`));
+  (finding.file !== undefined && files.has(finding.file))
+  || [...files].some((file) => finding.message.startsWith(`${file}:`)
+    || (finding.ruleId === 'COL001' && finding.message.replaceAll('\\', '/').endsWith(`(also in ${file})`)));
 
 /**
  * Validate the collections of one repository on disk, and their releases when requested.
