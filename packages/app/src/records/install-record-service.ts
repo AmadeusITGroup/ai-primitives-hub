@@ -879,6 +879,7 @@ export class InstallRecordService {
    * @param change.tool - The installed tool.
    * @param change.sourceId - Readable id of its source; another source's entry is not a sibling.
    * @param change.version - Its new version.
+   * @param change.integrity - The new version's bundle integrity, when known.
    * @param change.files - Its new recorded files.
    * @param change.previousPaths - Paths its previous entry listed.
    * @param change.accepts - Which sibling tools to sync.
@@ -892,6 +893,7 @@ export class InstallRecordService {
       tool: string;
       sourceId: string;
       version: string;
+      integrity?: string;
       files: readonly RecordedFile[];
       previousPaths: ReadonlySet<string>;
       accepts: (tool: string) => boolean;
@@ -929,6 +931,12 @@ export class InstallRecordService {
           });
           entry.version = change.version;
           entry.installedAt = this.now().toISOString();
+          // The sibling now holds the new version's content; an unknown one leaves no stale value.
+          if (change.integrity === undefined) {
+            delete entry.integrity;
+          } else {
+            entry.integrity = change.integrity;
+          }
           if (key !== change.bundleId) {
             this.removeEntry(file.record, key, tool);
             if (!Object.hasOwn(bundles, change.bundleId)) {
@@ -1067,6 +1075,7 @@ export class InstallRecordService {
         tool,
         sourceId,
         version: input.version,
+        ...(entry.integrity === undefined ? {} : { integrity: entry.integrity }),
         files,
         previousPaths: new Set(previous.flatMap((prior) => prior.files.map((file) => file.path))),
         accepts: typeof input.syncSiblings === 'function' ? input.syncSiblings : () => true

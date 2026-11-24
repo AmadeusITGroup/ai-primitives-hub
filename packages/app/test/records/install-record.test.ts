@@ -590,6 +590,24 @@ describe('repository install record', () => {
     expect(fs.existsSync(path.join(root, '.github/prompts/b.prompt.md'))).toBe(true);
   });
 
+  it('a reinstall gives a synced sibling the new bundle integrity', async () => {
+    const bundleFiles = (text: string): Map<string, Uint8Array> => new Map([['prompts/a.prompt.md', new TextEncoder().encode(text)]]);
+    await install('vscode', ['.github/prompts/a.prompt.md'], { bundleFiles: bundleFiles('v1') });
+    await install('vscode-insiders', ['.github/prompts/a.prompt.md'], { bundleFiles: bundleFiles('v1') });
+    const before = read(committed).bundles[BUNDLE].tools['vscode-insiders'].integrity;
+
+    await install('vscode', ['.github/prompts/a.prompt.md'], { version: '2.0.0', bundleFiles: bundleFiles('v2') });
+
+    const tools = read(committed).bundles[BUNDLE].tools;
+    expect(tools['vscode-insiders'].version).toBe('2.0.0');
+    expect(tools['vscode-insiders'].integrity).toBe(tools.vscode.integrity);
+    expect(tools['vscode-insiders'].integrity).not.toBe(before);
+
+    await install('vscode', ['.github/prompts/a.prompt.md'], { version: '3.0.0' });
+
+    expect(read(committed).bundles[BUNDLE].tools['vscode-insiders'].integrity).toBeUndefined();
+  });
+
   it('a reinstall does not sync or clean up a sibling tool\'s entry from another source that shares its files', async () => {
     const sourceA = { sourceId: 'acme-github', type: 'github', url: 'https://github.com/acme/tools' };
     const sourceB = { type: 'github', url: 'https://github.com/other/tools' };
