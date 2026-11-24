@@ -669,6 +669,24 @@ profiles: []
       await expect(readFile(promptFile('extra.prompt.md'), 'utf8')).rejects.toThrow();
     });
 
+    it('keeps a sibling whose own update fails at its version, with the files the new version drops', async () => {
+      await installAt100([['repo-vscode', 'vscode'], ['repo-insiders', 'vscode-insiders']], GITHUB_SOURCE);
+      // The sibling's target no longer accepts prompts, so its own update fails after the primary one.
+      expect((await runRecord(['target', 'remove', 'repo-insiders', '-o', 'json'])).exitCode).toBe(0);
+      expect((await runRecord([
+        'target', 'add', 'repo-insiders', '--type', 'vscode-insiders', '--scope', 'repository', '--workspace-root', workspace, '--allowed-kinds', 'skill', '-o', 'json'
+      ])).exitCode).toBe(0);
+
+      const result = await runRecord(['update', '--no-hub-sync', '-o', 'json']);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('Failed to update local-foo for vscode-insiders');
+      expect(await versions()).toEqual({ vscode: '2.0.0', 'vscode-insiders': '1.0.0' });
+      const sibling = (await readRecordJson()).bundles['local-foo'].tools['vscode-insiders'];
+      expect(sibling.files.map((file) => file.path)).toContain('.github/prompts/extra.prompt.md');
+      await expect(readFile(promptFile('extra.prompt.md'), 'utf8')).resolves.toBe('# Extra\n');
+    });
+
     it('moves a versioned bundle id and its sibling to the new version\'s key, so status lists one row per tool and a replay restores it', async () => {
       await installAt100([['repo-vscode', 'vscode'], ['repo-insiders', 'vscode-insiders']], GITHUB_SOURCE);
       const versioned = (version: string): string => `acme-org-local-foo-local-foo-${version}`;

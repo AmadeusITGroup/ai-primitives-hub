@@ -960,14 +960,16 @@ async function applyRecordUpdate(
       await writeForTarget(ctx, target, files, manifest, prepared.exclusion), syncSiblings, { name: manifest.id, files }, mcp
     );
   };
-  const change = await record(item.tool, item.location, item.target, (sibling) => siblingTargets.has(sibling));
+  // The primary save only finds the siblings: each keeps its entry, and the files it lists, until
+  // its own update succeeds, so a failed sibling keeps its version and the cleanup keeps its files.
+  const change = await record(item.tool, item.location, item.target, () => false);
   const changes = [change];
   const synced: string[] = [];
   const outOfDate: { tool: string; version: string }[] = [];
   const failed: { tool: string; reason: string }[] = [];
   for (const sibling of change.siblings) {
     const siblingTarget = siblingTargets.get(sibling.tool);
-    if (!sibling.synced || siblingTarget === undefined) {
+    if (siblingTarget === undefined) {
       outOfDate.push({ tool: sibling.tool, version: sibling.version });
       continue;
     }
