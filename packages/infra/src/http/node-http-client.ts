@@ -24,9 +24,61 @@ const DEFAULT_MAX_REDIRECTS = 10;
 export const DEFAULT_HTTP_TIMEOUT_MS = 20_000;
 /** Maximum delay supported by Node's timer APIs. */
 export const MAX_HTTP_TIMEOUT_MS = 2_147_483_647;
+/**
+ * Default time a request sent on a reused keep-alive connection may wait for
+ * its response headers before it is sent again on a fresh connection.
+ */
+export const DEFAULT_REUSED_CONNECTION_TIMEOUT_MS = 5000;
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+/** Socket errors of a reused connection that the server or a proxy closed. */
+const REUSED_CONNECTION_ERROR_CODES = new Set(['ECONNRESET', 'EPIPE']);
+/**
+ * Origins whose reused connections failed: they get a fresh connection per
+ * request. Shared by every client of the process, like Node's global agent
+ * whose connections they describe.
+ */
+const freshConnectionOrigins = new Set<string>();
 
+/** Options of {@link NodeHttpClient}. */
+export interface NodeHttpClientOptions {
+  /**
+   * Time a `GET` or `HEAD` request sent on a reused keep-alive connection may
+   * wait for its response headers before it is sent again on a fresh
+   * connection. Defaults to {@link DEFAULT_REUSED_CONNECTION_TIMEOUT_MS}.
+   */
+  reusedConnectionTimeoutMs?: number;
+}
+
+/**
+ * A request sent on a reused keep-alive connection got no response headers
+ * in time, or the connection was closed under it.
+ */
+class ReusedConnectionError extends Error {}
+
+/**
+ * A request that needs a fresh connection got an idle pooled one. The socket
+ * is discarded before anything is written to it, and the request sent again.
+ */
+class PooledConnectionError extends Error {}
+
+/**
+ * Some proxies and middleboxes leave a request unanswered, or reset it, when
+ * it is sent on a keep-alive connection that already carried a request. The
+ * client keeps Node's global agent (and so any proxy configured on it), sends
+ * such a `GET` or `HEAD` request again once on a fresh connection, and then
+ * asks for a fresh connection (`Connection: close`) for every later request to
+ * that origin, in every client of the process. A request to such an origin
+ * that the agent assigns an idle pooled connection discards it unused and
+ * tries again, so it never reaches the server on a reused connection.
+ * Requests with a body are never sent twice.
+ */
 export class NodeHttpClient implements HttpClient {
+  private readonly reusedConnectionTimeoutMs: number;
+
+  public constructor(options: NodeHttpClientOptions = {}) {
+    this.reusedConnectionTimeoutMs = options.reusedConnectionTimeoutMs ?? DEFAULT_REUSED_CONNECTION_TIMEOUT_MS;
+  }
+
   private async fetchFollowingRedirects(
     request: HttpRequest,
     url: string,
@@ -34,12 +86,7 @@ export class NodeHttpClient implements HttpClient {
     deadline: number,
     timeoutMs: number
   ): Promise<HttpResponse> {
-    const remainingTimeoutMs = deadline - Date.now();
-    if (remainingTimeoutMs <= 0) {
-      throw new Error(`HTTP request to ${request.url} timed out after ${timeoutMs} ms`);
-    }
-
-    const response = await this.fetchOnce(request, url, remainingTimeoutMs, timeoutMs);
+    const response = await this.fetchRetryingReusedConnection(request, url, deadline, timeoutMs);
 
     if (request.followRedirects !== false && REDIRECT_STATUS_CODES.has(response.statusCode) && response.headers.location) {
       if (redirectsRemaining <= 0) {
@@ -57,6 +104,46 @@ export class NodeHttpClient implements HttpClient {
     return response;
   }
 
+  /**
+   * Fetch one URL, and send the request again once on a fresh connection when
+   * its reused keep-alive connection failed. Only requests without a body get
+   * there (see `fetchOnce`), so they are safe to repeat. A request that needs
+   * a fresh connection but got an idle pooled one was never sent, and is sent
+   * again until it gets a fresh connection: each attempt takes one idle
+   * connection out of the pool.
+   * @param request Request being fetched.
+   * @param url URL of this hop.
+   * @param deadline Request deadline (epoch milliseconds).
+   * @param timeoutMs Configured request timeout, for the error message.
+   * @returns The response of this hop.
+   */
+  private async fetchRetryingReusedConnection(
+    request: HttpRequest,
+    url: string,
+    deadline: number,
+    timeoutMs: number
+  ): Promise<HttpResponse> {
+    let resent = false;
+    for (;;) {
+      const remainingTimeoutMs = deadline - Date.now();
+      if (remainingTimeoutMs <= 0) {
+        throw new Error(`HTTP request to ${request.url} timed out after ${timeoutMs} ms`);
+      }
+      try {
+        return await this.fetchOnce(request, url, remainingTimeoutMs, timeoutMs);
+      } catch (error) {
+        if (error instanceof PooledConnectionError) {
+          continue;
+        }
+        if (!(error instanceof ReusedConnectionError) || resent) {
+          throw error;
+        }
+        freshConnectionOrigins.add(new URL(url).origin);
+        resent = true;
+      }
+    }
+  }
+
   private async fetchOnce(
     request: HttpRequest,
     url: string,
@@ -65,12 +152,19 @@ export class NodeHttpClient implements HttpClient {
   ): Promise<HttpResponse> {
     const target = new URL(url);
     const transport = target.protocol === 'http:' ? http : https;
-    const headers = this.ensureUserAgent(request.headers);
+    const userAgentHeaders = this.ensureUserAgent(request.headers);
+    const freshConnection = freshConnectionOrigins.has(target.origin);
+    const headers = freshConnection
+      ? { ...userAgentHeaders, Connection: 'close' }
+      : userAgentHeaders;
+    const method = request.method ?? 'GET';
+    const repeatable = (method === 'GET' || method === 'HEAD') && request.body === undefined;
 
     return new Promise<HttpResponse>((resolve, reject) => {
       let settled = false;
       const state: {
         timeoutHandle?: NodeJS.Timeout;
+        reusedConnectionHandle?: NodeJS.Timeout;
         requestHandle?: http.ClientRequest;
       } = {};
       const timeoutError = new Error(`HTTP request to ${request.url} timed out after ${configuredTimeoutMs} ms`);
@@ -79,9 +173,8 @@ export class NodeHttpClient implements HttpClient {
           return;
         }
         settled = true;
-        if (state.timeoutHandle) {
-          clearTimeout(state.timeoutHandle);
-        }
+        clearTimeout(state.timeoutHandle);
+        clearTimeout(state.reusedConnectionHandle);
         callback();
       };
       const handleTimeout = (): void => {
@@ -90,11 +183,18 @@ export class NodeHttpClient implements HttpClient {
           state.requestHandle?.destroy(timeoutError);
         });
       };
+      const failReusedConnection = (reason: string): void => {
+        settle(() => {
+          reject(new ReusedConnectionError(`HTTP request to ${url} failed: ${reason} on a reused connection`));
+          state.requestHandle?.destroy();
+        });
+      };
 
       const requestHandle = transport.request(
         target,
-        { method: request.method ?? 'GET', headers },
+        { method, headers },
         (res) => {
+          clearTimeout(state.reusedConnectionHandle);
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));
           res.on('end', () => {
@@ -112,15 +212,47 @@ export class NodeHttpClient implements HttpClient {
       );
       state.requestHandle = requestHandle;
 
-      requestHandle.on('error', (error) => {
+      const send = (): void => {
+        if (request.body !== undefined) {
+          requestHandle.write(request.body);
+        }
+        requestHandle.end();
+      };
+
+      requestHandle.once('socket', () => {
+        if (freshConnection) {
+          // The agent may hand out an idle pooled connection whatever the
+          // `Connection` header says. Nothing is written until the connection
+          // is known to be fresh, so a pooled one is discarded unused.
+          if (requestHandle.reusedSocket) {
+            settle(() => {
+              reject(new PooledConnectionError(`HTTP request to ${url} got a pooled connection`));
+              requestHandle.destroy();
+            });
+            return;
+          }
+          send();
+          return;
+        }
+        if (repeatable && requestHandle.reusedSocket) {
+          state.reusedConnectionHandle = setTimeout(
+            () => failReusedConnection('no response'),
+            this.reusedConnectionTimeoutMs
+          );
+        }
+      });
+      requestHandle.on('error', (error: NodeJS.ErrnoException) => {
+        if (repeatable && requestHandle.reusedSocket && REUSED_CONNECTION_ERROR_CODES.has(error.code ?? '')) {
+          failReusedConnection(error.message);
+          return;
+        }
         settle(() => reject(new Error(`HTTP request to ${url} failed: ${error.message}`)));
       });
       state.timeoutHandle = setTimeout(handleTimeout, timeoutMs);
 
-      if (request.body !== undefined) {
-        requestHandle.write(request.body);
+      if (!freshConnection) {
+        send();
       }
-      requestHandle.end();
     });
   }
 

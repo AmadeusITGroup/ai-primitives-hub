@@ -72,6 +72,12 @@ client does not itself configure proxy agents from VS Code settings or proxy
 environment variables; behaviour also depends on the host runtime. Follow your
 organization's supported network configuration and do not disable TLS checks.
 
+Some proxies leave a request unanswered, or reset it, when it reuses an open
+connection. The client then repeats a download or lookup once on a new
+connection, after 5 seconds without an answer, and opens a new connection for
+each later request to that host until the command ends. Uploads, such as
+Artifactory publication, are never repeated: they report the timeout instead.
+
 When reporting a failure, include the extension and VS Code versions, action,
 time, HTTP status, and sanitized **AI Primitives Hub** and **GitHub Authentication**
 Output lines. If available, include `x-ratelimit-remaining`, `x-ratelimit-reset`,
