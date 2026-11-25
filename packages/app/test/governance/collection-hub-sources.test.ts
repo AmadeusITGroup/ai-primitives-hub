@@ -302,6 +302,50 @@ describe('collection validation of hub sources changed by a PR', () => {
     expect(renderGovernanceMarkdown(report)).not.toContain(os.tmpdir());
   });
 
+  const primitiveRun = async (files: Record<string, string>) => {
+    const base = await commit(hubConfig([source('kept')]));
+    const head = await commit(hubConfig([source('kept'), source('added')]));
+    return runGovernance(fs, {
+      subject: 'primitive', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner(),
+      hubSources: createHubSourceAccess(deps({ '/repos/owner/added/zipball': zipball('added', files) }))
+    });
+  };
+
+  it.each([
+    ['an item escaping the source', { 'collections/one.collection.yml': 'id: one\nname: One\nauthor: Team\nitems:\n  - path: ../outside.prompt.md\n    kind: prompt\n' },
+      { ruleId: 'PTH001', file: 'added/collections/one.collection.yml', message: expect.stringContaining("'../outside.prompt.md'") }],
+    ['a missing item', { 'collections/one.collection.yml': 'id: one\nname: One\nauthor: Team\nitems:\n  - path: gone.prompt.md\n    kind: prompt\n' },
+      { ruleId: 'VAL001', file: 'added/collections/one.collection.yml', message: expect.stringContaining("'gone.prompt.md' is missing") }],
+    ['an unparseable collection', { 'collections/one.collection.yml': 'id: [unclosed\n' },
+      { ruleId: 'VAL001', file: 'added/collections/one.collection.yml', message: expect.stringContaining('Cannot read collection') }],
+    ['a source without collections', { 'README.md': 'No collections' },
+      { ruleId: 'VAL001', file: 'added', message: expect.stringContaining('No collection files') }]
+  ])('fails primitive PR validation for %s in a changed source', async (_label, files, expected) => {
+    const report = await primitiveRun(files);
+    expect(report.verdict).toBe('fail');
+    expect(report.findings).toContainEqual(expect.objectContaining({ ...expected, severity: 'error' }));
+  });
+
+  it('reports changed sources as unverified when source download is not configured', async () => {
+    const base = await commit(hubConfig([source('kept')]));
+    const head = await commit(hubConfig([source('kept'), source('added')]));
+    const report = await runGovernance(fs, {
+      subject: 'primitive', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner()
+    });
+    expect(report.verdict).toBe('fail');
+    expect(report.findings).toEqual([expect.objectContaining({ ruleId: 'VAL001', verified: false, file: 'added', subject: { kind: 'source', id: 'added' } })]);
+  });
+
+  it('keeps local primitive findings when the changed hub config cannot be read', async () => {
+    const base = await commit(hubConfig([source('kept')]));
+    await writeFile(path.join(root, 'a.prompt.md'), 'Missing frontmatter');
+    const head = await commit('sources: [unclosed\n');
+    const report = await runGovernance(fs, {
+      subject: 'primitive', repoRoot: root, baseRef: base, headRef: head, processRunner: new NodeArgvProcessRunner()
+    });
+    expect(report.findings.map((finding) => `${finding.ruleId}:${finding.file}`).toSorted()).toEqual(['PRM001:a.prompt.md', 'VAL001:hub-config.yml']);
+  });
+
   it('leaves the hub sources alone when the PR does not change the hub config', async () => {
     const base = await commit(hubConfig([source('kept')]));
     await writeFile(path.join(root, 'README.md'), 'Docs');

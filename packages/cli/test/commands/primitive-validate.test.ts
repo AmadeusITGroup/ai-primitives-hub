@@ -1,6 +1,7 @@
 import {
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -43,12 +44,10 @@ describe('primitive validate', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it('passes valid primitives without reporting scores', async () => {
+  it('passes valid primitives', async () => {
     const result = await run(['skills', 'ask.prompt.md', '-o', 'json']);
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).data).toMatchObject({ subject: 'primitive', verdict: 'pass', findings: [] });
-    expect(JSON.parse(result.stdout).data).not.toHaveProperty('score');
-    expect(JSON.parse(result.stdout).data).not.toHaveProperty('minScore');
   });
 
   it('reports new primitive rules as warnings without failing', async () => {
@@ -70,5 +69,12 @@ describe('primitive validate', () => {
     const result = await run(['bad.agent.md', '--policy', 'policy.yml', '-o', 'json']);
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stdout).data.verdict).toBe('fail');
+  });
+
+  it('writes the Markdown report to --report-path', async () => {
+    await writeFile(path.join(root, 'bad.prompt.md'), 'no frontmatter');
+    const result = await run(['bad.prompt.md', '--report-path', 'report.md']);
+    expect(result.exitCode).toBe(0);
+    expect(await readFile(path.join(root, 'report.md'), 'utf8')).toMatch(/\| PRM001 \|/);
   });
 });

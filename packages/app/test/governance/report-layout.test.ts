@@ -10,7 +10,7 @@ import {
   renderGovernanceMarkdown,
 } from '../../src/governance/report';
 
-describe('governance report layout v2', () => {
+describe('governance report layout', () => {
   it.each(['hub', 'collection', 'primitive'] as const)('omits source execution notes and incomplete-data boilerplate for %s', (subject) => {
     const ruleId = subject === 'hub' ? 'HUB001' : (subject === 'collection' ? 'COL004' : 'SKL001');
     const report = evaluateGovernance(subject, [

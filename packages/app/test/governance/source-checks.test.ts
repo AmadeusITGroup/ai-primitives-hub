@@ -297,7 +297,9 @@ describe('governance source checks through the public app entry point', () => {
     const head = 'b'.repeat(40);
     const execFile = vi.fn((_file: string, args: readonly string[]) => {
       let stdout = 'README.md\0';
-      if (args.includes('rev-parse')) {
+      if (args.includes('--show-prefix')) {
+        stdout = '';
+      } else if (args.includes('rev-parse')) {
         stdout = head;
       } else if (args.includes('merge-base')) {
         stdout = 'c'.repeat(40);

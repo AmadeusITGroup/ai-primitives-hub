@@ -79,6 +79,14 @@ describe('PR mode for collection and primitive validation', () => {
     expect(result.data.prScope).toMatchObject({ validated: ['collections/new.collection.yml'] });
   });
 
+  it('primitive validate refuses PR mode outside the Git repository root', async () => {
+    await writeFile(path.join(root, 'prompts/new.prompt.md'), 'no frontmatter');
+    const head = commit('add prompt');
+    const result = await run(['primitive', 'validate', '--base-ref', base, '--head-ref', head], path.join(root, 'prompts'));
+    expect(result.exitCode).toBe(1);
+    expect(result.data.findings).toEqual([expect.objectContaining({ ruleId: 'VAL001', message: expect.stringContaining('Git repository root') })]);
+  });
+
   it('collection validate passes when the PR touches no collection', async () => {
     await writeFile(path.join(root, 'README.md'), 'docs');
     const head = commit('docs');

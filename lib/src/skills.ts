@@ -41,7 +41,7 @@ export const MAX_ASSET_SIZE = 5 * 1024 * 1024; // 5 MB
  * @param content
  */
 export function parseFrontmatter(content: string): SkillMetadata | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  const match = content.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---/);
   if (!match) {
     return null;
   }

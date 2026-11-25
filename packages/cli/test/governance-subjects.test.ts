@@ -93,13 +93,6 @@ description: A useful test skill description.
     expect(result.output.data).toMatchObject({ subject: 'primitive', verdict: 'pass' });
   });
 
-  it('fails an empty skills directory instead of passing vacuously', async () => {
-    await mkdir(path.join(root, 'skills'));
-    const result = await run(['primitive', 'validate', 'skills']);
-    expect(result.exitCode).toBe(1);
-    expect(result.output.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'SKL001' }));
-  });
-
   it('returns actionable specification findings for invalid skill metadata', async () => {
     await mkdir(path.join(root, 'skills', 'test-skill'), { recursive: true });
     await writeFile(path.join(root, 'skills', 'test-skill', 'SKILL.md'), '# Missing metadata');

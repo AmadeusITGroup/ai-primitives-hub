@@ -99,7 +99,7 @@ profiles: []
     await mkdir(path.join(root, 'skills'));
     const result = await run(['primitive', 'validate', 'skills', '-o', 'json']);
     expect(result.exitCode).toBe(1);
-    expect(JSON.parse(result.stdout).data.findings).toContainEqual(expect.objectContaining({ ruleId: 'SKL001' }));
+    expect(JSON.parse(result.stdout).data.findings).toEqual([expect.objectContaining({ ruleId: 'VAL001', message: expect.stringContaining('No skill') })]);
   });
 
   it('does not expose governance options on the legacy skill command', async () => {

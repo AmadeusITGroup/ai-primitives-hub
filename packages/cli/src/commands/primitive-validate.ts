@@ -10,8 +10,8 @@ import {
 } from '@ai-primitives-hub/app';
 import {
   GOVERNED_PRIMITIVE_KINDS,
-  type GovernedPrimitiveKind,
   type HttpClient,
+  isGovernedPrimitiveKind,
   type TokenProvider,
 } from '@ai-primitives-hub/core';
 import {
@@ -79,7 +79,7 @@ export class PrimitiveValidateCommand extends Command {
 
   public execute(): Promise<number> {
     const { ctx, http, tokens } = this.commandContext;
-    if (this.kind !== undefined && !(GOVERNED_PRIMITIVE_KINDS as readonly string[]).includes(this.kind)) {
+    if (this.kind !== undefined && !isGovernedPrimitiveKind(this.kind)) {
       ctx.stderr.write(`Unknown --kind '${this.kind}'. Use one of: ${GOVERNED_PRIMITIVE_KINDS.join(', ')}.\n`);
       return Promise.resolve(1);
     }
@@ -89,7 +89,7 @@ export class PrimitiveValidateCommand extends Command {
       return Promise.resolve(1);
     }
     return executeValidationGovernance(ctx, {
-      subject: 'primitive', primitivePaths: this.inputs, primitiveKind: this.kind as GovernedPrimitiveKind | undefined, config: this.config,
+      subject: 'primitive', primitivePaths: this.inputs, primitiveKind: this.kind, config: this.config,
       hubSources: prMode
         ? createHubSourceAccess({
           fs: ctx.fs, clock: ctx.clock, httpClient: http ?? new NodeHttpClient(), processRunner: new NodeProcessRunner(),

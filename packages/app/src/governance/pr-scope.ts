@@ -15,6 +15,9 @@ import {
 import {
   readGitChangedFiles,
 } from '@ai-primitives-hub/infra/governance';
+import {
+  inside,
+} from './primitive-path-safety';
 
 export interface PrScopeRequest {
   baseRef?: string;
@@ -54,10 +57,12 @@ const isInside = (file: string, roots: readonly string[]): boolean =>
   roots.some((root) => root === '.' || file === root || file.startsWith(`${root}/`));
 
 const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
-  const relative = path.relative(path.resolve(repoRoot), path.resolve(repoRoot, root));
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  const absoluteRoot = path.resolve(repoRoot);
+  const absolute = path.resolve(repoRoot, root);
+  if (!inside(absoluteRoot, absolute)) {
     throw new Error(`Primitive path '${root}' is outside the repository.`);
   }
+  const relative = path.relative(absoluteRoot, absolute);
   return relative === '' ? '.' : relative.split(path.sep).join('/');
 };
 

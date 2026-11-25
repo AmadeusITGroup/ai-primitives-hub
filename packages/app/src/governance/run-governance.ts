@@ -12,11 +12,9 @@ import {
   type GovernanceSubject,
   type GovernedPrimitiveKind,
   type HubCollectionIndex,
+  type HubEntity,
   type ReleaseLookup,
 } from '@ai-primitives-hub/core';
-import {
-  validateAllSkills,
-} from '../collection/generate-skill';
 import type {
   SourceAdapterFactoryDeps,
 } from '../registry/create-source-adapter';
@@ -54,8 +52,6 @@ export interface GovernanceRequest extends PrScopeRequest {
   /** Explicit governance configuration; otherwise `hub-governance.yml` is discovered. */
   policy?: string;
   collectionFiles?: string[];
-  /** Primitive subject: a skills directory validated with the folder-level skill validator. */
-  skillsDir?: string;
   /** Primitive subject: files or directories validated with the content rules. */
   primitivePaths?: string[];
   primitiveKind?: GovernedPrimitiveKind;
@@ -100,12 +96,19 @@ async function primitiveSubjectFindings(
   };
   if (changes) {
     // PR mode: only primitives the PR added or modified, under the given paths (default: whole repository).
-    const roots = request.primitivePaths?.length ? request.primitivePaths : [request.skillsDir ?? '.'];
+    const roots = request.primitivePaths?.length ? request.primitivePaths : ['.'];
     const files = await changedPrimitiveFiles(fs, request.repoRoot, changes.files, roots, request.primitiveKind);
-    const sources = await changedGitHubSources(request, changes);
+    // Local findings are kept when hub source discovery fails.
     const local = files.length === 0 ? undefined : await inspect(request.repoRoot, files, request.primitiveKind);
     const findings = local?.findings ?? [];
     const validated = [...local?.files ?? []];
+    let sources: HubEntity[] = [];
+    try {
+      sources = await changedGitHubSources(request, changes);
+    } catch (error) {
+      findings.push({ ruleId: 'VAL001', severity: 'error', file: request.config ?? 'hub-config.yml',
+        message: `Hub sources changed by the PR could not be read: ${error instanceof Error ? error.message : String(error)}` });
+    }
     for (const source of sources) {
       const sourceResult = await validateHubSourcePrimitives(fs, source, request.hubSources);
       findings.push(...sourceResult.findings);
@@ -118,27 +121,10 @@ async function primitiveSubjectFindings(
       validated: [...new Set(validated)].toSorted(), ...(sources.length > 0 ? { sources: sources.map((source) => source.id).toSorted() } : {}) });
     return findings;
   }
-  if (request.primitivePaths !== undefined && request.primitivePaths.length > 0) {
-    return (await inspect(request.repoRoot, request.primitivePaths, request.primitiveKind)).findings;
+  if (!request.primitivePaths?.length) {
+    throw new Error('Give at least one primitive file or directory, or the PR base and head refs.');
   }
-  const skillsDir = request.skillsDir ?? 'skills';
-  if (await fs.exists(path.resolve(request.repoRoot, skillsDir))) {
-    const safe = await inspect(request.repoRoot, [skillsDir]);
-    if (safe.findings.some((finding) => finding.ruleId === 'PTH001')) {
-      return safe.findings;
-    }
-    const legacy = validateAllSkills(request.repoRoot, skillsDir);
-    return [...safe.findings, ...legacy.skills.flatMap((skill) => skill.errors.map((message) => ({
-      ruleId: 'SKL001', severity: 'error' as const, message, file: path.posix.join(skillsDir, skill.folderName, 'SKILL.md')
-    })))].filter((finding, index, all) => all.findIndex((entry) => entry.ruleId === finding.ruleId && entry.file === finding.file && entry.message === finding.message) === index);
-  }
-  const result = validateAllSkills(request.repoRoot, skillsDir);
-  if (result.totalSkills === 0) {
-    return [{ ruleId: 'SKL001', severity: 'error', message: 'No skills found in the supplied skills directory.', file: skillsDir }];
-  }
-  return result.skills.flatMap((skill) => skill.errors.map((message) => ({
-    ruleId: 'SKL001', severity: 'error' as const, message, file: path.posix.join(skillsDir, skill.folderName, 'SKILL.md')
-  })));
+  return (await inspect(request.repoRoot, request.primitivePaths, request.primitiveKind)).findings;
 }
 
 /**
@@ -168,7 +154,7 @@ export async function runGovernance(fs: FileSystem, request: GovernanceRequest):
         prScope = scope;
       }, applicable);
   } catch (error) {
-    findings = [{ ruleId: request.subject === 'hub' ? 'HUB001' : 'SKL001', severity: 'error',
+    findings = [{ ruleId: request.subject === 'hub' ? 'HUB001' : 'VAL001', severity: 'error',
       message: `Validation could not complete: ${error instanceof Error ? error.message : String(error)}` }];
   }
   const report = evaluateGovernance(request.subject, withDisplayPaths(findings, request.repoRoot), config.policy,

@@ -14,9 +14,6 @@
  */
 
 import * as yaml from 'js-yaml';
-import {
-  COLLECTION_ID_PATTERN,
-} from '../collection/validate';
 
 export interface SkillMetadata {
   name: string;
@@ -44,6 +41,8 @@ export const SKILL_NAME_MAX_LENGTH = 64;
 export const SKILL_DESCRIPTION_MIN_LENGTH = 10;
 export const SKILL_DESCRIPTION_MAX_LENGTH = 1024;
 export const MAX_ASSET_SIZE = 5 * 1024 * 1024; // 5 MB
+/** Agent Skills specification name characters; deliberately independent of collection ids. */
+const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /**
  * Parse YAML frontmatter from SKILL.md content
@@ -88,6 +87,20 @@ export function validateSkillContent(folderName: string, content: string): strin
 }
 
 /**
+ * Validate bundled assets next to SKILL.md. An asset without a size could not be read.
+ * @param assets Top-level files in the skill folder, excluding SKILL.md.
+ * @returns Error messages; empty when valid.
+ */
+export function validateSkillAssets(assets: readonly { name: string; size?: number; error?: string }[]): string[] {
+  return assets.flatMap(({ name, size, error }) => {
+    if (size === undefined) {
+      return [`Cannot access bundled asset "${name}": ${error ?? 'unreadable'}`];
+    }
+    return size > MAX_ASSET_SIZE ? [`Bundled asset "${name}" exceeds maximum size of 5MB (${(size / 1024 / 1024).toFixed(2)}MB)`] : [];
+  });
+}
+
+/**
  * Validate skill name format
  * @param name
  */
@@ -95,7 +108,7 @@ export function validateSkillName(name: unknown): string | null {
   if (!name || typeof name !== 'string') {
     return 'name is required and must be a string';
   }
-  if (!COLLECTION_ID_PATTERN.test(name)) {
+  if (!SKILL_NAME_PATTERN.test(name)) {
     return 'name must contain only lowercase letters, numbers, and hyphens';
   }
   if (name.length > SKILL_NAME_MAX_LENGTH) {

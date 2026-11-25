@@ -113,14 +113,34 @@ describe('primitive rules', () => {
       }
     }));
     expect(findings.map((f) => `${f.ruleId}:${f.message}`)).toEqual([
-      expect.stringMatching(/^MCP001:.*noCommand.*command or a url/),
       expect.stringMatching(/^MCP002:.*API_KEY/),
       expect.stringMatching(/^MCP002:.*args/),
       expect.stringMatching(/^MCP001:.*input:auth/),
       expect.stringMatching(/^MCP003:.*noCommand/),
       expect.stringMatching(/^MCP003:.*leaky/)
     ]);
-    expect(ids(primitiveFindings('mcp.json', '{not json'))).toEqual(['MCP001', 'MCP003']);
+    expect(primitiveFindings('mcp.json', '{not json')).toEqual([
+      expect.objectContaining({ ruleId: 'MCP003', severity: 'error', message: 'MCP configuration is not valid JSON or JSONC.' })
+    ]);
+  });
+
+  it.each([
+    ['mcpServers root with a header secret', 'mcp.json', JSON.stringify({ mcpServers: { gh: { url: 'https://example.com', headers: { Authorization: 'Bearer abc123' } } } }), undefined, ['MCP002']],
+    ['non-string env values', 'mcp.json', JSON.stringify({ servers: { gh: { command: 'npx', env: { DEBUG: 1 } } } }), undefined, ['MCP003']],
+    ['non-string header values', 'mcp.json', JSON.stringify({ servers: { gh: { url: 'https://example.com', headers: { X: true } } } }), undefined, ['MCP003']],
+    ['JSONC comments and trailing commas', 'mcp.json', '{\n  // local server\n  "servers": { "gh": { "command": "npx", }, },\n}', undefined, []],
+    ['forced agent kind on a misnamed file', 'notes.md', '---\ndescription: Reviews code\n---\nBody', 'agent', ['AGT001']],
+    ['forced prompt kind on a misnamed file', 'notes.md', '---\ndescription: Summarise\n---\nBody', 'prompt', ['PRM001']],
+    ['forced instruction kind on a misnamed file', 'notes.md', '---\napplyTo: "**"\n---\nBody', 'instruction', ['INS001']],
+    ['an empty prompt agent', 'a.prompt.md', '---\ndescription: Summarise\nagent: ""\n---\nBody', undefined, ['PRM001']],
+    ['an absolute applyTo glob', 'a.instructions.md', '---\napplyTo: /etc/**\n---\nBody', undefined, ['INS001']],
+    ['CRLF frontmatter', 'a.agent.md', '---\r\ndescription: Reviews code\r\n---\r\nBody', undefined, []]
+  ] as const)('reports %s', (_label, file, content, kind, expected) => {
+    expect(ids(primitiveFindings(file, content, kind))).toEqual(expected);
+  });
+
+  it('detects skills only from an exact SKILL.md name', () => {
+    expect(['SKILL.md', 'skill.md', 'Skill.md'].map((file) => detectPrimitiveKind(file))).toEqual(['skill', undefined, undefined]);
   });
 
   it('flags literal secrets even when the value also contains a placeholder', () => {

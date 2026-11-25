@@ -1,6 +1,6 @@
 /**
  * JSON Schema adapter for the core SchemaValidator port (currently backed by Ajv).
- * Shared by governance, the CLI and the VS Code extension.
+ * Used by governance configuration loading.
  * @module governance/json-schema-validator
  */
 import type {

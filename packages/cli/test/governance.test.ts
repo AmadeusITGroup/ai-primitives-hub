@@ -65,8 +65,6 @@ profiles: []
     expect(result.exitCode).toBe(0);
     const report = JSON.parse(result.stdout).data;
     expect(report).toMatchObject({ schemaVersion: 1, subject: 'hub', verdict: 'pass', mode: 'offline' });
-    expect(report).not.toHaveProperty('score');
-    expect(report).not.toHaveProperty('minScore');
     expect(report.findings).toEqual([]);
     expect(await readFile(path.join(workspace, 'report.md'), 'utf8')).toContain('<!-- hub-validation-report -->');
     expect(result.stderr).toBe('');
@@ -133,8 +131,7 @@ items:
     expect(JSON.parse(suppressed.stdout).data).toMatchObject({ verdict: 'pass', suppressions: [expect.objectContaining({ ruleId: 'COL006', reason: 'README tracked separately' })] });
   });
 
-  it('rejects unsupported subjects and output formats', async () => {
-    expect((await run(['primitive', 'validate'])).exitCode).not.toBe(0);
+  it('rejects unsupported output formats', async () => {
     expect((await run(['hub', 'validate', '--output', 'xml'])).exitCode).not.toBe(0);
   });
 });

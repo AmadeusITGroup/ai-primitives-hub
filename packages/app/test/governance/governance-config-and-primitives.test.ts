@@ -88,10 +88,9 @@ describe('primitive subject', () => {
   it('fails clearly for a file whose kind cannot be inferred', async () => {
     await writeFile(path.join(root, 'servers.json'), '{}');
     const report = await runGovernance(fs, { subject: 'primitive', repoRoot: root, primitivePaths: ['servers.json'] });
-    expect(report.findings[0].message).toContain('--kind');
+    expect(report).toMatchObject({ verdict: 'fail', findings: [{ ruleId: 'VAL001', severity: 'error', message: expect.stringContaining('--kind') }] });
     const forced = await runGovernance(fs, { subject: 'primitive', repoRoot: root, primitivePaths: ['servers.json'], primitiveKind: 'mcp-server' });
     expect(forced.findings).toEqual([
-      expect.objectContaining({ ruleId: 'MCP001', file: 'servers.json' }),
       expect.objectContaining({ ruleId: 'MCP003', severity: 'error', file: 'servers.json' })
     ]);
   });
@@ -101,7 +100,7 @@ describe('primitive subject', () => {
     await writeFile(path.join(root, 'config/servers.json'), '{}');
     await writeFile(path.join(root, 'config/notes.md'), 'not a primitive');
     const report = await runGovernance(fs, { subject: 'primitive', repoRoot: root, primitivePaths: ['config'], primitiveKind: 'mcp-server' });
-    expect(report.findings.map((finding) => `${finding.ruleId}:${finding.file}`)).toEqual(['MCP001:config/servers.json', 'MCP003:config/servers.json']);
+    expect(report.findings.map((finding) => `${finding.ruleId}:${finding.file}`)).toEqual(['MCP003:config/servers.json']);
   });
 
   it('fails oversized skills and MCP files that could not be validated, but only warns for other kinds', async () => {

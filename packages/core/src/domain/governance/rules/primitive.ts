@@ -5,9 +5,19 @@
  * @module domain/governance/rules/primitive
  */
 import {
+  type ParseError,
+  parse as parseJsonc,
+} from 'jsonc-parser';
+import {
   collectInputReferences,
   type McpServerInputView,
 } from '../../mcp/inputs';
+import type {
+  PrimitiveKind,
+} from '../../primitive/types';
+import {
+  containsSecret,
+} from '../../security/rule-engine';
 import {
   parseFrontmatter,
   validateSkillContent,
@@ -17,13 +27,21 @@ import type {
   GovernanceRule,
 } from '../types';
 import {
-  ADDITIONAL_PRIMITIVE_RULES,
   emptyPrimitiveBody,
+  hasText,
+  isRecord,
   mcpStructureFindings,
 } from './primitive-checks';
 
-export const GOVERNED_PRIMITIVE_KINDS = ['skill', 'agent', 'prompt', 'instruction', 'mcp-server'] as const;
+export const GOVERNED_PRIMITIVE_KINDS = ['skill', 'agent', 'prompt', 'instruction', 'mcp-server'] as const satisfies readonly PrimitiveKind[];
 export type GovernedPrimitiveKind = typeof GOVERNED_PRIMITIVE_KINDS[number];
+
+/**
+ * Type guard for kinds that primitive governance validates.
+ * @param kind
+ */
+export const isGovernedPrimitiveKind = (kind: unknown): kind is GovernedPrimitiveKind =>
+  (GOVERNED_PRIMITIVE_KINDS as readonly unknown[]).includes(kind);
 
 const PRIMITIVE_SUBJECTS = ['primitive'] as const;
 const rule = (id: string, description: string, defaultSeverity: 'error' | 'warning'): GovernanceRule => ({
@@ -32,29 +50,42 @@ const rule = (id: string, description: string, defaultSeverity: 'error' | 'warni
 
 export const PRIMITIVE_RULES: readonly GovernanceRule[] = [
   { ...rule('SKL001', 'Agent Skills specification and folder validation', 'error'), disableable: false },
-  rule('SKL002', 'Skill validation advisories', 'warning'),
   rule('AGT001', 'Agent file is *.agent.md with frontmatter: description, and tools as a list of strings', 'warning'),
   rule('PRM001', 'Prompt file is *.prompt.md with frontmatter: description, and a valid agent or mode', 'warning'),
   rule('INS001', 'Instruction file is *.instructions.md with frontmatter applyTo glob(s)', 'warning'),
-  rule('MCP001', 'MCP server definition has command or url, and every ${input:id} is declared', 'warning'),
-  rule('MCP002', 'MCP server env and headers contain no literal secrets', 'warning'),
-  ...ADDITIONAL_PRIMITIVE_RULES
+  rule('MCP001', 'Every ${input:id} referenced by an MCP server is declared in "inputs"', 'warning'),
+  rule('MCP002', 'MCP server env, headers and args contain no literal secrets', 'warning'),
+  rule('MCP003', 'MCP transport fields and input definitions have valid structure', 'error'),
+  rule('BOD001', 'Markdown primitive has a non-empty instruction body', 'warning'),
+  { ...rule('PTH001', 'Primitive paths resolve inside the repository without escaping symlinks', 'error'), disableable: false },
+  { ...rule('VAL001', 'Primitive validation completed: inputs, hub sources and their collections could be read', 'error'), disableable: false }
 ];
+
+const KIND_RULES: Record<GovernedPrimitiveKind, readonly string[]> = {
+  skill: ['SKL001', 'BOD001'], agent: ['AGT001', 'BOD001'], prompt: ['PRM001', 'BOD001'],
+  instruction: ['INS001', 'BOD001'], 'mcp-server': ['MCP001', 'MCP002', 'MCP003']
+};
 
 /**
  * Rules applicable to the kinds actually inspected, rather than inferred from findings.
  * @param kinds
  */
 export function primitiveRulesForKinds(kinds: readonly GovernedPrimitiveKind[]): string[] {
-  const rules = new Set<string>();
-  for (const kind of kinds) {
-    const ids = { skill: ['SKL001', 'SKL002', 'BOD001'], agent: ['AGT001', 'BOD001'], prompt: ['PRM001', 'BOD001'],
-      instruction: ['INS001', 'BOD001'], 'mcp-server': ['MCP001', 'MCP002', 'MCP003'] }[kind];
-    for (const id of ids) {
-      rules.add(id);
-    }
-  }
-  return [...rules].toSorted();
+  return [...new Set(kinds.flatMap((kind) => KIND_RULES[kind]))].toSorted();
+}
+
+/** Larger primitive files are reported, not parsed. */
+export const MAX_PRIMITIVE_BYTES = 1024 * 1024;
+
+/**
+ * Finding for a primitive too large to inspect. Kinds with mandatory validation (skills, MCP) fail; others warn.
+ * @param file Display path.
+ * @param kind Inspected kind.
+ */
+export function oversizePrimitiveFinding(file: string, kind: GovernedPrimitiveKind): GovernanceFinding {
+  const ruleId = { skill: 'SKL001', agent: 'AGT001', prompt: 'PRM001', instruction: 'INS001', 'mcp-server': 'MCP003' }[kind];
+  return { ruleId, severity: kind === 'skill' || kind === 'mcp-server' ? 'error' : 'warning', verified: false, file,
+    message: 'File is larger than 1 MB and could not be validated.' };
 }
 
 const baseName = (file: string): string => file.replaceAll('\\', '/').split('/').pop() ?? file;
@@ -62,21 +93,19 @@ const folderOf = (file: string): string => {
   const parts = file.replaceAll('\\', '/').split('/');
   return parts.length > 1 ? parts.at(-2) ?? '' : '';
 };
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 const isStringList = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
-const hasText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 
 /**
  * Infer the kind from the file name; undefined when the file is not a governed primitive.
+ * Skills must be named exactly `SKILL.md`, as the Agent Skills specification requires.
  * @param file Repository-relative or absolute path.
  */
 export function detectPrimitiveKind(file: string): GovernedPrimitiveKind | undefined {
-  const name = baseName(file).toLowerCase();
-  if (name === 'skill.md') {
+  if (baseName(file) === 'SKILL.md') {
     return 'skill';
   }
+  const name = baseName(file).toLowerCase();
   if (name.endsWith('.agent.md')) {
     return 'agent';
   }
@@ -163,50 +192,44 @@ function instructionErrors(file: string, content: string): string[] {
 }
 
 const SECRET_KEY = /(token|secret|password|passwd|api[-_]?key|authorization|credential|private[-_]?key)/i;
-const SECRET_VALUE = /(ghp_|gho_|ghs_|github_pat_|xox[abpr]-|sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY)/;
 const PLACEHOLDER = /\$\{[^}]+\}/g;
 const isPlaceholder = (value: string): boolean => /\$\{[^}]+\}/.test(value);
-const hasLiteralSecret = (value: string): boolean => SECRET_VALUE.test(value.replaceAll(PLACEHOLDER, ''));
+/**
+ * Credential patterns are shared with the security scanner; placeholders never hide a literal token.
+ * @param value
+ */
+const hasLiteralSecret = (value: string): boolean => containsSecret(value.replaceAll(PLACEHOLDER, ''));
 const stringMap = (value: unknown): Record<string, string> | undefined =>
   isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string') ? value as Record<string, string> : undefined;
 
+/**
+ * MCP002 secrets and MCP001 input references. Structure, including JSON syntax, is MCP003 only.
+ * Files are read as JSONC, like VS Code's mcp.json: comments and trailing commas are allowed.
+ * @param file
+ * @param content
+ */
 function mcpFindings(file: string, content: string): GovernanceFinding[] {
   const finding = (ruleId: string, message: string): GovernanceFinding => ({ ruleId, severity: 'warning', message, file });
-  let document: unknown;
-  try {
-    document = JSON.parse(content);
-  } catch {
-    return [finding('MCP001', 'MCP configuration is not valid JSON.'), { ruleId: 'MCP003', severity: 'error', file, message: 'MCP configuration is not valid JSON.' }];
+  const errors: ParseError[] = [];
+  const document: unknown = parseJsonc(content, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    return [{ ruleId: 'MCP003', severity: 'error', file, message: 'MCP configuration is not valid JSON or JSONC.' }];
   }
   const structure = mcpStructureFindings(file, document);
-  if (!isRecord(document)) {
-    return [finding('MCP001', 'MCP configuration root must be an object.'), ...structure];
-  }
-  const servers = document.servers ?? document.mcpServers;
-  if (!isRecord(servers) || Object.keys(servers).length === 0) {
-    return [finding('MCP001', 'MCP configuration must declare at least one server under "servers" or "mcpServers".'), ...structure];
+  const servers = isRecord(document) ? document.servers ?? document.mcpServers : undefined;
+  if (!isRecord(document) || !isRecord(servers)) {
+    return structure;
   }
   const findings: GovernanceFinding[] = [];
   const views: Record<string, McpServerInputView> = {};
   for (const [name, server] of Object.entries(servers)) {
     if (!isRecord(server)) {
-      findings.push(finding('MCP001', `MCP server '${name}' must be an object.`));
       continue;
     }
-    if (!hasText(server.command) && !hasText(server.url)) {
-      findings.push(finding('MCP001', `MCP server '${name}' must declare a command or a url.`));
-    }
-    for (const key of ['env', 'headers'] as const) {
-      const map = server[key];
-      if (map === undefined) {
-        continue;
-      }
-      const strings = stringMap(map);
-      if (!strings) {
-        findings.push(finding('MCP001', `MCP server '${name}' ${key} must map names to strings.`));
-        continue;
-      }
-      for (const [entry, value] of Object.entries(strings)) {
+    const env = stringMap(server.env);
+    const headers = stringMap(server.headers);
+    for (const [key, map] of [['env', env], ['headers', headers]] as const) {
+      for (const [entry, value] of Object.entries(map ?? {})) {
         if (value.trim() !== '' && ((SECRET_KEY.test(entry) && !isPlaceholder(value)) || hasLiteralSecret(value))) {
           findings.push(finding('MCP002', `MCP server '${name}' ${key} '${entry}' looks like a literal secret; use \${input:...} or \${env:...}.`));
         }
@@ -219,7 +242,7 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
     views[name] = {
       command: typeof server.command === 'string' ? server.command : undefined,
       url: typeof server.url === 'string' ? server.url : undefined,
-      args, env: stringMap(server.env), headers: stringMap(server.headers)
+      args, env, headers
     };
   }
   const declared = new Set((Array.isArray(document.inputs) ? document.inputs : [])

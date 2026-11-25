@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import * as governance from '../../src/domain/governance';
 
-describe('error-based governance verdict v1', () => {
+describe('error-based governance verdict', () => {
   it('returns a passing report with no scoring fields for any number of warnings', () => {
     const findings = Array.from({ length: 40 }, () => ({
       ruleId: 'HUB002', severity: 'warning' as const, message: 'Advisory'

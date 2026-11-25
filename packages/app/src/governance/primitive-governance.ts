@@ -9,20 +9,43 @@ import {
   type GovernanceFinding,
   type GovernedPrimitiveKind,
   isPrimitiveFileOfKind,
+  MAX_PRIMITIVE_BYTES,
+  oversizePrimitiveFinding,
   primitiveFindings,
   primitiveRulesForKinds,
+  validateSkillAssets,
 } from '@ai-primitives-hub/core';
 import {
+  inside,
   resolvePrimitivePath,
 } from './primitive-path-safety';
 
 const SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'out']);
-/** Larger primitive files are reported, not parsed; kinds with mandatory validation fail. */
-const MAX_PRIMITIVE_BYTES = 1024 * 1024;
-const OVERSIZE_RULE: Record<GovernedPrimitiveKind, GovernanceFinding['ruleId']> = {
-  skill: 'SKL001', agent: 'AGT001', prompt: 'PRM001', instruction: 'INS001', 'mcp-server': 'MCP003'
-};
-const BLOCKING_OVERSIZE = new Set<GovernedPrimitiveKind>(['skill', 'mcp-server']);
+
+/**
+ * Bundled assets beside a SKILL.md, checked for size and readability like `skill validate`.
+ * @param fs
+ * @param skillFile Canonical SKILL.md path.
+ * @param display Display path of the SKILL.md.
+ */
+async function skillAssetFindings(fs: FileSystem, skillFile: string, display: string): Promise<GovernanceFinding[]> {
+  const folder = path.dirname(skillFile);
+  const assets: { name: string; size?: number; error?: string }[] = [];
+  for (const entry of await fs.readDirEntries(folder)) {
+    if (entry.isDirectory || entry.name === 'SKILL.md') {
+      continue;
+    }
+    try {
+      const stat = await fs.stat(path.join(folder, entry.name));
+      if (stat.isFile) {
+        assets.push({ name: entry.name, size: stat.size });
+      }
+    } catch (error) {
+      assets.push({ name: entry.name, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return validateSkillAssets(assets).map((message) => ({ ruleId: 'SKL001', severity: 'error', message, file: display }));
+}
 
 export interface LocalPrimitiveResult {
   files: string[];
@@ -49,7 +72,7 @@ export async function validateLocalPrimitives(
   const inspect = async (input: string, explicit: boolean): Promise<void> => {
     const absolute = path.resolve(repoRoot, input);
     const relative = path.relative(repoRoot, absolute);
-    const display = (relative.startsWith('..') || path.isAbsolute(relative) ? path.basename(input) : relative).split(path.sep).join('/');
+    const display = (inside(path.resolve(repoRoot), absolute) ? relative : path.basename(input)).split(path.sep).join('/');
     let canonical: string;
     try {
       canonical = await resolvePrimitivePath(fs, repoRoot, absolute);
@@ -95,15 +118,15 @@ export async function validateLocalPrimitives(
       }
     }
     if (stat.size > MAX_PRIMITIVE_BYTES) {
-      const oversizeKind = inspectedKind ?? 'skill';
-      const severity = BLOCKING_OVERSIZE.has(oversizeKind) ? 'error' : 'warning';
-      findings.push({ ruleId: OVERSIZE_RULE[oversizeKind], severity, verified: false, file: display,
-        message: 'File is larger than 1 MB and could not be validated.' });
+      findings.push(oversizePrimitiveFinding(display, inspectedKind ?? 'skill'));
       continue;
     }
     const content = await fs.readFile(canonical);
     inspected.push(display);
     findings.push(...primitiveFindings(display, content, kind, folder));
+    if (inspectedKind === 'skill') {
+      findings.push(...await skillAssetFindings(fs, canonical, display));
+    }
   }
   return { files: inspected, findings, applicableRules: [...applicable].toSorted() };
 }

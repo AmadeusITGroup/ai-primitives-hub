@@ -17,8 +17,8 @@ import type {
   SkillValidationResult,
 } from '@ai-primitives-hub/core';
 import {
-  MAX_ASSET_SIZE,
   parseFrontmatter,
+  validateSkillAssets,
   validateSkillContent,
   validateSkillDescription,
   validateSkillName,
@@ -59,22 +59,21 @@ export function validateSkillFolder(folderPath: string, folderName: string): Ski
   errors.push(...validateSkillContent(folderName, content));
 
   // Check for reasonable file sizes in bundled assets
-  const files = fs.readdirSync(folderPath);
-  for (const file of files) {
+  const assets: { name: string; size?: number; error?: string }[] = [];
+  for (const file of fs.readdirSync(folderPath)) {
     if (file === 'SKILL.md') {
       continue;
     }
-    const filePath = path.join(folderPath, file);
     try {
-      const stats = fs.statSync(filePath);
-      if (stats.isFile() && stats.size > MAX_ASSET_SIZE) {
-        const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
-        errors.push(`Bundled asset "${file}" exceeds maximum size of 5MB (${sizeMB}MB)`);
+      const stats = fs.statSync(path.join(folderPath, file));
+      if (stats.isFile()) {
+        assets.push({ name: file, size: stats.size });
       }
     } catch (error) {
-      errors.push(`Cannot access bundled asset "${file}": ${(error as Error).message}`);
+      assets.push({ name: file, error: (error as Error).message });
     }
   }
+  errors.push(...validateSkillAssets(assets));
 
   return {
     skillName,

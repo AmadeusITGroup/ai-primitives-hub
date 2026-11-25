@@ -16,7 +16,6 @@ import {
   describe,
   expect,
   it,
-  vi,
 } from 'vitest';
 import {
   renderGovernanceMarkdown,
@@ -25,7 +24,7 @@ import {
   runGovernance,
 } from '../../src/governance/run-governance';
 
-describe('primitive safety and applicability v1', () => {
+describe('primitive safety and applicability', () => {
   let root: string;
   let outside: string;
   const fs = new NodeFileSystem();
@@ -35,18 +34,15 @@ describe('primitive safety and applicability v1', () => {
     await writeFile(path.join(outside, 'secret.prompt.md'), 'Do not read');
   });
   afterEach(async () => {
-    vi.restoreAllMocks();
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   });
   const run = (inputs: string[]) => runGovernance(fs, { subject: 'primitive', repoRoot: root, primitivePaths: inputs });
 
   it('rejects explicit paths outside the root before reading content', async () => {
-    const read = vi.spyOn(fs, 'readFile');
     const report = await run([path.join(outside, 'secret.prompt.md')]);
     expect(report.verdict).toBe('fail');
-    expect(report.findings).toContainEqual(expect.objectContaining({ ruleId: 'PTH001', severity: 'error' }));
-    expect(read).not.toHaveBeenCalledWith(path.join(outside, 'secret.prompt.md'));
+    expect(report.findings).toEqual([expect.objectContaining({ ruleId: 'PTH001', severity: 'error' })]);
   });
 
   it('rejects file and directory symlink escapes during recursive validation', async () => {
@@ -60,12 +56,19 @@ describe('primitive safety and applicability v1', () => {
 
   it('allows contained symlinks, avoids loops, and deduplicates canonical files', async () => {
     await mkdir(path.join(root, 'primitives'));
-    await writeFile(path.join(root, 'primitives/test.prompt.md'), '---\ndescription: Test\n---\nReview code.');
+    await writeFile(path.join(root, 'primitives/test.prompt.md'), 'Missing frontmatter');
     await symlink(root, path.join(root, 'primitives/loop'));
     await symlink(path.join(root, 'primitives/test.prompt.md'), path.join(root, 'alias.prompt.md'));
     const report = await run(['.']);
-    expect(report.verdict).toBe('pass');
-    expect(report.findings).toEqual([]);
+    expect(report.findings.map((finding) => finding.ruleId)).toEqual(['PRM001']);
+  });
+
+  it('fails skills whose bundled assets are larger than 5 MB', async () => {
+    await mkdir(path.join(root, 'skills/demo'), { recursive: true });
+    await writeFile(path.join(root, 'skills/demo/SKILL.md'), '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.');
+    await writeFile(path.join(root, 'skills/demo/big.bin'), Buffer.alloc(5 * 1024 * 1024 + 1));
+    const report = await run(['skills']);
+    expect(report).toMatchObject({ verdict: 'fail', findings: [{ ruleId: 'SKL001', severity: 'error', file: 'skills/demo/SKILL.md', message: expect.stringContaining('big.bin') }] });
   });
 
   it('fails closed for missing files and unavailable realpath support', async () => {

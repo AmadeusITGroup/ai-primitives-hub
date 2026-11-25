@@ -341,22 +341,23 @@ files also select their collection even though they are no longer on disk.
 Run `ai-primitives-hub primitive validate <file-or-dir>...` from the repository root.
 Directories are searched recursively. `--policy <path>`, `--report-path <path>`
 and `-o text|json|yaml|ndjson` are supported; primitive validation always uses governance.
-An empty standalone selection fails. The filename determines the kind: `SKILL.md`,
-`*.agent.md`, `*.prompt.md`, `*.instructions.md`, `mcp.json` or `*.mcp.json`.
+An empty standalone selection fails. The filename determines the kind: `SKILL.md`
+(exact case), `*.agent.md`, `*.prompt.md`, `*.instructions.md`, `mcp.json` or `*.mcp.json`.
+MCP files are read as JSONC, like VS Code: comments and trailing commas are allowed.
 Use `--kind skill|agent|prompt|instruction|mcp-server` to override it.
 
 | Rule | Checks | Default |
 | --- | --- | --- |
-| `SKL001` | Agent Skills frontmatter, name/folder agreement and description | Mandatory error |
-| `SKL002` | Skill validation advisories | Warning |
+| `SKL001` | Agent Skills frontmatter, name/folder agreement, description, and readable bundled assets up to 5 MB | Mandatory error |
 | `AGT001` | Agent filename, non-empty description and string-list tools | Warning |
 | `PRM001` | Prompt filename, description, non-empty agent and valid mode (`ask`, `edit`, `agent`) when supplied | Warning |
 | `INS001` | Instruction filename and relative `applyTo` glob or glob list | Warning |
-| `MCP001` | Server command or URL, string env/headers and declared input references | Warning |
+| `MCP001` | Every `${input:id}` referenced by a server is declared in `inputs` | Warning |
 | `MCP002` | No literal secrets in env, headers or args; use input/environment placeholders | Warning |
-| `MCP003` | Non-empty server map, exactly one command or HTTP(S) URL, valid transport/field types and unique, supported input declarations | Error |
+| `MCP003` | Valid JSON or JSONC, non-empty server map, exactly one command or HTTP(S) URL, valid transport/field types and unique, supported input declarations | Error |
 | `BOD001` | Non-empty Markdown body after frontmatter; whitespace and HTML comments do not count | Warning |
 | `PTH001` | Existing paths resolve inside the repository root before content is read | Mandatory error |
+| `VAL001` | Inputs, changed hub sources and their collections could be read, so validation completed | Mandatory error |
 
 These rules do not execute source code, contact MCP endpoints or assess instruction
 quality. Content advisories can be configured; floor rules cannot be disabled or
@@ -379,7 +380,7 @@ keep their previous rendering.
 ### Primitive PR validation
 
 Add `--base-ref <commit> --head-ref <commit>` with full history and the PR head
-checked out. Paths are optional in PR mode and default to the whole repository.
+checked out, and run from the Git repository root. Paths are optional in PR mode and default to the whole repository.
 Only changed primitive files are validated; a change anywhere in a skill folder
 revalidates its `SKILL.md`, including deletion of supporting files. Deleted primitive
 files themselves are not inspected; collection validation detects broken references.
@@ -392,7 +393,9 @@ collection-referenced skills, agents, prompts, instructions and MCP definitions
 are validated, regardless of profiles. Item kinds drive validation, including MCP
 files with arbitrary names. Shared items are checked once per path and kind;
 unreferenced files and unchanged sources are not scanned. Source-download,
-collection-read or unsafe-path failures block validation. Findings and validated
+hub-config or collection-read failures fail `VAL001`; local primitive findings are
+still reported. Collection items that escape the source fail `PTH001`; missing items
+fail `VAL001`. Findings name the item path. Findings and validated
 paths use `<source id>/<file>`; the **PR scope** section lists downloaded sources.
 Downloads reuse existing GitHub authentication and never execute source contents.
 

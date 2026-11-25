@@ -339,7 +339,11 @@ const hasTrustBoundaryForPlaceholder = (text: string, matchIndex: number): boole
   });
 };
 
-const containsSecret = (value: string): boolean =>
+/**
+ * Whether a value contains a credential-like token, as detected by the security scanner's secret rules.
+ * @param value
+ */
+export const containsSecret = (value: string): boolean =>
   Object.values(secretPatterns).some((pattern) => pattern.test(value))
   || [...value.matchAll(assignment)].some((match) => entropy(match[1]) >= 4.5 && !safeSecretPlaceholder.test(match[1]));
 

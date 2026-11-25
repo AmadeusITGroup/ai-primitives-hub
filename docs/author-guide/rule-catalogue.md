@@ -26,10 +26,10 @@ are evaluated before any policy applies and cannot be configured.
 | HUB001 | hub | error | yes | yes | no | Hub syntax, schema, references and source policies |
 | HUB002 | hub | warning | no | yes | no | Hub validation advisories |
 | INS001 | primitive | warning | no | yes | no | Instruction file is \*.instructions.md with frontmatter applyTo glob(s) |
-| MCP001 | primitive | warning | no | yes | no | MCP server definition has command or url, and every $\{input:id\} is declared |
-| MCP002 | primitive | warning | no | yes | no | MCP server env and headers contain no literal secrets |
+| MCP001 | primitive | warning | no | yes | no | Every $\{input:id\} referenced by an MCP server is declared in "inputs" |
+| MCP002 | primitive | warning | no | yes | no | MCP server env, headers and args contain no literal secrets |
 | MCP003 | primitive | error | no | yes | no | MCP transport fields and input definitions have valid structure |
 | PRM001 | primitive | warning | no | yes | no | Prompt file is \*.prompt.md with frontmatter: description, and a valid agent or mode |
 | PTH001 | primitive | error | yes | yes | no | Primitive paths resolve inside the repository without escaping symlinks |
 | SKL001 | primitive | error | yes | yes | no | Agent Skills specification and folder validation |
-| SKL002 | primitive | warning | no | yes | no | Skill validation advisories |
+| VAL001 | primitive | error | yes | yes | no | Primitive validation completed: inputs, hub sources and their collections could be read |

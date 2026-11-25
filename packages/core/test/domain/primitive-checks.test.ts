@@ -8,7 +8,7 @@ import {
   primitiveFindings,
 } from '../../src/domain/governance';
 
-describe('additional primitive checks v1', () => {
+describe('additional primitive checks', () => {
   it('handles empty frontmatter and keeps path safety mandatory', () => {
     expect(primitiveFindings('demo.agent.md', '---\n---\n')).toContainEqual(expect.objectContaining({ ruleId: 'BOD001' }));
     expect(evaluateGovernance('primitive', [], { rules: { PTH001: { enabled: false } } }).findings)

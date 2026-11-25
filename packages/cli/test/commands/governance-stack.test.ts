@@ -49,7 +49,7 @@ profiles: []
   });
 
   it('exposes all three stages without scoring or CFG004', () => {
-    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['AGT', 'BOD', 'CFG', 'COL', 'HUB', 'INS', 'MCP', 'PRM', 'PTH', 'SKL']);
+    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['AGT', 'BOD', 'CFG', 'COL', 'HUB', 'INS', 'MCP', 'PRM', 'PTH', 'SKL', 'VAL']);
     expect(GOVERNANCE_RULES.some((rule) => rule.id === 'CFG004')).toBe(false);
   });
 
@@ -57,7 +57,6 @@ profiles: []
     const result = await run(['hub', 'validate', '--governance', '--report-path', 'report.md', '-o', 'json']);
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).data).toMatchObject({ subject: 'hub', verdict: 'pass' });
-    expect(JSON.parse(result.stdout).data).not.toHaveProperty('score');
     expect(await readFile(path.join(root, 'report.md'), 'utf8')).toContain('<!-- hub-validation-report -->');
   });
 

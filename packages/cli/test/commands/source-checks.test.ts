@@ -109,8 +109,6 @@ profiles: []
     const http = httpFixture();
     const result = await run(['collection', 'validate', '--check-releases', '--repository', 'owner/repo', '-o', 'json'], http);
     expect(result).toMatchObject({ exitCode: 0, data: { mode: 'sources', verdict: 'pass' } });
-    expect(result.data).not.toHaveProperty('score');
-    expect(result.data).not.toHaveProperty('minScore');
     expect(http.fetch).toHaveBeenCalledTimes(2);
   });
 

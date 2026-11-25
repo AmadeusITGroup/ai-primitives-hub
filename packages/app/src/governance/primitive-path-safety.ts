@@ -4,7 +4,12 @@ import type {
   FileSystem,
 } from '@ai-primitives-hub/core';
 
-const inside = (root: string, file: string): boolean => {
+/**
+ * Whether a resolved path is the root or below it; `..`-prefixed names such as `..notes` stay inside.
+ * @param root Absolute root.
+ * @param file Absolute path.
+ */
+export const inside = (root: string, file: string): boolean => {
   const relative = path.relative(root, file);
   return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 };

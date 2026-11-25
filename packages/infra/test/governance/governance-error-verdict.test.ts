@@ -10,7 +10,7 @@ import {
   parseGovernanceConfig,
 } from '../../src/governance/governance-config';
 
-describe('score-free governance configuration v1', () => {
+describe('score-free governance configuration', () => {
   it.each(['minScore: 80\n', 'score: 100\n'])('rejects removed configuration fields as CFG001: %s', (content) => {
     const parsed = parseGovernanceConfig(content, 'hub-governance.yml');
     expect(parsed.policy).toBeUndefined();
