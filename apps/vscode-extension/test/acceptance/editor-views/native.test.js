@@ -27,13 +27,30 @@ suite(`editor views (${phase} workspace)`, () => {
         await page.getByText(fixtureName, { exact: false }).first().waitFor({ state: 'visible', timeout: 30000 });
       }
 
-      // Reproduce a contributable active hub without accessing an external GitHub repository.
-      if (phase !== 'hub') {
-        await vscode.commands.executeCommand('setContext', 'promptRegistry.activeHubContributable', true);
-      }
       await sleep(2000);
-      assert.equal(await hub.isVisible(), phase === 'hub', 'Hub editor visibility');
-      assert.equal(await collection.isVisible(), phase === 'collection', 'Collection editor visibility');
+      if (phase !== 'hub') {
+        // Reproduce a contributable active hub without accessing an external GitHub repository.
+        await vscode.commands.executeCommand('setContext', 'promptRegistry.activeHubContributable', true);
+        const contribute = page.locator('[aria-label^="Contribute to Hub (Fork, Clone & Open Visual Editor)"]');
+        await contribute.waitFor({ state: 'attached', timeout: 30000 });
+        await sleep(2000);
+        const snapshot = await page.evaluate(() => {
+          const visible = (element) => Boolean(element && element.getClientRects().length
+            && getComputedStyle(element).visibility !== 'hidden');
+          const headers = [...document.querySelectorAll('.pane-header')];
+          return {
+            contributable: Boolean(document.querySelector('[aria-label^="Contribute to Hub (Fork, Clone & Open Visual Editor)"]')),
+            hub: visible(headers.find((header) => header.textContent.includes('Hub Configuration Editor'))),
+            collection: visible(headers.find((header) => header.textContent.includes('Collections Editor')))
+          };
+        });
+        assert.ok(snapshot.contributable, 'Contributable hub context should remain active');
+        assert.equal(snapshot.hub, false, 'Hub editor visibility');
+        assert.equal(snapshot.collection, phase === 'collection', 'Collection editor visibility');
+      } else {
+        assert.equal(await hub.isVisible(), true, 'Hub editor visibility');
+        assert.equal(await collection.isVisible(), false, 'Collection editor visibility');
+      }
     } finally {
       await browser.close();
     }
