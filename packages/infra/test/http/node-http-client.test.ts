@@ -359,4 +359,137 @@ describe('NodeHttpClient', () => {
       expect(requests.every((request) => request.path === indexPath)).toBe(true);
     });
   });
+
+  /**
+   * Some proxies and middleboxes leave a request unanswered, or reset it, when
+   * it is sent on a keep-alive connection that already carried a request. This
+   * server mimics them: it answers only the first request of each connection.
+   */
+  describe('reused keep-alive connections', () => {
+    let reuseServer: http.Server;
+    let reuseUrl: string;
+    let onReusedConnection: 'stall' | 'reset';
+    let received: { path: string; method: string; reused: boolean }[];
+
+    beforeEach(async () => {
+      onReusedConnection = 'stall';
+      received = [];
+      const requestsPerSocket = new WeakMap<object, number>();
+      reuseServer = http.createServer((req, res) => {
+        const count = (requestsPerSocket.get(req.socket) ?? 0) + 1;
+        requestsPerSocket.set(req.socket, count);
+        received.push({ path: req.url ?? '/', method: req.method ?? 'GET', reused: count > 1 });
+        if (count > 1) {
+          if (onReusedConnection === 'reset') {
+            req.socket.destroy();
+          }
+          return;
+        }
+        req.resume();
+        req.on('end', () => {
+          res.writeHead(200);
+          res.end(`ok ${req.url ?? '/'}`);
+        });
+      });
+      await new Promise<void>((resolve) => reuseServer.listen(0, '127.0.0.1', resolve));
+      reuseUrl = `http://127.0.0.1:${(reuseServer.address() as AddressInfo).port}`;
+    });
+
+    afterEach(async () => {
+      reuseServer.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        reuseServer.close((err) => (err ? reject(err) : resolve()));
+      });
+    });
+
+    const bodyOf = (response: { body: Uint8Array }): string => Buffer.from(response.body).toString('utf8');
+
+    it('retries a GET on a fresh connection when a reused connection never answers', async () => {
+      const client = new NodeHttpClient({ reusedConnectionTimeoutMs: 50 });
+
+      expect(bodyOf(await client.fetch({ url: `${reuseUrl}/first`, timeoutMs: 2000 }))).toBe('ok /first');
+      expect(bodyOf(await client.fetch({ url: `${reuseUrl}/second`, timeoutMs: 2000 }))).toBe('ok /second');
+
+      expect(received).toEqual([
+        { path: '/first', method: 'GET', reused: false },
+        { path: '/second', method: 'GET', reused: true },
+        { path: '/second', method: 'GET', reused: false }
+      ]);
+    });
+
+    it('retries a GET on a fresh connection when a reused connection is reset', async () => {
+      onReusedConnection = 'reset';
+      const client = new NodeHttpClient({ reusedConnectionTimeoutMs: 5000 });
+
+      await client.fetch({ url: `${reuseUrl}/first`, timeoutMs: 2000 });
+      expect(bodyOf(await client.fetch({ url: `${reuseUrl}/second`, timeoutMs: 2000 }))).toBe('ok /second');
+
+      expect(received.map((request) => request.reused)).toEqual([false, true, false]);
+    });
+
+    it('opens a fresh connection for every later request to an origin whose reused connection failed', async () => {
+      const client = new NodeHttpClient({ reusedConnectionTimeoutMs: 50 });
+
+      for (const path of ['/first', '/second', '/third', '/fourth']) {
+        expect(bodyOf(await client.fetch({ url: `${reuseUrl}${path}`, timeoutMs: 2000 }))).toBe(`ok ${path}`);
+      }
+
+      expect(received.filter((request) => request.reused)).toEqual([
+        { path: '/second', method: 'GET', reused: true }
+      ]);
+    });
+
+    it('retries on a fresh connection even when another pooled connection is idle', async () => {
+      const client = new NodeHttpClient({ reusedConnectionTimeoutMs: 50 });
+      await Promise.all([
+        client.fetch({ url: `${reuseUrl}/warm-1`, timeoutMs: 2000 }),
+        client.fetch({ url: `${reuseUrl}/warm-2`, timeoutMs: 2000 })
+      ]);
+      expect(received.map((request) => request.reused)).toEqual([false, false]);
+
+      expect(bodyOf(await client.fetch({ url: `${reuseUrl}/second`, timeoutMs: 2000 }))).toBe('ok /second');
+      expect(bodyOf(await client.fetch({ url: `${reuseUrl}/third`, timeoutMs: 2000 }))).toBe('ok /third');
+
+      expect(received.slice(2)).toEqual([
+        { path: '/second', method: 'GET', reused: true },
+        { path: '/second', method: 'GET', reused: false },
+        { path: '/third', method: 'GET', reused: false }
+      ]);
+    });
+
+    it('sends a request with a body on a fresh connection to an origin whose reused connection failed', async () => {
+      const client = new NodeHttpClient({ reusedConnectionTimeoutMs: 50 });
+      await client.fetch({ url: `${reuseUrl}/first`, timeoutMs: 2000 });
+      await client.fetch({ url: `${reuseUrl}/second`, timeoutMs: 2000 });
+      await client.fetch({ url: `${reuseUrl}/third`, timeoutMs: 2000 });
+
+      const response = await client.fetch({
+        url: `${reuseUrl}/publish`,
+        method: 'PUT',
+        body: new Uint8Array([1, 2, 3]),
+        timeoutMs: 2000
+      });
+
+      expect(bodyOf(response)).toBe('ok /publish');
+      expect(received.filter((request) => request.path === '/publish')).toEqual([
+        { path: '/publish', method: 'PUT', reused: false }
+      ]);
+    });
+
+    it('does not resend a request with a body after a reused connection fails', async () => {
+      const client = new NodeHttpClient({ reusedConnectionTimeoutMs: 50 });
+      await client.fetch({ url: `${reuseUrl}/first`, timeoutMs: 2000 });
+
+      await expect(client.fetch({
+        url: `${reuseUrl}/publish`,
+        method: 'PUT',
+        body: new Uint8Array([1, 2, 3]),
+        timeoutMs: 300
+      })).rejects.toThrow(`HTTP request to ${reuseUrl}/publish timed out after 300 ms`);
+
+      expect(received.filter((request) => request.path === '/publish')).toEqual([
+        { path: '/publish', method: 'PUT', reused: true }
+      ]);
+    });
+  });
 });
