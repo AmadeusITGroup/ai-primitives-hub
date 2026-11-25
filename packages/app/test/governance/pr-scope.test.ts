@@ -2,6 +2,7 @@ import {
   mkdir,
   mkdtemp,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -77,5 +78,13 @@ describe('changedPrimitiveFiles', () => {
     await writeFile(path.join(root, 'prims/SKILL.md'), 'Body');
     expect(await changedPrimitiveFiles(fs, root, ['prims/notes.txt'], ['prims'], 'mcp-server')).toEqual([]);
     expect(await changedPrimitiveFiles(fs, root, ['prims/notes.txt'], ['prims'], 'skill')).toEqual(['prims/SKILL.md']);
+  });
+
+  it('keeps changed dangling symlinks so path validation reports them, and drops deleted files', async () => {
+    await symlink(path.join(root, 'missing.md'), path.join(root, 'prims/broken.prompt.md'));
+    await symlink(path.join(root, 'missing.md'), path.join(root, 'prims/notes.md'));
+    expect(await changedPrimitiveFiles(fs, root, ['prims/broken.prompt.md', 'prims/deleted.prompt.md'], ['prims']))
+      .toEqual(['prims/broken.prompt.md']);
+    expect(await changedPrimitiveFiles(fs, root, ['prims/notes.md'], ['prims/notes.md'], 'skill')).toEqual(['prims/notes.md']);
   });
 });

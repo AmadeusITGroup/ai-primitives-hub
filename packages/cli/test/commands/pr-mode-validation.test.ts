@@ -5,6 +5,7 @@ import {
   mkdir,
   mkdtemp,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import * as os from 'node:os';
@@ -117,6 +118,14 @@ describe('PR mode for collection and primitive validation', () => {
       ...(policy === undefined ? [] : ['--policy', policy])]);
     expect(result.exitCode).toBe(1);
     expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'PRM001', severity: 'error' }));
+  });
+
+  it.each([[[]], [['--kind', 'prompt']]])('fails a changed dangling primitive symlink with PTH001: %j', async (kind: string[]) => {
+    await symlink('missing.md', path.join(root, 'prompts/dangling.prompt.md'));
+    const head = commit('add dangling link');
+    const result = await run(['primitive', 'validate', ...kind, '--base-ref', base, '--head-ref', head, 'prompts/dangling.prompt.md']);
+    expect(result.exitCode).toBe(1);
+    expect(result.data.findings).toContainEqual(expect.objectContaining({ ruleId: 'PTH001', severity: 'error', file: 'prompts/dangling.prompt.md' }));
   });
 
   it('does not validate deleted primitives, but revalidates skills when supporting files are deleted', async () => {

@@ -62,6 +62,20 @@ const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
 };
 
 /**
+ * Whether a path entry exists without following a final symbolic link, so a dangling link is kept and later
+ * rejected by path validation, while deleted files are not.
+ * @param fs
+ * @param file
+ */
+const entryExists = async (fs: FileSystem, file: string): Promise<boolean> => {
+  try {
+    return (await fs.readDir(path.dirname(file))).includes(path.basename(file));
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Changed primitive files under the given roots. A change anywhere in a skill folder selects its SKILL.md.
  * @param fs
  * @param repoRoot
@@ -79,7 +93,7 @@ export async function changedPrimitiveFiles(
     const governed = kind === undefined
       ? detectPrimitiveKind(file) !== undefined
       : normalizedRoots.includes(file) || isPrimitiveFileOfKind(file, kind);
-    if (governed && await fs.exists(path.join(repoRoot, file))) {
+    if (governed && await entryExists(fs, path.join(repoRoot, file))) {
       selected.add(file);
       continue;
     }
@@ -89,7 +103,7 @@ export async function changedPrimitiveFiles(
     // Asset changes inside a skill folder re-validate the nearest skill, up to the repository root.
     for (let dir = path.posix.dirname(file); ; dir = path.posix.dirname(dir)) {
       const skill = dir === '.' ? 'SKILL.md' : `${dir}/SKILL.md`;
-      if (await fs.exists(path.join(repoRoot, skill))) {
+      if (await entryExists(fs, path.join(repoRoot, skill))) {
         selected.add(skill);
         break;
       }
