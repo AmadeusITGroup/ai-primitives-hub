@@ -93,6 +93,16 @@ export function detectPrimitiveKind(file: string): GovernedPrimitiveKind | undef
 }
 
 /**
+ * Whether a file found by directory traversal belongs to a forced kind: any `.json` for MCP servers,
+ * otherwise the kind's own file naming.
+ * @param file Repository-relative or absolute path.
+ * @param kind Forced kind.
+ */
+export function isPrimitiveFileOfKind(file: string, kind: GovernedPrimitiveKind): boolean {
+  return kind === 'mcp-server' ? baseName(file).toLowerCase().endsWith('.json') : detectPrimitiveKind(file) === kind;
+}
+
+/**
  * Frontmatter is required for the markdown kinds; `null` marks missing or unparseable YAML.
  * @param content
  */
@@ -154,7 +164,11 @@ function instructionErrors(file: string, content: string): string[] {
 
 const SECRET_KEY = /(token|secret|password|passwd|api[-_]?key|authorization|credential|private[-_]?key)/i;
 const SECRET_VALUE = /(ghp_|gho_|ghs_|github_pat_|xox[abpr]-|sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY)/;
+const PLACEHOLDER = /\$\{[^}]+\}/g;
 const isPlaceholder = (value: string): boolean => /\$\{[^}]+\}/.test(value);
+const hasLiteralSecret = (value: string): boolean => SECRET_VALUE.test(value.replaceAll(PLACEHOLDER, ''));
+const stringMap = (value: unknown): Record<string, string> | undefined =>
+  isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string') ? value as Record<string, string> : undefined;
 
 function mcpFindings(file: string, content: string): GovernanceFinding[] {
   const finding = (ruleId: string, message: string): GovernanceFinding => ({ ruleId, severity: 'warning', message, file });
@@ -187,20 +201,26 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
       if (map === undefined) {
         continue;
       }
-      if (!isRecord(map) || !Object.values(map).every((value) => typeof value === 'string')) {
+      const strings = stringMap(map);
+      if (!strings) {
         findings.push(finding('MCP001', `MCP server '${name}' ${key} must map names to strings.`));
         continue;
       }
-      for (const [entry, value] of Object.entries(map as Record<string, string>)) {
-        if (value.trim() !== '' && !isPlaceholder(value) && (SECRET_KEY.test(entry) || SECRET_VALUE.test(value))) {
+      for (const [entry, value] of Object.entries(strings)) {
+        if (value.trim() !== '' && ((SECRET_KEY.test(entry) && !isPlaceholder(value)) || hasLiteralSecret(value))) {
           findings.push(finding('MCP002', `MCP server '${name}' ${key} '${entry}' looks like a literal secret; use \${input:...} or \${env:...}.`));
         }
       }
     }
-    if (Array.isArray(server.args) && server.args.some((arg) => typeof arg === 'string' && SECRET_VALUE.test(arg) && !isPlaceholder(arg))) {
+    const args = Array.isArray(server.args) ? server.args.filter((arg): arg is string => typeof arg === 'string') : undefined;
+    if (args?.some((arg) => hasLiteralSecret(arg))) {
       findings.push(finding('MCP002', `MCP server '${name}' args contain what looks like a literal secret.`));
     }
-    views[name] = { ...server, args: Array.isArray(server.args) ? server.args.filter((arg): arg is string => typeof arg === 'string') : undefined };
+    views[name] = {
+      command: typeof server.command === 'string' ? server.command : undefined,
+      url: typeof server.url === 'string' ? server.url : undefined,
+      args, env: stringMap(server.env), headers: stringMap(server.headers)
+    };
   }
   const declared = new Set((Array.isArray(document.inputs) ? document.inputs : [])
     .filter((input): input is { id: string } => isRecord(input) && typeof input.id === 'string').map((input) => input.id));
@@ -217,8 +237,11 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
  * @param file Display path (repository-relative where possible).
  * @param content File content.
  * @param kind Override the kind inferred from the file name.
+ * @param folder Skill folder name, when the display path has no parent folder (a root-level SKILL.md).
  */
-export function primitiveFindings(file: string, content: string, kind = detectPrimitiveKind(file)): GovernanceFinding[] {
+export function primitiveFindings(
+  file: string, content: string, kind = detectPrimitiveKind(file), folder = folderOf(file)
+): GovernanceFinding[] {
   const warn = (ruleId: string, messages: string[]): GovernanceFinding[] =>
     messages.map((message) => ({ ruleId, severity: 'warning', message, file }));
   const body: GovernanceFinding[] = kind !== undefined && kind !== 'mcp-server' && emptyPrimitiveBody(content)
@@ -226,7 +249,7 @@ export function primitiveFindings(file: string, content: string, kind = detectPr
     : [];
   switch (kind) {
     case 'skill': {
-      return [...validateSkillContent(folderOf(file), content).map((message) => ({ ruleId: 'SKL001', severity: 'error' as const, message, file })), ...body];
+      return [...validateSkillContent(folder, content).map((message) => ({ ruleId: 'SKL001', severity: 'error' as const, message, file })), ...body];
     }
     case 'agent': {
       return [...warn('AGT001', agentErrors(file, content)), ...body];

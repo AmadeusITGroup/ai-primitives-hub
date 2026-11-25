@@ -6,9 +6,11 @@ import * as path from 'node:path';
 import type {
   ArgvProcessRunner,
   FileSystem,
+  GovernedPrimitiveKind,
 } from '@ai-primitives-hub/core';
 import {
   detectPrimitiveKind,
+  isPrimitiveFileOfKind,
 } from '@ai-primitives-hub/core';
 import {
   readGitChangedFiles,
@@ -49,20 +51,33 @@ export async function readPrChanges(request: PrScopeRequest, repoRoot: string) {
 }
 
 const isInside = (file: string, roots: readonly string[]): boolean =>
-  roots.some((root) => root === '.' || file === root || file.startsWith(`${root.replace(/\/+$/, '')}/`));
+  roots.some((root) => root === '.' || file === root || file.startsWith(`${root}/`));
+
+const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
+  const relative = path.relative(path.resolve(repoRoot), path.resolve(repoRoot, root));
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Primitive path '${root}' is outside the repository.`);
+  }
+  return relative === '' ? '.' : relative.split(path.sep).join('/');
+};
 
 /**
  * Changed primitive files under the given roots. A change anywhere in a skill folder selects its SKILL.md.
  * @param fs
  * @param repoRoot
  * @param changedFiles Repository-relative changed paths.
- * @param roots Repository-relative files or directories to limit the scope; `.` for everything.
+ * @param roots Files or directories, relative to the repository or absolute inside it, to limit the scope; `.` for everything.
+ * @param kind Forced kind; selects changed files of that kind even when their names are not recognised.
+ * @throws {Error} When a root is outside the repository.
  */
-export async function changedPrimitiveFiles(fs: FileSystem, repoRoot: string, changedFiles: readonly string[], roots: readonly string[]): Promise<string[]> {
-  const normalizedRoots = roots.map((root) => path.posix.normalize(root.replaceAll('\\', '/')));
+export async function changedPrimitiveFiles(
+  fs: FileSystem, repoRoot: string, changedFiles: readonly string[], roots: readonly string[], kind?: GovernedPrimitiveKind
+): Promise<string[]> {
+  const normalizedRoots = roots.map((root) => repositoryRelativeRoot(repoRoot, root));
   const selected = new Set<string>();
   for (const file of changedFiles.filter((candidate) => isInside(candidate, normalizedRoots))) {
-    if (detectPrimitiveKind(file) !== undefined && await fs.exists(path.join(repoRoot, file))) {
+    const governed = kind === undefined ? detectPrimitiveKind(file) !== undefined : isPrimitiveFileOfKind(file, kind);
+    if (governed && await fs.exists(path.join(repoRoot, file))) {
       selected.add(file);
       continue;
     }

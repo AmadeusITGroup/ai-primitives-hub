@@ -95,6 +95,33 @@ describe('primitive subject', () => {
       expect.objectContaining({ ruleId: 'MCP003', severity: 'error', file: 'servers.json' })
     ]);
   });
+
+  it('applies a forced kind to unrecognised files found in a directory', async () => {
+    await mkdir(path.join(root, 'config'));
+    await writeFile(path.join(root, 'config/servers.json'), '{}');
+    await writeFile(path.join(root, 'config/notes.md'), 'not a primitive');
+    const report = await runGovernance(fs, { subject: 'primitive', repoRoot: root, primitivePaths: ['config'], primitiveKind: 'mcp-server' });
+    expect(report.findings.map((finding) => `${finding.ruleId}:${finding.file}`)).toEqual(['MCP001:config/servers.json', 'MCP003:config/servers.json']);
+  });
+
+  it('fails oversized skills and MCP files that could not be validated, but only warns for other kinds', async () => {
+    const big = 'x'.repeat(1024 * 1024 + 1);
+    await mkdir(path.join(root, 'skills/big'), { recursive: true });
+    await writeFile(path.join(root, 'skills/big/SKILL.md'), big);
+    await writeFile(path.join(root, 'big.mcp.json'), big);
+    await writeFile(path.join(root, 'big.agent.md'), big);
+    const run = (file: string) => runGovernance(fs, { subject: 'primitive', repoRoot: root, primitivePaths: [file] });
+    expect(await run('skills/big/SKILL.md')).toMatchObject({ verdict: 'fail', findings: [{ ruleId: 'SKL001', severity: 'error' }] });
+    expect(await run('big.mcp.json')).toMatchObject({ verdict: 'fail', findings: [{ ruleId: 'MCP003', severity: 'error' }] });
+    expect(await run('big.agent.md')).toMatchObject({ verdict: 'pass', findings: [{ ruleId: 'AGT001', severity: 'warning' }] });
+  });
+
+  it('checks a root-level SKILL.md against the repository folder name', async () => {
+    await mkdir(path.join(root, 'demo'));
+    await writeFile(path.join(root, 'demo/SKILL.md'), '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.');
+    const report = await runGovernance(fs, { subject: 'primitive', repoRoot: path.join(root, 'demo'), primitivePaths: ['SKILL.md'] });
+    expect(report).toMatchObject({ verdict: 'pass', findings: [] });
+  });
 });
 
 describe('report', () => {

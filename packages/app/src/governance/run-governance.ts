@@ -101,7 +101,7 @@ async function primitiveSubjectFindings(
   if (changes) {
     // PR mode: only primitives the PR added or modified, under the given paths (default: whole repository).
     const roots = request.primitivePaths?.length ? request.primitivePaths : [request.skillsDir ?? '.'];
-    const files = await changedPrimitiveFiles(fs, request.repoRoot, changes.files, roots);
+    const files = await changedPrimitiveFiles(fs, request.repoRoot, changes.files, roots, request.primitiveKind);
     const sources = await changedGitHubSources(request, changes);
     const local = files.length === 0 ? undefined : await inspect(request.repoRoot, files, request.primitiveKind);
     const findings = local?.findings ?? [];

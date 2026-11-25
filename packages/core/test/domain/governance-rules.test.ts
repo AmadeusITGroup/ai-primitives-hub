@@ -123,6 +123,33 @@ describe('primitive rules', () => {
     expect(ids(primitiveFindings('mcp.json', '{not json'))).toEqual(['MCP001', 'MCP003']);
   });
 
+  it('flags literal secrets even when the value also contains a placeholder', () => {
+    const findings = primitiveFindings('mcp.json', JSON.stringify({
+      inputs: [{ id: 'token', type: 'promptString', description: 'Access token' }],
+      servers: { gh: {
+        command: 'npx',
+        env: { MIXED: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789${env:X}', GITHUB_TOKEN: '${input:token}' },
+        args: ['ghp_abcdefghijklmnopqrstuvwxyz0123456789${env:X}']
+      } }
+    }));
+    expect(findings.map((f) => `${f.ruleId}:${f.message}`)).toEqual([
+      expect.stringMatching(/^MCP002:.*MIXED/),
+      expect.stringMatching(/^MCP002:.*args/)
+    ]);
+  });
+
+  it('ignores non-string command and url values when collecting input references', () => {
+    const content = JSON.stringify({ servers: { odd: { command: { toString: null }, url: 42, args: ['${input:a}'] } } });
+    expect(() => primitiveFindings('mcp.json', content)).not.toThrow();
+    expect(primitiveFindings('mcp.json', content).map((f) => f.message)).toContainEqual(expect.stringContaining('input:a'));
+  });
+
+  it('uses the supplied folder name for a root-level SKILL.md', () => {
+    const content = '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.';
+    expect(primitiveFindings('SKILL.md', content, 'skill', 'demo')).toEqual([]);
+    expect(primitiveFindings('skills/demo/SKILL.md', content)).toEqual([]);
+  });
+
   it('reports new primitive rules as warnings so they do not fail the gate', () => {
     const report = evaluateGovernance('primitive', primitiveFindings('a.agent.md', '---\n---\nReview code.'));
     expect(report).toMatchObject({ verdict: 'pass' });

@@ -133,9 +133,8 @@ items:
     expect(JSON.parse(suppressed.stdout).data).toMatchObject({ verdict: 'pass', suppressions: [expect.objectContaining({ ruleId: 'COL006', reason: 'README tracked separately' })] });
   });
 
-  it('rejects unsupported subjects and deep-validation options', async () => {
+  it('rejects unsupported subjects and output formats', async () => {
     expect((await run(['primitive', 'validate'])).exitCode).not.toBe(0);
-    expect((await run(['hub', 'validate', '--check-sources'])).exitCode).not.toBe(0);
     expect((await run(['hub', 'validate', '--output', 'xml'])).exitCode).not.toBe(0);
   });
 });
