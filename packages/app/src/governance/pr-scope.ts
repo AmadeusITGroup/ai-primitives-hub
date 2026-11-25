@@ -55,7 +55,7 @@ const isInside = (file: string, roots: readonly string[]): boolean =>
 
 const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
   const relative = path.relative(path.resolve(repoRoot), path.resolve(repoRoot, root));
-  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error(`Primitive path '${root}' is outside the repository.`);
   }
   return relative === '' ? '.' : relative.split(path.sep).join('/');
@@ -67,7 +67,7 @@ const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
  * @param repoRoot
  * @param changedFiles Repository-relative changed paths.
  * @param roots Files or directories, relative to the repository or absolute inside it, to limit the scope; `.` for everything.
- * @param kind Forced kind; selects changed files of that kind even when their names are not recognised.
+ * @param kind Forced kind; selects changed explicit file roots of any name, and changed files of that kind under directory roots.
  * @throws {Error} When a root is outside the repository.
  */
 export async function changedPrimitiveFiles(
@@ -76,16 +76,24 @@ export async function changedPrimitiveFiles(
   const normalizedRoots = roots.map((root) => repositoryRelativeRoot(repoRoot, root));
   const selected = new Set<string>();
   for (const file of changedFiles.filter((candidate) => isInside(candidate, normalizedRoots))) {
-    const governed = kind === undefined ? detectPrimitiveKind(file) !== undefined : isPrimitiveFileOfKind(file, kind);
+    const governed = kind === undefined
+      ? detectPrimitiveKind(file) !== undefined
+      : normalizedRoots.includes(file) || isPrimitiveFileOfKind(file, kind);
     if (governed && await fs.exists(path.join(repoRoot, file))) {
       selected.add(file);
       continue;
     }
-    // Asset changes inside a skill folder re-validate that skill.
-    for (let dir = path.posix.dirname(file); dir !== '.' && dir !== '/'; dir = path.posix.dirname(dir)) {
-      const skill = `${dir}/SKILL.md`;
+    if (kind !== undefined && kind !== 'skill') {
+      continue;
+    }
+    // Asset changes inside a skill folder re-validate the nearest skill, up to the repository root.
+    for (let dir = path.posix.dirname(file); ; dir = path.posix.dirname(dir)) {
+      const skill = dir === '.' ? 'SKILL.md' : `${dir}/SKILL.md`;
       if (await fs.exists(path.join(repoRoot, skill))) {
         selected.add(skill);
+        break;
+      }
+      if (dir === '.' || dir === '/') {
         break;
       }
     }
