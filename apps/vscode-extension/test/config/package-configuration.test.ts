@@ -19,6 +19,13 @@ suite('Package Configuration - Update Check Settings', () => {
   });
 
   suite('Configuration Schema Structure', () => {
+    test('shows the hub editor only in a hub workspace', () => {
+      const view = packageJson.contributes.views.promptRegistry.find(
+        (candidate: { id: string }) => candidate.id === 'promptRegistryHubConfigTree'
+      );
+      assert.strictEqual(view?.when, 'promptRegistry.hubWorkspaceActive');
+    });
+
     test('should prefer workspace extension host for remote environments', () => {
       assert.ok(Array.isArray(packageJson.extensionKind), 'package.json should define extensionKind array');
       assert.ok(packageJson.extensionKind.includes('workspace'), 'extensionKind should include workspace');
