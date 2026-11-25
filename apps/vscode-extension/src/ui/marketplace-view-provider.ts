@@ -1434,7 +1434,7 @@ export class MarketplaceViewProvider implements vscode.WebviewViewProvider {
     const contributeSection = contributable
       ? `<div class="section">
            <button type="button" class="primary-button" data-action="contributeCollection" data-bundle-id="${this.escapeHtml(bundle.id)}" data-source-id="${this.escapeHtml(bundle.sourceId || '')}">
-             ✏️ Contribute / Edit Collection in Visual Editor
+             <i class="fa-icon fa-pen-to-square" aria-hidden="true"></i> Contribute / Edit Collection in Visual Editor
            </button>
          </div>`
       : '';

@@ -1163,7 +1163,7 @@
           ? '<button class="btn btn-link contribute-collection-button" data-action="contributeCollection"'
           + ' data-bundle-id="' + escapeHtml(bundle.id) + '" data-source-id="' + escapeHtml(bundle.sourceId || '') + '" data-stop-propagation="true"'
           + ' title="Contribute / Edit Collection in Visual Editor" aria-label="Contribute / Edit Collection in Visual Editor">'
-          + '✏️'
+          + '<i class="fa-icon fa-pen-to-square" aria-hidden="true"></i>'
           + '</button>'
           : '')
         + '<button class="btn btn-link source-repo-button" data-action="openSourceRepo"'
