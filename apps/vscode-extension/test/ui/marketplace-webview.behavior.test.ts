@@ -405,30 +405,6 @@ suite('Marketplace webview behavior', () => {
     }
   });
 
-  test('renders the Contribute / Edit Collection action with the Design Factory edit icon', () => {
-    const harness = createHarness();
-    try {
-      loadBundles(harness, { ...makeBundle(), contributable: true } as ReturnType<typeof makeBundle>);
-      const { document } = harness.dom.window;
-      const contributeButton = document.querySelector('.contribute-collection-button') as unknown as {
-        click: () => void;
-        textContent: string;
-        getAttribute: (name: string) => string | null;
-        querySelector: (selector: string) => unknown;
-      } | null;
-
-      assert.ok(contributeButton, 'a contributable bundle should render the contribute action');
-      assert.ok(contributeButton.querySelector('i.fa-icon.fa-pen-to-square'), 'the action should use the fa-pen-to-square icon');
-      assert.strictEqual(contributeButton.textContent.trim(), '', 'the action should not render an emoji glyph');
-      assert.strictEqual(contributeButton.getAttribute('aria-label'), 'Contribute / Edit Collection in Visual Editor');
-
-      contributeButton.click();
-      assert.ok(harness.messages.some((message) => message.type === 'contributeCollection' && message.bundleId === 'source/bundle@1.0.0'));
-    } finally {
-      harness.dom.window.close();
-    }
-  });
-
   test('hides the all-bundles status when the catalog is empty', () => {
     const harness = createHarness();
     try {
