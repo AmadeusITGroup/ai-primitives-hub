@@ -21,7 +21,7 @@ Instead of manually forking, cloning, and hand-editing YAML, you can launch the 
 2. The extension ensures your GitHub fork exists, clones (or attaches to your existing local checkout), configures `origin` and `upstream` remotes, checks out a feature branch, and opens `hub-config.yml` in the **Visual Hub Configuration Editor**.
 3. Use either:
    - **Visual Master-Detail Editor**: Add, edit, or delete sources, profiles, and profile bundles with automatic bundle ID prefix formatting (`<owner>-<repo>-<bundleId>` for `github` sources, `skills-<owner>-<repo>-<skillId>` for `skills` sources) and a searchable catalog picker populated via **Verify & Discover Bundles** / **Deep Validate**.
-   - **Hub Configuration Editor Tree View**: Browse and perform CRUD on Metadata, Sources, and Profiles (grouped by `path` categories) in the sidebar.
+   - **Hub Configuration Editor Tree View**: Browse and perform CRUD on Metadata, Sources, and Profiles (grouped by `path` categories) in the sidebar. The view appears when the first workspace folder contains a root `hub-config.yml`.
    - **Live YAML Mode**: Edit `hub-config.yml` with real-time `DiagnosticCollection` squiggles, inline ghost-text decorations, `CodeLens` action links, and `Ctrl+.` Quick Fixes, while preserving `$schema` headers and category comments (`# Roles`, `# Domains`).
 4. Click **Commit & Create PR** (`promptregistry.submitHubPullRequest`) to validate, update `metadata.updatedAt`, commit, push, open a Pull Request against the upstream hub repository, and track PR/CI status directly in VS Code.
 

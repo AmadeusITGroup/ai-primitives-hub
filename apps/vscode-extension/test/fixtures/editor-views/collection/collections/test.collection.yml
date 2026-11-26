@@ -1,0 +1,6 @@
+id: test-collection
+name: Test Collection
+description: Minimal collection for editor visibility tests
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

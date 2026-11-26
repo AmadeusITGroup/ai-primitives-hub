@@ -1,0 +1,8 @@
+version: 1.0.0
+metadata:
+  name: Test Hub
+  description: Minimal hub for editor visibility tests
+  maintainer: Test
+  updatedAt: "2026-01-01T00:00:00Z"
+sources: []
+profiles: []

@@ -6,14 +6,15 @@ How to run tests in the AI Primitives Hub extension.
 
 ## Testing Architecture
 
-The project uses a **two-tier** test layout, both running under **Mocha TDD style** (`suite` / `test` / `assert`):
+The regular extension suites use a **two-tier** test layout:
 
 | Tier | Location | Runs In | Purpose |
 |------|----------|---------|---------|
 | Unit / Property / E2E (mocked) | `test/{services,adapters,commands,ui,utils,storage,e2e}/**/*.test.ts` | Node.js with `vscode` mocked via `test/mocha.setup.js` | Pure logic, data flow, multi-component workflows |
 | Integration (real VS Code) | `test/suite/**/*.test.ts` | Electron via `test/runExtensionTests.js` | Extension activation, command registration, UI wiring |
 
-Tests compile to `test-dist/` first (`pnpm run compile-tests`) — Mocha runs the compiled JS.
+These TypeScript tests compile to `test-dist/` first (`pnpm run compile-tests`).
+Separate opt-in acceptance campaigns exercise complete workflows in real environments.
 
 ## Quick Start
 
@@ -38,19 +39,11 @@ pnpm run test:coverage:integration # integration only
 
 Use `LOG_LEVEL=ERROR` to suppress debug output.
 
-### Opt-in live replica consumers
-
-From the repository root, `pnpm run test:live:replica-consumers` runs the live
-Artifactory CLI and VS Code consumer campaign with isolated install directories.
-The optional `APH_LIVE_ARTIFACTORY_CREDENTIAL_REF` setting must be an uppercase
-environment-variable name and cannot be `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`
-or `XDG_CACHE_HOME`. The runner rejects these names before token resolution so
-credential injection cannot replace its isolated storage roots.
-
 ## Test Directory Layout
 
 ```
 test/
+├── acceptance/         # Opt-in real VS Code acceptance tests
 ├── adapters/           # Adapter unit tests
 ├── commands/           # Command handler tests
 ├── services/           # Service layer tests
@@ -74,6 +67,35 @@ test/
 | Property | `.property.test.ts` | Invariant testing with `fast-check` |
 | E2E | `test/e2e/*.test.ts` | Multi-component workflows (mocked VS Code) |
 | Integration | `test/suite/*.test.ts` | Real VS Code extension host |
+| Acceptance | `test/acceptance/` and live test runners | End-to-end workflows in real environments |
+
+## Acceptance Testing
+
+These opt-in campaigns run separately from the regular suites. They verify
+user-facing workflows in real VS Code, using local fixtures or live services.
+
+### Editor views
+
+From the repository root:
+
+```bash
+pnpm -C apps/vscode-extension run compile
+pnpm -C apps/vscode-extension run test:acceptance:editor-views
+```
+
+The test opens isolated VS Code windows for hub, collection, and empty fixtures,
+and checks the actual sidebar views. It requires an installed VS Code and a display;
+set `VSCODE_EXECUTABLE_PATH` if VS Code is installed elsewhere. The non-hub cases
+also set the contributable-hub context to test that it does not expose the hub view.
+
+### Live replica consumers
+
+From the repository root, `pnpm run test:live:replica-consumers` runs the live
+Artifactory CLI and VS Code consumer campaign with isolated install directories.
+The optional `APH_LIVE_ARTIFACTORY_CREDENTIAL_REF` setting must be an uppercase
+environment-variable name and cannot be `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`
+or `XDG_CACHE_HOME`. The runner rejects these names before token resolution so
+credential injection cannot replace its isolated storage roots.
 
 ## Debugging
 
