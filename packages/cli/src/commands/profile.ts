@@ -1925,13 +1925,25 @@ export class ProfilePublishCommand extends BaseProfileCommand {
       }));
     }
 
+    const invalidProfile = (reason: string, cause?: Error): number => failWith(ctx, fmt, 'profile', new RegistryError({
+      code: 'CONFIG.INVALID_PROFILE_YAML',
+      message: `Profile file ${profilePath} ${reason}`,
+      hint: 'Fix the YAML in the profile file, or export the profile again.',
+      context: { file: profilePath },
+      cause
+    }));
     const profileYaml = await ctx.fs.readFile(profilePath);
-    const parsed = yaml.load(profileYaml) as ProfileYamlFile | undefined;
-    if (!parsed || typeof parsed !== 'object') {
-      return failWith(ctx, fmt, 'profile', new RegistryError({
-        code: 'PROFILE.INVALID_YAML',
-        message: 'Profile YAML is invalid or empty'
-      }));
+    let parsed: ProfileYamlFile | undefined;
+    try {
+      parsed = yaml.load(profileYaml) as ProfileYamlFile | undefined;
+    } catch (err) {
+      return invalidProfile(`is not valid YAML: ${err instanceof Error ? err.message : String(err)}`, err instanceof Error ? err : undefined);
+    }
+    // Only a plain mapping is a profile: YAML can also yield lists and typed
+    // values such as timestamps (a `Date`), which are objects too.
+    const prototype: unknown = parsed !== null && typeof parsed === 'object' ? Object.getPrototypeOf(parsed) : undefined;
+    if (!parsed || (prototype !== Object.prototype && prototype !== null)) {
+      return invalidProfile('is empty or is not a YAML mapping');
     }
 
     const hubs = await mgr.listHubs();

@@ -71,6 +71,7 @@ import {
   ProfileDeactivateCommand,
   ProfileInstallCommand,
   ProfileListCommand,
+  ProfilePublishCommand,
   ProfileShowCommand,
 } from '../../src/commands/profile';
 import {
@@ -106,7 +107,8 @@ const COMMAND_CLASSES = [
   ProfileCurrentCommand,
   ProfileActivateCommand,
   ProfileDeactivateCommand,
-  ProfileInstallCommand
+  ProfileInstallCommand,
+  ProfilePublishCommand
 ];
 
 interface JsonEnvelope<T> {
@@ -172,6 +174,60 @@ profiles:
 
   afterEach(async () => {
     await rm(workspace, { recursive: true, force: true });
+  });
+
+  describe('profile publish with an unusable profile file (#704)', () => {
+    const publish = async (file: string, contents: string, hubId = 'test-hub') => {
+      const profileFile = path.join(workspace, file);
+      await writeFile(profileFile, contents);
+      return run(['profile', 'publish', 'my-profile', '--hub', hubId, '--file', profileFile, '-o', 'json']);
+    };
+
+    it('reports an empty profile file instead of crashing', async () => {
+      const result = await publish('empty.profile.yml', '');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.status).toBe('error');
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+      expect(envelope.errors[0].message).toContain('empty.profile.yml');
+    });
+
+    it('reports a YAML sequence as unusable before looking up the hub', async () => {
+      // The hub does not exist: the file error must win over `HUB.NOT_FOUND`.
+      const result = await publish('list.profile.yml', '[]\n', 'no-such-hub');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { errors: { code: string; message: string }[] };
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+      expect(envelope.errors[0].message).toContain('list.profile.yml');
+    });
+
+    it('reports a scalar that YAML turns into an object (a timestamp) as unusable', async () => {
+      const result = await publish('date.profile.yml', '2026-11-18\n', 'no-such-hub');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { errors: { code: string }[] };
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+    });
+
+    it('still accepts a profile mapping and reaches the hub lookup', async () => {
+      const result = await publish('ok.profile.yml', 'id: my-profile\nname: My profile\n', 'no-such-hub');
+
+      expect(result.exitCode).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { errors: { code: string }[] };
+      expect(envelope.errors[0].code).toBe('HUB.NOT_FOUND');
+    });
+
+    it('reports malformed YAML instead of crashing', async () => {
+      const result = await publish('bad.profile.yml', 'id: [unclosed\n');
+
+      expect(result.exitCode, result.stdout).toBe(1);
+      const envelope = JSON.parse(result.stdout) as { status: string; errors: { code: string; message: string }[] };
+      expect(envelope.errors[0].code).toBe('CONFIG.INVALID_PROFILE_YAML');
+      expect(envelope.errors[0].message).toContain('bad.profile.yml');
+      expect(envelope.errors[0].message).toContain('unexpected end of the stream');
+    });
   });
 
   it('lists the seeded profile', async () => {
