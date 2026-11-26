@@ -143,10 +143,11 @@ describe('security scan command', () => {
       expect(result.exitCode).toBe(0);
       const sarif = JSON.parse(await readFile(report, 'utf8')) as {
         version: string;
-        runs: { tool: { driver: { name: string } }; results: { ruleId: string; level: string }[] }[];
+        runs: { tool: { driver: { name: string } }; invocations: { executionSuccessful: boolean }[]; results: { ruleId: string; level: string }[] }[];
       };
       expect(sarif.version).toBe('2.1.0');
       expect(sarif.runs[0].tool.driver.name).toBe('ai-primitives-hub-security');
+      expect(sarif.runs[0].invocations[0].executionSuccessful).toBe(true); // complete scan
       expect(sarif.runs[0].results.some((entry) => entry.ruleId === 'HKS-001' && entry.level === 'error')).toBe(true);
     } finally {
       await rm(directory, { recursive: true, force: true });

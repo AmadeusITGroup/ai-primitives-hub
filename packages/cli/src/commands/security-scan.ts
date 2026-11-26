@@ -103,11 +103,28 @@ const reportSarif = (result: SecurityScanResult): string => {
       properties: { severity: finding.severity, confidence: finding.confidence, category: finding.category }
     };
   });
+  // Represent an incomplete scan (unreadable files / limits hit) so a SARIF consumer does not
+  // treat partial or empty results as a complete, clean scan. executionSuccessful mirrors
+  // result.complete; each error becomes a tool-execution notification.
+  const invocation = {
+    executionSuccessful: result.complete,
+    ...(result.errors.length > 0
+      ? {
+        toolExecutionNotifications: result.errors.map((error) => ({
+          level: 'error',
+          descriptor: { id: error.code },
+          message: { text: error.message },
+          ...(error.path === undefined ? {} : { locations: [{ physicalLocation: { artifactLocation: { uri: pathToSarifUri(error.path) } } }] })
+        }))
+      }
+      : {})
+  };
   return `${JSON.stringify({
     $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
     version: '2.1.0',
     runs: [{
       tool: { driver: { name: 'ai-primitives-hub-security', version: result.engine.version, informationUri: 'https://github.com/AmadeusITGroup/ai-primitives-hub', rules: [...rules.values()] } },
+      invocations: [invocation],
       results
     }]
   }, null, 2)}\n`;
