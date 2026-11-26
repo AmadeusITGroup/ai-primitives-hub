@@ -5,8 +5,9 @@
  * @module domain/governance/rules/primitive
  */
 import {
+  type Node as JsoncNode,
   type ParseError,
-  parse as parseJsonc,
+  parseTree,
 } from 'jsonc-parser';
 import {
   collectInputReferences,
@@ -16,7 +17,7 @@ import type {
   PrimitiveKind,
 } from '../../primitive/types';
 import {
-  containsSecret,
+  containsLiteralSecret,
 } from '../../security/rule-engine';
 import {
   parseFrontmatter,
@@ -196,11 +197,30 @@ const PLACEHOLDER = /\$\{[^}]+\}/g;
 const isPlaceholder = (value: string): boolean => /\$\{[^}]+\}/.test(value);
 /**
  * Credential patterns are shared with the security scanner; placeholders never hide a literal token.
+ * Credential-file paths are not literal secrets: the security scanner reports them.
  * @param value
  */
-const hasLiteralSecret = (value: string): boolean => containsSecret(value.replaceAll(PLACEHOLDER, ''));
+const hasLiteralSecret = (value: string): boolean => containsLiteralSecret(value.replaceAll(PLACEHOLDER, ''));
 const stringMap = (value: unknown): Record<string, string> | undefined =>
   isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string') ? value as Record<string, string> : undefined;
+
+/**
+ * Plain value of a JSONC tree. Keys are defined as own properties, so a `__proto__` key stays an entry
+ * instead of replacing the object's prototype.
+ * @param node
+ */
+function jsoncValue(node: JsoncNode | undefined): unknown {
+  if (node?.type === 'object') {
+    const object: Record<string, unknown> = {};
+    for (const [key, value] of (node.children ?? []).map((property) => property.children ?? [])) {
+      if (key) {
+        Object.defineProperty(object, String(key.value), { value: jsoncValue(value), enumerable: true, writable: true, configurable: true });
+      }
+    }
+    return object;
+  }
+  return node?.type === 'array' ? (node.children ?? []).map((child) => jsoncValue(child)) : node?.value;
+}
 
 /**
  * MCP002 secrets and MCP001 input references. Structure, including JSON syntax, is MCP003 only.
@@ -211,7 +231,7 @@ const stringMap = (value: unknown): Record<string, string> | undefined =>
 function mcpFindings(file: string, content: string): GovernanceFinding[] {
   const finding = (ruleId: string, message: string): GovernanceFinding => ({ ruleId, severity: 'warning', message, file });
   const errors: ParseError[] = [];
-  const document: unknown = parseJsonc(content, errors, { allowTrailingComma: true });
+  const document = jsoncValue(parseTree(content, errors, { allowTrailingComma: true }));
   if (errors.length > 0) {
     return [{ ruleId: 'MCP003', severity: 'error', file, message: 'MCP configuration is not valid JSON or JSONC.' }];
   }
@@ -221,7 +241,7 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
     return structure;
   }
   const findings: GovernanceFinding[] = [];
-  const views: Record<string, McpServerInputView> = {};
+  const views: Record<string, McpServerInputView> = Object.create(null) as Record<string, McpServerInputView>;
   for (const [name, server] of Object.entries(servers)) {
     if (!isRecord(server)) {
       continue;
@@ -242,6 +262,7 @@ function mcpFindings(file: string, content: string): GovernanceFinding[] {
     views[name] = {
       command: typeof server.command === 'string' ? server.command : undefined,
       url: typeof server.url === 'string' ? server.url : undefined,
+      cwd: typeof server.cwd === 'string' ? server.cwd : undefined,
       args, env, headers
     };
   }

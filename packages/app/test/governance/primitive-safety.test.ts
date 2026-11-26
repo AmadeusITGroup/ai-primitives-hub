@@ -63,6 +63,20 @@ describe('primitive safety and applicability', () => {
     expect(report.findings.map((finding) => finding.ruleId)).toEqual(['PRM001']);
   });
 
+  it.each([
+    ['prompt alias first', ['a.prompt.md', 'skills/other/SKILL.md']],
+    ['skill path first', ['skills/other/SKILL.md', 'a.prompt.md']]
+  ])('keeps each required kind when aliases of one file differ in kind (%s)', async (_order, inputs) => {
+    await mkdir(path.join(root, 'skills/other'), { recursive: true });
+    await writeFile(path.join(root, 'skills/other/SKILL.md'), '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.');
+    await symlink(path.join(root, 'skills/other/SKILL.md'), path.join(root, 'a.prompt.md'));
+    const report = await run([...inputs, ...inputs]);
+    expect(report.findings.filter((f) => f.ruleId === 'SKL001')).toEqual([
+      expect.objectContaining({ severity: 'error', file: 'skills/other/SKILL.md', message: expect.stringContaining('does not match') })
+    ]);
+    expect(report.verdict).toBe('fail');
+  });
+
   it('fails skills whose bundled assets are larger than 5 MB', async () => {
     await mkdir(path.join(root, 'skills/demo'), { recursive: true });
     await writeFile(path.join(root, 'skills/demo/SKILL.md'), '---\nname: demo\ndescription: A demo skill for tests.\n---\nUseful instructions.');

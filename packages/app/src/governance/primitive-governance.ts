@@ -65,9 +65,10 @@ export async function validateLocalPrimitives(
   fs: FileSystem, repoRoot: string, inputs: readonly string[], kind?: GovernedPrimitiveKind
 ): Promise<LocalPrimitiveResult> {
   const findings: GovernanceFinding[] = [];
-  const files: { canonical: string; display: string; folder: string }[] = [];
+  const files: { canonical: string; display: string; folder: string; kind: GovernedPrimitiveKind }[] = [];
   const directories = new Set<string>();
-  const canonicalFiles = new Set<string>();
+  // One entry per canonical file and kind: an alias of another kind must not hide that kind's mandatory checks.
+  const inspectedFiles = new Set<string>();
   const applicable = new Set<string>(inputs.length > 0 ? ['PTH001'] : []);
   const inspect = async (input: string, explicit: boolean): Promise<void> => {
     const absolute = path.resolve(repoRoot, input);
@@ -93,12 +94,14 @@ export async function validateLocalPrimitives(
         }
       }
     } else if (stat.isFile && (explicit || (kind === undefined ? detectPrimitiveKind(display) !== undefined : isPrimitiveFileOfKind(display, kind)))) {
-      if (kind === undefined && detectPrimitiveKind(display) === undefined) {
+      const fileKind = kind ?? detectPrimitiveKind(display);
+      if (fileKind === undefined) {
         throw new Error(`Cannot infer the primitive kind of '${input}'. Use --kind skill|agent|prompt|instruction|mcp-server.`);
       }
-      if (!canonicalFiles.has(canonical)) {
-        canonicalFiles.add(canonical);
-        files.push({ canonical, display, folder: path.basename(path.dirname(absolute)) });
+      const key = `${fileKind}\0${canonical}`;
+      if (!inspectedFiles.has(key)) {
+        inspectedFiles.add(key);
+        files.push({ canonical, display, folder: path.basename(path.dirname(absolute)), kind: fileKind });
       }
     }
   };
@@ -109,21 +112,23 @@ export async function validateLocalPrimitives(
     throw new Error(`No skill, agent, prompt, instruction or MCP files found in: ${inputs.join(', ')}.`);
   }
   const inspected: string[] = [];
-  for (const { canonical, display, folder } of files) {
+  const contents = new Map<string, string>();
+  for (const { canonical, display, folder, kind: inspectedKind } of files) {
     const stat = await fs.stat(canonical);
-    const inspectedKind = kind ?? detectPrimitiveKind(display);
-    if (inspectedKind) {
-      for (const ruleId of primitiveRulesForKinds([inspectedKind])) {
-        applicable.add(ruleId);
-      }
+    for (const ruleId of primitiveRulesForKinds([inspectedKind])) {
+      applicable.add(ruleId);
     }
     if (stat.size > MAX_PRIMITIVE_BYTES) {
-      findings.push(oversizePrimitiveFinding(display, inspectedKind ?? 'skill'));
+      findings.push(oversizePrimitiveFinding(display, inspectedKind));
       continue;
     }
-    const content = await fs.readFile(canonical);
+    let content = contents.get(canonical);
+    if (content === undefined) {
+      content = await fs.readFile(canonical);
+      contents.set(canonical, content);
+    }
     inspected.push(display);
-    findings.push(...primitiveFindings(display, content, kind, folder));
+    findings.push(...primitiveFindings(display, content, inspectedKind, folder));
     if (inspectedKind === 'skill') {
       findings.push(...await skillAssetFindings(fs, canonical, display));
     }

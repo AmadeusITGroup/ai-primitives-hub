@@ -80,6 +80,20 @@ describe('changedPrimitiveFiles', () => {
     expect(await changedPrimitiveFiles(fs, root, ['prims/notes.txt'], ['prims'], 'skill')).toEqual(['prims/SKILL.md']);
   });
 
+  it('selects both a changed primitive and the skill it supports', async () => {
+    await writeFile(path.join(root, 'prims/SKILL.md'), 'Body');
+    expect(await changedPrimitiveFiles(fs, root, ['prims/a.prompt.md'], ['prims'])).toEqual(['prims/SKILL.md', 'prims/a.prompt.md']);
+    expect(await changedPrimitiveFiles(fs, root, ['prims/a.prompt.md'], ['prims'], 'prompt')).toEqual(['prims/a.prompt.md']);
+  });
+
+  it('fails when a changed path cannot be listed, but drops paths whose parent was deleted', async () => {
+    const denied = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    const unreadable = Object.create(fs) as NodeFileSystem;
+    Object.defineProperty(unreadable, 'readDir', { value: () => Promise.reject(denied) });
+    await expect(changedPrimitiveFiles(unreadable, root, ['prims/a.prompt.md'], ['prims'])).rejects.toThrow('EACCES');
+    expect(await changedPrimitiveFiles(fs, root, ['gone/deleted.prompt.md'], ['.'])).toEqual([]);
+  });
+
   it('keeps changed dangling symlinks so path validation reports them, and drops deleted files', async () => {
     await symlink(path.join(root, 'missing.md'), path.join(root, 'prims/broken.prompt.md'));
     await symlink(path.join(root, 'missing.md'), path.join(root, 'prims/notes.md'));

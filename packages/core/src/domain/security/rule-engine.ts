@@ -339,13 +339,23 @@ const hasTrustBoundaryForPlaceholder = (text: string, matchIndex: number): boole
   });
 };
 
+/** Pattern that matches where credentials are stored (for example `~/.aws/credentials`), not a credential value. */
+const CREDENTIAL_FILE_PATTERN = 'sec027';
+
+/**
+ * Whether a value contains a literal credential value: the secret rules, without the credential-file path pattern.
+ * @param value
+ */
+export const containsLiteralSecret = (value: string): boolean =>
+  Object.entries(secretPatterns).some(([key, pattern]) => key !== CREDENTIAL_FILE_PATTERN && pattern.test(value))
+  || [...value.matchAll(assignment)].some((match) => entropy(match[1]) >= 4.5 && !safeSecretPlaceholder.test(match[1]));
+
 /**
  * Whether a value contains a credential-like token, as detected by the security scanner's secret rules.
  * @param value
  */
 export const containsSecret = (value: string): boolean =>
-  Object.values(secretPatterns).some((pattern) => pattern.test(value))
-  || [...value.matchAll(assignment)].some((match) => entropy(match[1]) >= 4.5 && !safeSecretPlaceholder.test(match[1]));
+  containsLiteralSecret(value) || secretPatterns[CREDENTIAL_FILE_PATTERN].test(value);
 
 const redactSecrets = (value: string): string => containsSecret(value) ? '[REDACTED]' : value;
 const REDACTED_MCP_ARGUMENT_RULES = new Set(['MCP-006', 'MCP-007', 'MCP-010', 'MCP-013']);

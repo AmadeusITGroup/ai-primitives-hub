@@ -5,6 +5,22 @@ import type {
 
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 export const hasText = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+/**
+ * Whether a value is a well-formed HTTP or HTTPS URL that also parses (valid host and port); parsing never contacts
+ * the endpoint.
+ * @param value
+ */
+const isHttpUrl = (value: string): boolean => {
+  if (!/^https?:\/\/[^/\s?#]+(?:[/?#]\S*)?$/i.test(value)) {
+    return false;
+  }
+  try {
+    const { protocol } = new URL(value);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === 'string');
 
 /**
@@ -48,8 +64,7 @@ export function mcpStructureFindings(file: string, document: unknown): Governanc
     if (hasCommand && !hasText(server.command)) {
       invalid('command must be a non-empty string.');
     }
-    if (hasUrl && (!hasText(server.url) || (!/^https?:\/\/[^/\s?#]+(?:[/?#][^\s]*)?$/i.test(server.url)
-      && !/^\$\{(?:input|env):[^}]+\}$/.test(server.url)))) {
+    if (hasUrl && (!hasText(server.url) || (!isHttpUrl(server.url) && !/^\$\{(?:input|env):[^}]+\}$/.test(server.url)))) {
       invalid('url must be an HTTP or HTTPS URL, or an input/environment placeholder.');
     }
     if (server.args !== undefined && !isStringArray(server.args)) {

@@ -128,6 +128,8 @@ describe('primitive rules', () => {
     ['mcpServers root with a header secret', 'mcp.json', JSON.stringify({ mcpServers: { gh: { url: 'https://example.com', headers: { Authorization: 'Bearer abc123' } } } }), undefined, ['MCP002']],
     ['non-string env values', 'mcp.json', JSON.stringify({ servers: { gh: { command: 'npx', env: { DEBUG: 1 } } } }), undefined, ['MCP003']],
     ['non-string header values', 'mcp.json', JSON.stringify({ servers: { gh: { url: 'https://example.com', headers: { X: true } } } }), undefined, ['MCP003']],
+    ['an out-of-range URL port', 'mcp.json', JSON.stringify({ servers: { remote: { url: 'https://example.com:70000/mcp' } } }), undefined, ['MCP003']],
+    ['a valid URL port', 'mcp.json', JSON.stringify({ servers: { remote: { url: 'https://example.com:8443/mcp' } } }), undefined, []],
     ['JSONC comments and trailing commas', 'mcp.json', '{\n  // local server\n  "servers": { "gh": { "command": "npx", }, },\n}', undefined, []],
     ['forced agent kind on a misnamed file', 'notes.md', '---\ndescription: Reviews code\n---\nBody', 'agent', ['AGT001']],
     ['forced prompt kind on a misnamed file', 'notes.md', '---\ndescription: Summarise\n---\nBody', 'prompt', ['PRM001']],
@@ -156,6 +158,19 @@ describe('primitive rules', () => {
       expect.stringMatching(/^MCP002:.*MIXED/),
       expect.stringMatching(/^MCP002:.*args/)
     ]);
+  });
+
+  it.each([
+    ['a __proto__ server', '{"servers":{"__proto__":{"command":"run","args":["${input:missing}"]}}}'],
+    ['a cwd reference', '{"servers":{"local":{"command":"server","cwd":"${input:missing}"}}}']
+  ])('reports undeclared inputs in %s', (_label, content) => {
+    expect(primitiveFindings('mcp.json', content).map((f) => `${f.ruleId}:${f.message}`))
+      .toContainEqual(expect.stringMatching(/^MCP001:.*input:missing/));
+  });
+
+  it('does not report credential-file paths as literal MCP secrets', () => {
+    const content = JSON.stringify({ servers: { local: { command: 'server', args: ['--credentials-file', '~/.aws/credentials'] } } });
+    expect(primitiveFindings('mcp.json', content)).toEqual([]);
   });
 
   it('ignores non-string command and url values when collecting input references', () => {

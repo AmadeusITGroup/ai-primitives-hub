@@ -41,6 +41,8 @@ export interface McpServerInputView {
   command?: string;
   /** stdio server arguments */
   args?: string[];
+  /** stdio server working directory */
+  cwd?: string;
   /** stdio server environment variables */
   env?: Record<string, string>;
   /** remote server URL */
@@ -52,7 +54,7 @@ export interface McpServerInputView {
 /**
  * Collect all `${input:id}` references from a map of server configurations.
  *
- * Scans command, args, env values, URL, and header values for every server.
+ * Scans command, args, cwd, env values, URL, and header values for every server.
  * Pure: no IO.
  * @param servers - Server config map (prefixed server name → config).
  * @returns Set of referenced input ids (without the `${input:…}` delimiters).
@@ -76,6 +78,7 @@ export function collectInputReferences(
   for (const config of Object.values(servers)) {
     scan(config.url);
     scan(config.command);
+    scan(config.cwd);
     config.args?.forEach((v) => {
       scan(v);
     });

@@ -26,7 +26,10 @@ import {
 
 it('downloads a hub PR source and validates its collection primitives through the CLI', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'primitive-hub-cli-'));
-  const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  // Isolate fixture Git from inherited repository variables and the developer's signing setup.
+  const git = (...args: string[]) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd: root, encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')))
+  }).trim();
   try {
     git('init', '--quiet');
     git('config', 'user.name', 'Test');

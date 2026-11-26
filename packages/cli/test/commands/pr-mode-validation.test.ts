@@ -34,7 +34,10 @@ import {
 describe('PR mode for collection and primitive validation', () => {
   let root: string;
   let base: string;
-  const git = (...args: string[]): string => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+  // Isolate fixture Git from inherited repository variables and the developer's signing setup.
+  const git = (...args: string[]): string => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+    cwd: root, encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')))
+  }).trim();
   const commit = (message: string): string => {
     git('add', '-A');
     git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', message);

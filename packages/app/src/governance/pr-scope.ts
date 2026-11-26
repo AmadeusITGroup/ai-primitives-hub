@@ -66,17 +66,26 @@ const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
   return relative === '' ? '.' : relative.split(path.sep).join('/');
 };
 
+const isMissingPath = (error: unknown): boolean => {
+  const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
 /**
  * Whether a path entry exists without following a final symbolic link, so a dangling link is kept and later
  * rejected by path validation, while deleted files are not.
  * @param fs
  * @param file
+ * @throws {Error} When the parent directory exists but cannot be listed, so changed primitives are never silently skipped.
  */
 const entryExists = async (fs: FileSystem, file: string): Promise<boolean> => {
   try {
     return (await fs.readDir(path.dirname(file))).includes(path.basename(file));
-  } catch {
-    return false;
+  } catch (error) {
+    if (isMissingPath(error)) {
+      return false;
+    }
+    throw error;
   }
 };
 
@@ -100,12 +109,12 @@ export async function changedPrimitiveFiles(
       : normalizedRoots.includes(file) || isPrimitiveFileOfKind(file, kind);
     if (governed && await entryExists(fs, path.join(repoRoot, file))) {
       selected.add(file);
-      continue;
     }
     if (kind !== undefined && kind !== 'skill') {
       continue;
     }
-    // Asset changes inside a skill folder re-validate the nearest skill, up to the repository root.
+    // Any change inside a skill folder, including a primitive used as a supporting file, re-validates the
+    // nearest skill, up to the repository root.
     for (let dir = path.posix.dirname(file); ; dir = path.posix.dirname(dir)) {
       const skill = dir === '.' ? 'SKILL.md' : `${dir}/SKILL.md`;
       if (await entryExists(fs, path.join(repoRoot, skill))) {

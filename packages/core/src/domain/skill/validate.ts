@@ -111,6 +111,12 @@ export function validateSkillName(name: unknown): string | null {
   if (!SKILL_NAME_PATTERN.test(name)) {
     return 'name must contain only lowercase letters, numbers, and hyphens';
   }
+  if (name.startsWith('-') || name.endsWith('-')) {
+    return 'name must not start or end with a hyphen';
+  }
+  if (name.includes('--')) {
+    return 'name must not contain consecutive hyphens';
+  }
   if (name.length > SKILL_NAME_MAX_LENGTH) {
     return `name must not exceed ${SKILL_NAME_MAX_LENGTH} characters`;
   }
