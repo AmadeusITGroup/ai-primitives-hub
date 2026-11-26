@@ -38,6 +38,23 @@ const ternlightWasmPlugin = {
   }
 };
 
+/**
+ * Bundle jsonc-parser from its ESM build.
+ *
+ * Its `main` is a UMD build that loads `./impl/*` through a runtime `require`
+ * esbuild cannot follow, so the standalone executable fails with
+ * "No such built-in module: ./impl/format".
+ */
+const jsoncParserEsmPlugin = {
+  name: 'jsonc-parser-esm',
+  setup(build) {
+    build.onResolve({ filter: /^jsonc-parser$/ }, (args) => build.resolve('jsonc-parser/lib/esm/main.js', {
+      kind: args.kind,
+      resolveDir: args.resolveDir
+    }));
+  }
+};
+
 // Workers are separate entry points; bundling the CLI does not follow Worker paths.
 await esbuild.build({
   entryPoints: ['../infra/src/security/isolated-security-scan-worker.ts'],
@@ -47,7 +64,8 @@ await esbuild.build({
   outfile: 'dist/security-scan-worker.js',
   format: 'cjs',
   minify: true,
-  absWorkingDir: __dirname
+  absWorkingDir: __dirname,
+  plugins: [jsoncParserEsmPlugin]
 });
 
 await esbuild.build({
@@ -66,5 +84,5 @@ await esbuild.build({
   treeShaking: true,
   metafile: true,
   absWorkingDir: __dirname,
-  plugins: [ternlightWasmPlugin]
+  plugins: [ternlightWasmPlugin, jsoncParserEsmPlugin]
 });
