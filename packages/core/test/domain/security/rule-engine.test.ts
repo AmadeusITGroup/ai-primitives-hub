@@ -382,5 +382,10 @@ describe('RuleBasedSecurityScanEngine', () => {
       const found = await ids('## Example usage\n\ncrontab -l\n', 'skills/demo.md');
       expect(found).not.toContain('HKS-009');
     });
+
+    it('still runs SEC-013 high-entropy secret detection on non-Markdown files', async () => {
+      const found = await ids('API_TOKEN = "Zx8Qv2Lm9Rt4Wp7Nk3Hb6Yd1Fs5Gc0Aj"\n', 'install.sh');
+      expect(found).toContain('SEC-013');
+    });
   });
 });

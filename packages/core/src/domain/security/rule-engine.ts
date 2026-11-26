@@ -1021,7 +1021,10 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       findings.push(createFinding(document, rule, undefined, undefined, 'Allowed tools are declared without a PreToolUse hook.'));
     }
   }
-  if (markdown) {
+  {
+    // SEC-013 high-entropy secret detection is NOT Markdown-specific and runs on every file,
+    // including non-Markdown (install.sh, etc.) — the base revision reported it there too, so
+    // gating it on `markdown` would silently drop secret detection for those files.
     const entropyRule = makeRule('SEC-013', 'High-Entropy String — Potential Secret', 'HIGH', assignment, 'secrets', LLM06);
     for (const [index, line] of parsed.lines.entries()) {
       assignment.lastIndex = 0;

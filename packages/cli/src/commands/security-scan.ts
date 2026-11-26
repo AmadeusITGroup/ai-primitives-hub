@@ -81,6 +81,12 @@ const SARIF_LEVEL: Record<SecuritySeverity, 'error' | 'warning' | 'note'> = {
   CRITICAL: 'error', HIGH: 'error', MEDIUM: 'warning', LOW: 'note', INFO: 'note'
 };
 
+// Convert a filesystem path to a SARIF URI reference: forward slashes, with each segment
+// percent-encoded so characters like '#', spaces and Unicode are URI-safe (SARIF requires
+// URI-valued locations). Directory separators are preserved.
+const pathToSarifUri = (filePath: string): string =>
+  filePath.replaceAll('\\', '/').split('/').map((segment) => encodeURIComponent(segment)).join('/');
+
 // SARIF 2.1.0 for GitHub code scanning. CRITICAL/HIGH -> error, MEDIUM -> warning, LOW/INFO -> note.
 const reportSarif = (result: SecurityScanResult): string => {
   const rules = new Map<string, { id: string; name: string; helpUri?: string }>();
@@ -93,7 +99,7 @@ const reportSarif = (result: SecurityScanResult): string => {
       ruleId: finding.ruleId,
       level: SARIF_LEVEL[finding.severity],
       message: { text: `${finding.title}: ${finding.risk}` },
-      locations: [{ physicalLocation: { artifactLocation: { uri: finding.file.replaceAll('\\', '/') }, ...region } }],
+      locations: [{ physicalLocation: { artifactLocation: { uri: pathToSarifUri(finding.file) }, ...region } }],
       properties: { severity: finding.severity, confidence: finding.confidence, category: finding.category }
     };
   });
@@ -371,7 +377,7 @@ export class SecurityScanCommand extends Command {
       ctx.stderr.write('--report can only be used with text output\n');
       return 64;
     }
-    if (this.outputDirectory !== undefined && (this.reportJson !== undefined || this.reportMarkdown !== undefined)) {
+    if (this.outputDirectory !== undefined && (this.reportJson !== undefined || this.reportMarkdown !== undefined || this.reportSarif !== undefined)) {
       ctx.stderr.write('--output-directory cannot be combined with explicit report paths\n');
       return 64;
     }
