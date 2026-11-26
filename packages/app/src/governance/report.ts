@@ -195,9 +195,7 @@ export function renderGovernanceMarkdown(report: RenderableGovernanceReport): st
     const pr = report.prScope;
     scope.push('', '### PR scope', '',
       `Compared ${escape(pr.mergeBase.slice(0, 12))} (merge base) with ${escape(pr.headRef.slice(0, 12))}: ${plural(pr.changedFiles.length, 'changed file')}, ${pr.validated.length} validated.`);
-    if (pr.validated.length > 0) {
-      scope.push('', ...pr.validated.map((file) => `- ${escape(file)}`));
-    }
+    // Only the count: a downloaded source can contribute hundreds of files. Structured output keeps the full list.
     if (pr.sources?.length) {
       scope.push('', `Validated sources: ${pr.sources.map((id) => escape(id)).join(', ')}`);
     }

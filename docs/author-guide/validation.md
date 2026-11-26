@@ -250,7 +250,9 @@ COL001 requires unique IDs and names; COL003 requires authors; COL005 checks str
 and referenced files; COL006 reports advisories. Empty collection selections fail.
 COL001, COL002 and COL005 are mandatory; configurable overrides and reasons remain
 visible in reports. Any error (including unverified errors) or report-write failure
-fails the command; warnings alone pass. Reports have no scores.
+fails the command; warnings alone pass. Reports have no scores. In PR mode, the
+Markdown **PR scope** section shows the number of changed and validated files and
+the validated sources; `-o json` lists every validated path.
 
 Governance has three independent commands: `hub validate`, `collection validate`
 and `primitive validate`. The existing `skill validate` command keeps its legacy

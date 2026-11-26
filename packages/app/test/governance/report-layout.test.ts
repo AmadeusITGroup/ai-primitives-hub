@@ -42,4 +42,16 @@ describe('governance report layout', () => {
     expect(markdown.match(/<details>/g)).toHaveLength(1);
     expect(markdown.match(/<\/details>/g)).toHaveLength(1);
   });
+
+  it('summarises the PR scope with counts and sources instead of listing every validated file', () => {
+    const report = evaluateGovernance('primitive', []);
+    const markdown = renderGovernanceMarkdown({ ...report, prScope: {
+      mergeBase: 'a'.repeat(40), headRef: 'b'.repeat(40), changedFiles: ['hub-config.yml'],
+      validated: ['src/skills/one/SKILL.md', 'src/agents/two.agent.md'], sources: ['src']
+    } });
+    expect(markdown).toContain('1 changed file, 2 validated.');
+    expect(markdown).toContain('Validated sources: src');
+    expect(markdown).not.toContain('SKILL&#46;md');
+    expect(markdown).not.toContain('two&#46;agent');
+  });
 });
