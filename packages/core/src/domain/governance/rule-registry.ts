@@ -11,13 +11,16 @@ import {
 import {
   HUB_RULES,
 } from './rules/hub';
+import {
+  PRIMITIVE_RULES,
+} from './rules/primitive';
 import type {
   GovernanceRule,
   GovernanceSubject,
 } from './types';
 
 export const GOVERNANCE_RULES: readonly GovernanceRule[] = [
-  ...COLLECTION_RULES, ...HUB_RULES, ...CONFIG_RULES
+  ...COLLECTION_RULES, ...HUB_RULES, ...PRIMITIVE_RULES, ...CONFIG_RULES
 ].toSorted((a, b) => a.id.localeCompare(b.id));
 
 /**

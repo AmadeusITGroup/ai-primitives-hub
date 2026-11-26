@@ -1,6 +1,7 @@
 /**
- * Ajv adapter for the core SchemaValidator port. Shared by governance, the CLI and the VS Code extension.
- * @module governance/ajv-schema-validator
+ * JSON Schema adapter for the core SchemaValidator port (currently backed by Ajv).
+ * Used by governance configuration loading.
+ * @module governance/json-schema-validator
  */
 import type {
   SchemaValidationOutcome,
@@ -11,16 +12,16 @@ import Ajv, {
 } from 'ajv';
 import addFormats from 'ajv-formats';
 
-export interface AjvSchemaValidatorOptions {
-  /** Ajv strict mode. Off by default to accept the repository's existing schemas. */
+export interface JsonSchemaValidatorOptions {
+  /** Strict schema mode. Off by default to accept the repository's existing schemas. */
   strict?: boolean;
 }
 
-export class AjvSchemaValidator implements SchemaValidator {
+export class JsonSchemaValidator implements SchemaValidator {
   private readonly ajv: Ajv;
   private readonly compiled = new WeakMap<object, ValidateFunction>();
 
-  public constructor(options: AjvSchemaValidatorOptions = {}) {
+  public constructor(options: JsonSchemaValidatorOptions = {}) {
     this.ajv = new Ajv({ allErrors: true, strict: options.strict ?? false });
     addFormats(this.ajv);
     this.ajv.addFormat('semver', /^\d+\.\d+\.\d+(-[a-zA-Z0-9.-]+)?$/);

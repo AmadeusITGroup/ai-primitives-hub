@@ -138,15 +138,21 @@ export async function readGitChangedFiles(runner: ArgvProcessRunner, repoRoot: s
   }
   const git = async (...args: string[]) => (await runner.execFile('git', ['--no-replace-objects', '-c', 'core.hooksPath=/dev/null', ...args], { cwd: repoRoot, timeoutMs: 30_000 })).stdout;
   let checkout: string;
+  let prefix: string;
   let mergeBases: string[];
   try {
     checkout = (await git('rev-parse', 'HEAD')).trim();
+    prefix = (await git('rev-parse', '--show-prefix')).trim();
     mergeBases = (await git('merge-base', '--all', baseRef, headRef)).trim().split('\n');
   } catch {
     throw new Error('Cannot read PR history. Fetch complete base/head history (fetch-depth: 0) and retry.');
   }
   if (checkout.toLowerCase() !== headRef.toLowerCase()) {
     throw new Error('The checkout is not at --head-ref. Check out the PR head commit before validating.');
+  }
+  // Changed paths are relative to the Git root, so they only match local paths from that root.
+  if (prefix !== '') {
+    throw new Error('PR validation must run from the Git repository root.');
   }
   if (mergeBases.length !== 1 || !commit.test(mergeBases[0])) {
     throw new Error('A unique merge base is required.');

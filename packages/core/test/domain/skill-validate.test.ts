@@ -81,6 +81,13 @@ describe('validateSkillName', () => {
     expect(validateSkillName('MySkill')).toBe('name must contain only lowercase letters, numbers, and hyphens');
   });
 
+  it('rejects leading, trailing and consecutive hyphens', () => {
+    expect(validateSkillName('-pdf')).toBe('name must not start or end with a hyphen');
+    expect(validateSkillName('pdf-')).toBe('name must not start or end with a hyphen');
+    expect(validateSkillName('pdf--processing')).toBe('name must not contain consecutive hyphens');
+    expect(validateSkillName('pdf-processing')).toBeNull();
+  });
+
   it('rejects name exceeding max length', () => {
     const longName = 'a'.repeat(SKILL_NAME_MAX_LENGTH + 1);
     const result = validateSkillName(longName);

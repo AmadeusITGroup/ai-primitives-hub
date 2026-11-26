@@ -17,8 +17,9 @@ import type {
   SkillValidationResult,
 } from '@ai-primitives-hub/core';
 import {
-  MAX_ASSET_SIZE,
   parseFrontmatter,
+  validateSkillAssets,
+  validateSkillContent,
   validateSkillDescription,
   validateSkillName,
 } from '@ai-primitives-hub/core';
@@ -43,7 +44,7 @@ export function validateSkillFolder(folderPath: string, folderName: string): Ski
     };
   }
 
-  // Read and parse frontmatter
+  // Content rules are shared with governance (core), so local and fetched skills agree.
   const content = fs.readFileSync(skillFile, 'utf8');
   const metadata = parseFrontmatter(content);
   if (!metadata) {
@@ -54,40 +55,25 @@ export function validateSkillFolder(folderPath: string, folderName: string): Ski
       errors: ['Failed to parse SKILL.md frontmatter']
     };
   }
-
   skillName = metadata.name || folderName;
-
-  // Validate name field
-  const nameError = validateSkillName(metadata.name);
-  if (nameError) {
-    errors.push(`name: ${nameError}`);
-  } else if (metadata.name !== folderName) {
-    errors.push(`Folder name "${folderName}" does not match skill name "${metadata.name}"`);
-  }
-
-  // Validate description field
-  const descError = validateSkillDescription(metadata.description);
-  if (descError) {
-    errors.push(`description: ${descError}`);
-  }
+  errors.push(...validateSkillContent(folderName, content));
 
   // Check for reasonable file sizes in bundled assets
-  const files = fs.readdirSync(folderPath);
-  for (const file of files) {
+  const assets: { name: string; size?: number; error?: string }[] = [];
+  for (const file of fs.readdirSync(folderPath)) {
     if (file === 'SKILL.md') {
       continue;
     }
-    const filePath = path.join(folderPath, file);
     try {
-      const stats = fs.statSync(filePath);
-      if (stats.isFile() && stats.size > MAX_ASSET_SIZE) {
-        const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
-        errors.push(`Bundled asset "${file}" exceeds maximum size of 5MB (${sizeMB}MB)`);
+      const stats = fs.statSync(path.join(folderPath, file));
+      if (stats.isFile()) {
+        assets.push({ name: file, size: stats.size });
       }
     } catch (error) {
-      errors.push(`Cannot access bundled asset "${file}": ${(error as Error).message}`);
+      assets.push({ name: file, error: (error as Error).message });
     }
   }
+  errors.push(...validateSkillAssets(assets));
 
   return {
     skillName,

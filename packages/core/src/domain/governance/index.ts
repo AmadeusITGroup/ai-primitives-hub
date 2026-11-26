@@ -7,6 +7,7 @@ export * from './rule-registry';
 export * from './rules/config';
 export * from './rules/collection';
 export * from './rules/hub';
+export * from './rules/primitive';
 export * from './effective-rules';
 export * from './evaluate';
 export * from './catalogue';

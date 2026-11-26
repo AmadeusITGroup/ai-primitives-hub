@@ -6,7 +6,8 @@ Validation works at two levels, each building on the previous one:
 
 1. **Collection level** — checks the `.collection.yml` files in a source repository
    and the files they reference. Start here; see [Quick Validation](#quick-validation)
-   and [Collection Governance (CLI)](#collection-governance-cli).
+   and [Collection Governance (CLI)](#collection-governance-cli). The individual
+   primitives it references are covered by [Primitive Governance (CLI)](#primitive-governance-cli).
 2. **Hub level** — checks a hub configuration (`hub-config.yml`) that aggregates
    sources and profiles. See [Hub Governance (CLI)](#hub-governance-cli).
 
@@ -249,7 +250,16 @@ COL001 requires unique IDs and names; COL003 requires authors; COL005 checks str
 and referenced files; COL006 reports advisories. Empty collection selections fail.
 COL001, COL002 and COL005 are mandatory; configurable overrides and reasons remain
 visible in reports. Any error (including unverified errors) or report-write failure
-fails the command; warnings alone pass. Reports have no scores.
+fails the command; warnings alone pass. Reports have no scores. In PR mode, the
+Markdown **PR scope** section shows the number of changed and validated files and
+the validated sources; `-o json` lists every validated path.
+
+Governance has three independent commands: `hub validate`, `collection validate`
+and `primitive validate`. The existing `skill validate` command keeps its legacy
+specification-validation output and does not accept governance options. Collection
+reports show the collapsed **All checks** table first; problem and warning tables
+include all contributing rule IDs. Specific source failures remain visible, while
+generic incomplete-data notices and source-contact notes are omitted.
 
 ### Source checks
 
@@ -328,6 +338,69 @@ entry file still reports COL005 even when supporting files remain. Changes are
 matched against the declared skill directory boundary, so deleted supporting
 files also select their collection even though they are no longer on disk.
 
+## Primitive Governance (CLI)
+
+Run `ai-primitives-hub primitive validate <file-or-dir>...` from the repository root.
+Directories are searched recursively. `--policy <path>`, `--report-path <path>`
+and `-o text|json|yaml|ndjson` are supported; primitive validation always uses governance.
+An empty standalone selection fails. The filename determines the kind: `SKILL.md`
+(exact case), `*.agent.md`, `*.prompt.md`, `*.instructions.md`, `mcp.json` or `*.mcp.json`.
+MCP files are read as JSONC, like VS Code: comments and trailing commas are allowed.
+Use `--kind skill|agent|prompt|instruction|mcp-server` to override it.
+
+| Rule | Checks | Default |
+| --- | --- | --- |
+| `SKL001` | Agent Skills frontmatter, name/folder agreement, description, and readable bundled assets up to 5 MB | Mandatory error |
+| `AGT001` | Agent filename, non-empty description and string-list tools | Warning |
+| `PRM001` | Prompt filename, description, non-empty agent and valid mode (`ask`, `edit`, `agent`) when supplied | Warning |
+| `INS001` | Instruction filename and relative `applyTo` glob or glob list | Warning |
+| `MCP001` | Every `${input:id}` referenced by a server is declared in `inputs` | Warning |
+| `MCP002` | No literal secrets in env, headers or args; use input/environment placeholders | Warning |
+| `MCP003` | Valid JSON or JSONC, non-empty server map, exactly one command or HTTP(S) URL, valid transport/field types and unique, supported input declarations | Error |
+| `BOD001` | Non-empty Markdown body after frontmatter; whitespace and HTML comments do not count | Warning |
+| `PTH001` | Existing paths resolve inside the repository root before content is read | Mandatory error |
+| `VAL001` | Inputs, changed hub sources and their collections could be read, so validation completed | Mandatory error |
+
+These rules do not execute source code, contact MCP endpoints or assess instruction
+quality. Content advisories can be configured; floor rules cannot be disabled or
+downgraded. For detailed policy flags, see the [rule catalogue](./rule-catalogue.md).
+
+### Primitive safety and content checks
+
+Absolute paths are allowed only inside the current repository root. Escaping or
+broken symlinks and unavailable canonical-path resolution fail `PTH001` before
+content is read. Contained symlinks are allowed; recursive scans avoid loops and
+duplicate canonical files. Invalid MCP transport/input structures fail `MCP003`.
+Input types are `promptString`, `pickString` and `command`, with their required
+properties. URLs can also use input/environment placeholders.
+
+Reports mark rules for kinds not inspected as **Not applicable**, excluding them
+from passed-check counts. Structured reports expose `applicableRules`. Findings
+and disabled rules retain their actual status; older producers without this metadata
+keep their previous rendering.
+
+### Primitive PR validation
+
+Add `--base-ref <commit> --head-ref <commit>` with full history and the PR head
+checked out, and run from the Git repository root. Paths are optional in PR mode and default to the whole repository.
+Only changed primitive files are validated; a change anywhere in a skill folder
+revalidates its `SKILL.md`, including deletion of supporting files. Deleted primitive
+files themselves are not inspected; collection validation detects broken references.
+Both discovered and explicit policies are read from the merge base, so the PR
+cannot relax its own gate. Missing explicit policies fail with CFG001.
+
+Enabled GitHub sources added or modified in the hub config (`--config`, default
+`hub-config.yml`) are downloaded from their configured branch. All their
+collection-referenced skills, agents, prompts, instructions and MCP definitions
+are validated, regardless of profiles. Item kinds drive validation, including MCP
+files with arbitrary names. Shared items are checked once per path and kind;
+unreferenced files and unchanged sources are not scanned. Source-download,
+hub-config or collection-read failures fail `VAL001`; local primitive findings are
+still reported. Collection items that escape the source fail `PTH001`; missing items
+fail `VAL001`. Findings name the item path. Findings and validated
+paths use `<source id>/<file>`; the **PR scope** section lists downloaded sources.
+Downloads reuse existing GitHub authentication and never execute source contents.
+
 ## Hub Governance (CLI)
 
 Run `ai-primitives-hub hub validate --governance -o json` to validate the hub
@@ -385,6 +458,10 @@ it. Each `rules` entry can specify `enabled`, `severity` and an explanatory `rea
 CFG001 rejects unreadable or malformed YAML/schema, CFG002 rejects unknown or
 non-configurable rule IDs, and CFG003 rejects disabling or downgrading floor rules.
 Invalid configuration fails the run and its overrides are ignored.
+
+For PR-scoped hub, collection and primitive validation, policy is read from the
+merge base so the PR cannot relax its own gate. Unscoped runs use the working-tree
+policy.
 
 ### External Workflow Consumption
 

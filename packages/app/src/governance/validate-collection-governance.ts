@@ -192,6 +192,33 @@ export async function changedGitHubSources(request: CollectionGovernanceRequest,
 }
 
 /**
+ * Download one hub source, run `use` on the checkout and always dispose of it.
+ * @param access Source download port; undefined when the caller cannot download.
+ * @param source Hub source to download.
+ * @param unreadable Result when the source is not downloaded.
+ * @param use Validation over the checkout.
+ */
+export async function withSourceCheckout<T>(
+  access: HubSourceAccess | undefined, source: HubEntity,
+  unreadable: (failure: FailureReason) => T, use: (checkout: HubSourceCheckout) => Promise<T>
+): Promise<T> {
+  if (access === undefined) {
+    return unreadable({ reason: 'Source download is not configured', hint: 'Run through the CLI, which supplies source access.' });
+  }
+  let checkout;
+  try {
+    checkout = await access.checkout(source);
+  } catch (error) {
+    return unreadable(describeFailure(error));
+  }
+  try {
+    return await use(checkout);
+  } finally {
+    await checkout.dispose();
+  }
+}
+
+/**
  * Download one hub source and validate its collections. Paths are reported as `<source id>/<file>`.
  * @param fs
  * @param source
@@ -203,25 +230,14 @@ async function sourceCollectionFindings(fs: FileSystem, source: HubEntity, reque
     ruleId: 'COL005', severity: 'error', verified: false, file: source.id, subject: { kind: 'source', id: source.id }, problem: failure.reason,
     message: `Could not download source '${source.id}' to validate its collections. Why: ${failure.reason}`, hint: failure.hint
   }];
-  if (request.hubSources === undefined) {
-    return unreadable({ reason: 'Source download is not configured', hint: 'Run through the CLI, which supplies source access.' });
-  }
-  let checkout;
-  try {
-    checkout = await request.hubSources.checkout(source);
-  } catch (error) {
-    return unreadable(describeFailure(error));
-  }
-  try {
+  return withSourceCheckout(request.hubSources, source, unreadable, async (checkout) => {
     const selected: GovernanceCollection[] = [];
     const findings = await repositoryFindings(fs, checkout.dir, {
       checkReleases: request.checkReleases, repository: checkout.repository, sourceId: source.id, releaseLookup: checkout.releaseLookup, candidates: selected
     });
     candidates.push(...selected.map((collection) => ({ ...collection, file: `${source.id}/${collection.file}` })));
     return withDisplayPaths(findings, checkout.dir).map((finding) => ({ ...finding, file: finding.file === undefined ? source.id : `${source.id}/${finding.file}` }));
-  } finally {
-    await checkout.dispose();
-  }
+  });
 }
 
 /**

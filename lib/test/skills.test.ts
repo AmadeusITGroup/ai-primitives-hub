@@ -92,6 +92,10 @@ description: "A test skill"
       assert.strictEqual(result?.description, 'A test skill');
     });
 
+    it('should parse CRLF frontmatter', () => {
+      assert.strictEqual(parseFrontmatter('---\r\nname: my-skill\r\n---\r\nBody')?.name, 'my-skill');
+    });
+
     it('should return null for missing frontmatter', () => {
       const content = '# No frontmatter here';
       assert.strictEqual(parseFrontmatter(content), null);

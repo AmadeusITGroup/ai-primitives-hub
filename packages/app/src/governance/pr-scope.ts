@@ -1,10 +1,23 @@
-/** Collection PR scope: validate only files affected by the change. */
+/**
+ * PR scoping for collection and primitive runs: validate only what a PR changed.
+ * @module app/governance/pr-scope
+ */
+import * as path from 'node:path';
 import type {
   ArgvProcessRunner,
+  FileSystem,
+  GovernedPrimitiveKind,
+} from '@ai-primitives-hub/core';
+import {
+  detectPrimitiveKind,
+  isPrimitiveFileOfKind,
 } from '@ai-primitives-hub/core';
 import {
   readGitChangedFiles,
 } from '@ai-primitives-hub/infra/governance';
+import {
+  inside,
+} from './primitive-path-safety';
 
 export interface PrScopeRequest {
   baseRef?: string;
@@ -38,4 +51,80 @@ export async function readPrChanges(request: PrScopeRequest, repoRoot: string) {
     throw new Error('PR validation requires a process runner for Git.');
   }
   return readGitChangedFiles(request.processRunner, repoRoot, request.baseRef, request.headRef);
+}
+
+const isInside = (file: string, roots: readonly string[]): boolean =>
+  roots.some((root) => root === '.' || file === root || file.startsWith(`${root}/`));
+
+const repositoryRelativeRoot = (repoRoot: string, root: string): string => {
+  const absoluteRoot = path.resolve(repoRoot);
+  const absolute = path.resolve(repoRoot, root);
+  if (!inside(absoluteRoot, absolute)) {
+    throw new Error(`Primitive path '${root}' is outside the repository.`);
+  }
+  const relative = path.relative(absoluteRoot, absolute);
+  return relative === '' ? '.' : relative.split(path.sep).join('/');
+};
+
+const isMissingPath = (error: unknown): boolean => {
+  const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+};
+
+/**
+ * Whether a path entry exists without following a final symbolic link, so a dangling link is kept and later
+ * rejected by path validation, while deleted files are not.
+ * @param fs
+ * @param file
+ * @throws {Error} When the parent directory exists but cannot be listed, so changed primitives are never silently skipped.
+ */
+const entryExists = async (fs: FileSystem, file: string): Promise<boolean> => {
+  try {
+    return (await fs.readDir(path.dirname(file))).includes(path.basename(file));
+  } catch (error) {
+    if (isMissingPath(error)) {
+      return false;
+    }
+    throw error;
+  }
+};
+
+/**
+ * Changed primitive files under the given roots. A change anywhere in a skill folder selects its SKILL.md.
+ * @param fs
+ * @param repoRoot
+ * @param changedFiles Repository-relative changed paths.
+ * @param roots Files or directories, relative to the repository or absolute inside it, to limit the scope; `.` for everything.
+ * @param kind Forced kind; selects changed explicit file roots of any name, and changed files of that kind under directory roots.
+ * @throws {Error} When a root is outside the repository.
+ */
+export async function changedPrimitiveFiles(
+  fs: FileSystem, repoRoot: string, changedFiles: readonly string[], roots: readonly string[], kind?: GovernedPrimitiveKind
+): Promise<string[]> {
+  const normalizedRoots = roots.map((root) => repositoryRelativeRoot(repoRoot, root));
+  const selected = new Set<string>();
+  for (const file of changedFiles.filter((candidate) => isInside(candidate, normalizedRoots))) {
+    const governed = kind === undefined
+      ? detectPrimitiveKind(file) !== undefined
+      : normalizedRoots.includes(file) || isPrimitiveFileOfKind(file, kind);
+    if (governed && await entryExists(fs, path.join(repoRoot, file))) {
+      selected.add(file);
+    }
+    if (kind !== undefined && kind !== 'skill') {
+      continue;
+    }
+    // Any change inside a skill folder, including a primitive used as a supporting file, re-validates the
+    // nearest skill, up to the repository root.
+    for (let dir = path.posix.dirname(file); ; dir = path.posix.dirname(dir)) {
+      const skill = dir === '.' ? 'SKILL.md' : `${dir}/SKILL.md`;
+      if (await entryExists(fs, path.join(repoRoot, skill))) {
+        selected.add(skill);
+        break;
+      }
+      if (dir === '.' || dir === '/') {
+        break;
+      }
+    }
+  }
+  return [...selected].toSorted();
 }

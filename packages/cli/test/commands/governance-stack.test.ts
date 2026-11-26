@@ -48,15 +48,15 @@ profiles: []
     await rm(root, { recursive: true, force: true });
   });
 
-  it('exposes only the hub, collection and configuration rule families', () => {
-    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['CFG', 'COL', 'HUB']);
+  it('exposes all three stages without scoring or CFG004', () => {
+    expect([...new Set(GOVERNANCE_RULES.map((rule) => rule.id.slice(0, 3)))].toSorted()).toEqual(['AGT', 'BOD', 'CFG', 'COL', 'HUB', 'INS', 'MCP', 'PRM', 'PTH', 'SKL', 'VAL']);
+    expect(GOVERNANCE_RULES.some((rule) => rule.id === 'CFG004')).toBe(false);
   });
 
   it('validates through the registered hub command and writes the shared report', async () => {
     const result = await run(['hub', 'validate', '--governance', '--report-path', 'report.md', '-o', 'json']);
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).data).toMatchObject({ subject: 'hub', verdict: 'pass' });
-    expect(JSON.parse(result.stdout).data).not.toHaveProperty('score');
     expect(await readFile(path.join(root, 'report.md'), 'utf8')).toContain('<!-- hub-validation-report -->');
   });
 
@@ -67,10 +67,14 @@ profiles: []
     expect(JSON.parse(result.stdout).data.findings).toContainEqual(expect.objectContaining({ ruleId: 'CFG003' }));
   });
 
-  it('activates collection governance without primitive validation or legacy skill governance', async () => {
+  it('keeps hub and collection validation separate from primitives and legacy skill validation', async () => {
     const collection = await run(['collection', 'validate', '--governance', '-o', 'json']);
     expect(JSON.parse(collection.stdout).data).toMatchObject({ subject: 'collection' });
-    expect((await run(['primitive', 'validate', '.'])).exitCode).not.toBe(0);
+    await writeFile(path.join(root, 'test.prompt.md'), '---\ndescription: Test prompt\n---\nExplain the result.\n');
+    const primitive = await run(['primitive', 'validate', 'test.prompt.md', '-o', 'json']);
+    expect(primitive.exitCode).toBe(0);
+    expect(JSON.parse(primitive.stdout).data).toMatchObject({ subject: 'primitive', verdict: 'pass' });
+    expect(JSON.parse(primitive.stdout).data.applicableRules.some((id: string) => id.startsWith('COL') || id.startsWith('HUB'))).toBe(false);
     expect((await run(['skill', 'validate', '--governance'])).exitCode).not.toBe(0);
   });
 });
