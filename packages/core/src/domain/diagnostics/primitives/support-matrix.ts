@@ -15,6 +15,9 @@ import {
 import type {
   PrimitiveKind,
 } from '../../primitive/types';
+import type {
+  DiagnosticInstallMode,
+} from './types';
 
 /** How a target supports a kind. */
 export type SupportLevel = 'native' | 'projected' | 'unsupported';
@@ -54,23 +57,29 @@ export const PRIMITIVE_SUPPORT_MATRIX: Readonly<Partial<Record<PrimitiveKind, Re
 /**
  * Expected install status of a bundle on a target.
  *
- * `partial` is the contract for a bundle that mixes kinds the target
- * supports with kinds it does not: the supported items install and the
- * others are reported. The doctor runs the default all-or-nothing
- * `install`, so a `partial` case is rejected and reported as a known gap;
- * `install --skip-unsupported` (#550) is the opt-in partial install.
+ * The default `install` is all-or-nothing: a bundle with any kind the
+ * target does not support is `rejected`, which is the documented outcome.
+ * `partial` exists only for the opt-in `install --skip-unsupported` (#550):
+ * the supported items install and the others are reported as skipped.
  */
 export type ExpectedInstallStatus = 'installed' | 'partial' | 'rejected';
 
 /**
- * Expected install status of a bundle on a target.
+ * Expected install status of a bundle on a target, in an install mode.
  * @param kinds - Kinds of the bundle.
  * @param target - Target type.
- * @returns 'installed' when every kind is native/projected on the target, 'rejected' when
- * none is, else 'partial'. A single-kind bundle is never 'partial'.
+ * @param mode - Install mode; default `'default'` (all-or-nothing).
+ * @returns 'installed' when every kind is native/projected on the target.
+ * Otherwise, in the default mode, 'rejected'; with `skip-unsupported`,
+ * 'rejected' when no kind is supported, else 'partial'. A single-kind
+ * bundle is never 'partial'.
  * @throws {Error} When a kind has no support-matrix row.
  */
-export function expectedStatus(kinds: readonly PrimitiveKind[], target: TargetType): ExpectedInstallStatus {
+export function expectedStatus(
+  kinds: readonly PrimitiveKind[],
+  target: TargetType,
+  mode: DiagnosticInstallMode = 'default'
+): ExpectedInstallStatus {
   let supported = 0;
   for (const kind of kinds) {
     const levels = PRIMITIVE_SUPPORT_MATRIX[kind];
@@ -84,5 +93,5 @@ export function expectedStatus(kinds: readonly PrimitiveKind[], target: TargetTy
   if (supported === kinds.length) {
     return 'installed';
   }
-  return supported === 0 ? 'rejected' : 'partial';
+  return mode === 'default' || supported === 0 ? 'rejected' : 'partial';
 }

@@ -4,7 +4,9 @@
  * Orchestration only: preflight, workspace lifecycle, fixture repository,
  * sequential per-bundle validate/build/extract/evaluate/materialise, a
  * bounded case pool with per-case sandbox snapshots, the shared input
- * check and the report. Every rule and expected value (catalogue, matrix,
+ * check and the report. A `skip-unsupported` case installs with
+ * `--skip-unsupported` and, when the install succeeds, reads the lockfile
+ * it reports so core can check what was recorded. Every rule and expected value (catalogue, matrix,
  * placements, known gaps, evaluators, classifier, report) comes from
  * `@ai-primitives-hub/core`. The outside world is reached only through the
  * injected ports; the use case writes only under `input.workspace`.
@@ -37,10 +39,12 @@ import {
   evaluateCase,
   evaluateRejectedBundle,
   type FileSystem,
+  type InstallRecord,
   isBookkeepingLabel,
   type KnownGap,
   NOT_EVALUATED,
   observedInstallStatus,
+  parseRecord,
   placedLabels,
   type PlannedCase,
   PRIMITIVE_FIXTURE_REPOSITORY_URL,
@@ -54,6 +58,9 @@ import {
   type Snapshot,
   type SnapshotRoot,
 } from '@ai-primitives-hub/core';
+import {
+  fromRecordFile,
+} from '../records/record-file-shape';
 import {
   findAncestorFile,
   PRIMITIVE_DIAGNOSTICS_PREFLIGHT_FILES,
@@ -152,7 +159,8 @@ const observe = (result: DriverCommandResult): CommandObservation => ({
   errorMessages: result.errorMessages,
   ...(result.status === undefined ? {} : { status: result.status }),
   ...(result.errorCode === undefined ? {} : { errorCode: result.errorCode }),
-  ...(result.rejectedPaths === undefined ? {} : { rejectedPaths: result.rejectedPaths })
+  ...(result.rejectedPaths === undefined ? {} : { rejectedPaths: result.rejectedPaths }),
+  ...(result.skipped === undefined ? {} : { skipped: result.skipped })
 });
 
 /**
@@ -244,6 +252,25 @@ export async function runPrimitiveDiagnostics(
       }
     }
     return text;
+  };
+
+  // Sorted archive paths the install record holds for a bundle, over its tool entries: each file's
+  // `sourcePath`, else its written path. Undefined when the record or the bundle cannot be read (I15 reports it).
+  const readLockedFiles = async (lockPath: unknown, bundleId: string): Promise<string[] | undefined> => {
+    if (typeof lockPath !== 'string' || lockPath === '') {
+      return undefined;
+    }
+    try {
+      const record = fromRecordFile(parseRecord(await fs.readFile(lockPath), lockPath) as unknown as InstallRecord);
+      const tools = record.bundles[bundleId]?.tools;
+      if (tools === undefined || tools === null || typeof tools !== 'object') {
+        return undefined;
+      }
+      const files = Object.values(tools).flatMap((entry) => (Array.isArray(entry.files) ? entry.files : []));
+      return files.map((file) => (typeof file.sourcePath === 'string' ? file.sourcePath : file.path)).toSorted();
+    } catch {
+      return undefined;
+    }
   };
 
   // 4a. An invalid bundle: validate, build, and what the build wrote to the dist dir. Never materialised.
@@ -346,7 +373,13 @@ export async function runPrimitiveDiagnostics(
       }
 
       const beforeInstall = await snapshotTree(fs, root, roots);
-      const install = await driver.install(sandbox, { bundleId: bundle.id, from: source.from, target: TARGET_NAME });
+      const skipUnsupported = planned.mode === 'skip-unsupported';
+      const install = await driver.install(sandbox, {
+        bundleId: bundle.id,
+        from: source.from,
+        target: TARGET_NAME,
+        ...(skipUnsupported ? { skipUnsupported } : {})
+      });
       const afterInstall = await snapshotTree(fs, root, roots);
       const observation: CaseObservation = {
         targetAdd: { ...observe(targetAdd), effectiveScope },
@@ -360,6 +393,12 @@ export async function runPrimitiveDiagnostics(
           observation.executable = executable;
         }
         observation.installedText = await readInstalledText(beforeInstall, afterInstall, roots);
+        if (skipUnsupported) {
+          const lockedFiles = await readLockedFiles(install.data?.lockfile, bundle.id);
+          if (lockedFiles !== undefined) {
+            observation.lockedFiles = lockedFiles;
+          }
+        }
         try {
           observation.uninstall = observe(await driver.uninstall(sandbox, { target: TARGET_NAME }));
         } catch {

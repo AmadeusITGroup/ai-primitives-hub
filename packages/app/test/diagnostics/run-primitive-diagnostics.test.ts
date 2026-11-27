@@ -8,8 +8,10 @@ import * as path from 'node:path';
 import {
   buildPrimitiveFixture,
   type BundleExtractor,
+  expectedDestination,
   NOT_EVALUATED,
   planPrimitiveDiagnostics,
+  PRIMITIVE_DIAGNOSTIC_BUNDLES,
   PRIMITIVE_FIXTURE_REPOSITORY_URL,
   PRIMITIVE_KNOWN_GAPS,
   type PrimitiveDiagnosticsFilters,
@@ -397,30 +399,110 @@ describe('runPrimitiveDiagnostics', () => {
   });
 
   describe('mixed bundles', () => {
-    it('absorbs the kiro rejection of the portable mix with every matching gap and checks each rejected item', async () => {
+    const PORTABLE = ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook'] as const;
+    const ALL_KINDS = [...new Set(PRIMITIVE_DIAGNOSTIC_BUNDLES.flatMap((b) => b.items.map((i) => i.kind)))];
+    const ALL_ON_VSCODE: PrimitiveDiagnosticsFilters = { kinds: ALL_KINDS, targets: ['vscode'], scopes: ['user'] };
+    const MIX = 'aph-e2e-mix-all-kinds__vscode__user';
+    const SKIP_MIX = `${MIX}__skip-unsupported`;
+
+    it('runs a mixed bundle in both install modes, in plan order, passing --skip-unsupported to the skip cases only', async () => {
       const h = harness();
-      const kinds = ['prompt', 'instruction', 'agent', 'skill', 'plugin', 'hook'] as const;
-      h.driver.onInstall = (call) => (call.target === 'kiro' && call.bundle.items.some((i) => i.kind === 'hook' || i.kind === 'plugin')
-        ? {
-          exitCode: 1,
-          errorCode: 'BUNDLE.UNSUPPORTED_CONTENT',
-          files: [],
-          rejectedPaths: call.bundle.items.filter((i) => i.kind === 'hook' || i.kind === 'plugin').flatMap((i) => i.files)
+
+      const report = await run(h, { kinds: [...PORTABLE], targets: ['vscode'], scopes: ['user'] });
+
+      const plan = planPrimitiveDiagnostics({ kinds: [...PORTABLE], targets: ['vscode'], scopes: ['user'] });
+      expect(report.cases.map((c) => [c.id, c.mode])).toEqual(plan.cases.map((c) => [c.id, c.mode]));
+      expect(report.cases.filter((c) => c.mode === 'skip-unsupported').map((c) => c.id)).toEqual(['aph-e2e-mix-portable__vscode__user__skip-unsupported']);
+      for (const call of h.driver.callsOf('install')) {
+        const skip = call.root!.endsWith('__skip-unsupported');
+        expect(call.input.skipUnsupported, call.root).toBe(skip ? true : undefined);
+      }
+      const skipCase = caseById(report, 'aph-e2e-mix-portable__vscode__user__skip-unsupported');
+      expect(skipCase).toMatchObject({ mode: 'skip-unsupported', status: 'installed', expectedStatus: 'installed' });
+      expect(skipCase.checks.find((c) => c.invariant === 'I15')).toMatchObject({ outcome: 'pass' });
+      expect(report.cases.every((c) => c.outcome !== 'fail')).toBe(true);
+    });
+
+    it('passes the default rejection and the --skip-unsupported partial install of the all-kinds mix', async () => {
+      const report = await run(harness(), ALL_ON_VSCODE);
+
+      expect(caseById(report, MIX)).toMatchObject({ mode: 'default', status: 'rejected', expectedStatus: 'rejected', outcome: 'pass' });
+      const partial = caseById(report, SKIP_MIX);
+      expect(partial).toMatchObject({ mode: 'skip-unsupported', status: 'partial', expectedStatus: 'partial' });
+      const outcomes = (invariant: string): string[] => partial.checks.filter((c) => c.invariant === invariant).map((c) => c.outcome);
+      expect(outcomes('I4')).toEqual(['pass']);
+      expect(outcomes('I6')).toEqual(['pass']);
+      expect(outcomes('I9').every((outcome) => outcome === 'pass')).toBe(true);
+      expect(outcomes('I13')).toEqual(['pass']);
+      expect(outcomes('I15')).toEqual(['pass']);
+      expect(partial.destinations).toContain('$HOME/.copilot/prompts/hello-world.prompt.md');
+      expect(partial.destinations.some((label) => label.includes('steering'))).toBe(false);
+      expect(report.cases.every((c) => c.outcome !== 'fail')).toBe(true);
+    });
+
+    it('fails I15 when the lockfile of a --skip-unsupported install records a skipped file', async () => {
+      const h = harness();
+      h.driver.onInstall = (call) => {
+        const healthy = h.driver.defaultInstall(call);
+        return call.skipUnsupported ? { ...healthy, lockedFiles: call.bundle.items.flatMap((item) => item.files) } : healthy;
+      };
+
+      const report = await run(h, ALL_ON_VSCODE);
+
+      const i15 = caseById(report, SKIP_MIX).checks.find((c) => c.invariant === 'I15');
+      expect(i15).toMatchObject({ outcome: 'fail', observed: { unreasoned: [], missing: [] } });
+      expect((i15?.observed as { unexpected: string[] }).unexpected).toContain('.kiro/steering/api-standards.md');
+      expect(caseById(report, SKIP_MIX).outcome).toBe('fail');
+      expect(caseById(report, MIX).checks.map((c) => c.invariant)).not.toContain('I15');
+    });
+
+    it('absorbs the kiro rejection of the portable mix in both modes with every matching gap and checks each left-out item', async () => {
+      const h = harness();
+      const leftOut = (kind: string): boolean => kind === 'hook' || kind === 'plugin';
+      h.driver.onInstall = (call) => {
+        if (call.target !== 'kiro' || !call.bundle.items.some((i) => leftOut(i.kind))) {
+          return h.driver.defaultInstall(call);
         }
-        : h.driver.defaultInstall(call));
+        const skippedItems = call.bundle.items.filter((i) => leftOut(i.kind));
+        if (!call.skipUnsupported) {
+          return { exitCode: 1, errorCode: 'BUNDLE.UNSUPPORTED_CONTENT', files: [], rejectedPaths: skippedItems.flatMap((i) => i.files) };
+        }
+        const kept = call.bundle.items.filter((i) => !leftOut(i.kind));
+        return {
+          exitCode: 0,
+          files: kept.flatMap((item) => item.files.map((file) => expectedDestination('kiro', call.scope, item, file)))
+            .flatMap((destination) => (destination.kind === 'file' ? [resolveLabel(call.roots, destination.label)] : [])),
+          skipped: skippedItems.flatMap((i) => i.files).map((file) => ({ path: file, code: 'BUNDLE.UNSUPPORTED_CONTENT', reason: 'kiro cannot install this content' })),
+          lockedFiles: kept.flatMap((i) => i.files)
+        };
+      };
 
-      const report = await run(h, { kinds: [...kinds], targets: ['kiro'], scopes: ['user'] });
+      const report = await run(h, { kinds: [...PORTABLE], targets: ['kiro'], scopes: ['user'] });
 
-      const mix = caseById(report, 'aph-e2e-mix-portable__kiro__user');
-      expect(mix).toMatchObject({ status: 'rejected', expectedStatus: 'installed', outcome: 'known-gap', gapIds: ['kiro-hook-rejected', 'kiro-plugin-rejected'] });
-      expect(mix.checks.filter((c) => c.invariant === 'I9').map((c) => [c.item, c.outcome])).toEqual([
+      const leftOutItems = (id: string): [string | undefined, string][] =>
+        caseById(report, id).checks.filter((c) => c.invariant === 'I9').map((c) => [c.item, c.outcome]);
+      const items: [string, string][] = [
         ['prompts/hello-world.prompt.md', 'pass'],
         ['instructions/code-style.instructions.md', 'pass'],
         ['agents/security.agent.md', 'pass'],
         ['skills/standalone-skill/SKILL.md', 'pass'],
         ['plugins/aph-e2e-plugin/plugin.json', 'known-gap'],
         ['hooks/pre-commit.hook.json', 'known-gap']
-      ]);
+      ];
+      const mix = caseById(report, 'aph-e2e-mix-portable__kiro__user');
+      expect(mix).toMatchObject({ status: 'rejected', expectedStatus: 'installed', outcome: 'known-gap', gapIds: ['kiro-hook-rejected', 'kiro-plugin-rejected'] });
+      expect(leftOutItems(mix.id)).toEqual(items);
+      const skipped = caseById(report, 'aph-e2e-mix-portable__kiro__user__skip-unsupported');
+      expect(skipped).toMatchObject({ status: 'partial', expectedStatus: 'installed', outcome: 'known-gap', gapIds: ['kiro-hook-rejected', 'kiro-plugin-rejected'] });
+      expect(skipped.checks.find((c) => c.invariant === 'I4')).toMatchObject({ outcome: 'known-gap', observed: { status: 'partial', errorCode: null } });
+      expect(leftOutItems(skipped.id)).toEqual(items);
+      expect(skipped.checks.filter((c) => ['I11', 'I12', 'I14'].includes(c.invariant)).map((c) => c.detail))
+        .toEqual(['not applicable: plugin skipped', 'not applicable: plugin skipped', 'not applicable: plugin skipped']);
+      expect(skipped.checks.filter((c) => ['I13', 'I15'].includes(c.invariant)).map((c) => c.outcome)).toEqual(['pass', 'pass']);
+      expect(report.knownGaps).toEqual(expect.arrayContaining([
+        { key: 'kiro-hook-rejected/I4/hook@kiro/skip-unsupported', id: 'kiro-hook-rejected', invariant: 'I4', absorbed: 1, issue: 549 },
+        { key: 'kiro-plugin-rejected/I4/plugin@kiro/skip-unsupported', id: 'kiro-plugin-rejected', invariant: 'I4', absorbed: 1, issue: 549 }
+      ]));
       expect(report.ok).toBe(true);
     });
   });

@@ -57,6 +57,18 @@ export interface DriverCommandResult<T = unknown> {
   errorMessages: string[];
   /** Archive-relative paths an install rejected as unsupported content, when the command listed them. */
   rejectedPaths?: string[];
+  /** Content a `--skip-unsupported` install left out, one entry per archive file, when the command listed it. */
+  skipped?: SkippedContent[];
+}
+
+/** One file a `--skip-unsupported` install left out. */
+export interface SkippedContent {
+  /** Archive-relative path. */
+  path: string;
+  /** Machine-readable reason code, e.g. `BUNDLE.UNSUPPORTED_CONTENT`. */
+  code: string;
+  /** Human-readable reason. */
+  reason: string;
 }
 
 /** Operations the primitive diagnostics use case drives. */
@@ -71,7 +83,15 @@ export interface PrimitiveDiagnosticsDriver {
   buildBundle(sandbox: DiagnosticSandbox, input: { collectionFile: string; version: string; outDir: string }): Promise<DriverCommandResult<{ zipAsset: string; bundleId: string }>>;
   materializeBundle(input: { zipPath: string; destination: string }): Promise<string[]>;
   addTarget(sandbox: DiagnosticSandbox, input: { name: string; type: TargetType; scope: DiagnosticScope }): Promise<DriverCommandResult<{ target: { scope?: string } }>>;
-  /** bundleId is the catalogue (collection) id. */
-  install(sandbox: DiagnosticSandbox, input: { bundleId: string; from: string; target: string }): Promise<DriverCommandResult>;
+  /**
+   * bundleId is the catalogue (collection) id. `skipUnsupported` runs the
+   * opt-in partial install (`install --skip-unsupported`); absent or false
+   * runs the default all-or-nothing install. `data.lockfile` is the
+   * absolute path of the lockfile the install updated, when it reports one.
+   */
+  install(
+    sandbox: DiagnosticSandbox,
+    input: { bundleId: string; from: string; target: string; skipUnsupported?: boolean }
+  ): Promise<DriverCommandResult<{ lockfile?: string }>>;
   uninstall(sandbox: DiagnosticSandbox, input: { target: string }): Promise<DriverCommandResult>;
 }
