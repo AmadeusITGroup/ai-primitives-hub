@@ -431,12 +431,17 @@ const patternMatches = (pattern: RegExp, value: string): boolean => {
 const scanContextualLineRules = (
   document: SecurityDocument,
   parsed: ReturnType<typeof parseSecurityDocument>,
-  cancellation: SecurityCancellation
+  cancellation: SecurityCancellation,
+  categories?: ReadonlySet<string>
 ): SecurityFinding[] => {
   const findings: SecurityFinding[] = [];
   for (const [index, line] of parsed.lines.entries()) {
     cancellation.throwIfCancelled();
     for (const rule of HIGH_IMPACT_LINE_RULES) {
+      // Non-Markdown files only run the executable/config-oriented high-impact rules.
+      if (categories !== undefined && !categories.has(rule.category)) {
+        continue;
+      }
       if (rule.skipExample === true && line.inExample) {
         continue;
       }
@@ -960,7 +965,7 @@ const packDigest = `sha256:${createHash('sha256')
   .digest('hex')}`;
 
 const scanText = (document: SecurityDocument, options: SecurityEngineOptions, cancellation: SecurityCancellation, markdown: boolean): SecurityFinding[] => {
-  const parsed = parseSecurityDocument(document.content);
+  const parsed = parseSecurityDocument(document.content, markdown);
   const configNames = new Set(['CLAUDE.md', 'AGENTS.md', 'SKILL.md']);
   const basename = document.displayPath.replaceAll('\\', '/').split('/').at(-1) ?? '';
   const findings: SecurityFinding[] = configNames.has(basename) ? scanFileMode(document) : [];
@@ -991,7 +996,9 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
         }
       }
     }
-    if (markdown && !line.inCodeBlock && !line.inExample) {
+    // AST rules target executable artifacts (loaders, credential extraction, unsafe
+    // deserialization), so they run on non-Markdown files too, not only Markdown.
+    if (!line.inCodeBlock && !line.inExample) {
       for (const rule of astRules) {
         if (rule.pattern.test(line.text)) {
           const severity = rule.variantId === 'loader-directory-write' && /\.github\/skills\//i.test(line.text)
@@ -1009,6 +1016,11 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       ...scanContextualDocumentRules(document, parsed),
       ...scanStructuredMarkdownRules(document, parsed)
     );
+  } else {
+    // Non-Markdown: run the executable/config-oriented high-impact rules (hook + MCP) so a
+    // malicious install.sh or *.mcp.json is not skipped by virtue of its extension. The
+    // Markdown-renderer, prose and document-level rules stay Markdown-only.
+    findings.push(...scanContextualLineRules(document, parsed, cancellation, NON_MARKDOWN_CONTEXTUAL_CATEGORIES));
   }
   if (markdown && agentConfig) {
     const allowedTools = /allowed-tools|permissions?\.allow/i.test(document.content);
@@ -1023,7 +1035,10 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
       findings.push(createFinding(document, rule, undefined, undefined, 'Allowed tools are declared without a PreToolUse hook.'));
     }
   }
-  if (markdown) {
+  {
+    // SEC-013 high-entropy secret detection is NOT Markdown-specific and runs on every file,
+    // including non-Markdown (install.sh, etc.) — the base revision reported it there too, so
+    // gating it on `markdown` would silently drop secret detection for those files.
     const entropyRule = makeRule('SEC-013', 'High-Entropy String — Potential Secret', 'HIGH', assignment, 'secrets', LLM06);
     for (const [index, line] of parsed.lines.entries()) {
       assignment.lastIndex = 0;
@@ -1129,12 +1144,30 @@ const scanText = (document: SecurityDocument, options: SecurityEngineOptions, ca
     });
 };
 
+const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.mdc']);
+
+// On non-Markdown files only these executable/config high-impact rule categories run.
+const NON_MARKDOWN_CONTEXTUAL_CATEGORIES: ReadonlySet<string> = new Set(['hook_injection', 'mcp_injection']);
+
+const isMarkdownDocument = (displayPath: string): boolean => {
+  const basename = displayPath.replaceAll('\\', '/').split('/').at(-1) ?? '';
+  const dot = basename.lastIndexOf('.');
+  // No extension (CLAUDE.md-style configs are matched by name elsewhere) stays Markdown.
+  return dot === -1 || MARKDOWN_EXTENSIONS.has(basename.slice(dot).toLowerCase());
+};
+
 export class RuleBasedSecurityScanEngine implements SecurityScanEngine {
   public readonly descriptor: SecurityEngineDescriptor = { id: 'builtin', version: ENGINE_VERSION, rulePackId: 'md-security-scanner', rulePackVersion: RULE_PACK_VERSION, rulePackDigest: packDigest };
-  public readonly capabilities: SecurityEngineCapabilities = { contentTypes: ['text/markdown', 'application/json'], locations: 'line', supportsFileMode: false, supportsCancellation: true };
+  public readonly capabilities: SecurityEngineCapabilities = {
+    contentTypes: ['text/markdown', 'application/json', 'text/plain'],
+    locations: 'line',
+    supportsFileMode: false,
+    supportsCancellation: true
+  };
+
   public scanDocument(document: SecurityDocument, options: SecurityEngineOptions, cancellation: SecurityCancellation): Promise<readonly SecurityFinding[]> {
     return Promise.resolve().then(() => isClaudeSettings(document.displayPath)
       ? scanClaudeSettings(document, options, cancellation)
-      : scanText(document, options, cancellation, true));
+      : scanText(document, options, cancellation, isMarkdownDocument(document.displayPath)));
   }
 }
