@@ -68,6 +68,7 @@ items:
     await writeFile(path.join(root, 'test.prompt.md'), 'Test prompt');
     await writeFile(path.join(root, 'collections', 'test.collection.yml'), `id: test
 name: Test
+description: Test collection
 items:
   - path: test.prompt.md
     kind: prompt

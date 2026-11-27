@@ -46,7 +46,7 @@ it('downloads a hub PR source and validates its collection primitives through th
     + '    url: https://github.com/owner/added\n    enabled: true\n    priority: 1\n');
     const head = commit();
     const archive = buildZip(Object.entries({
-      'collections/test.collection.yml': 'id: test\nname: Test\nauthor: Team\nitems:\n  - path: test.prompt.md\n    kind: prompt\n',
+      'collections/test.collection.yml': 'id: test\nname: Test\ndescription: Test collection\nauthor: Team\nitems:\n  - path: test.prompt.md\n    kind: prompt\n',
       'test.prompt.md': 'Missing frontmatter'
     }).map(([file, content]) => ({ path: `owner-added-sha/${file}`, bytes: Buffer.from(content) })));
     const ctx = createTestContext({ cwd: root, fs: new NodeFileSystem(), env: {} });

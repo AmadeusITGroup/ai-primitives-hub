@@ -1,0 +1,10 @@
+id: mcp-http-missing-url
+name: MCP HTTP Missing URL Collection
+description: This collection has an http MCP server without a url
+mcp:
+  items:
+    demo-server:
+      type: http
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

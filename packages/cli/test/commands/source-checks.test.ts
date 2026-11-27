@@ -41,7 +41,7 @@ describe('COL002 and COL004 through existing commands', () => {
     await mkdir(path.join(root, 'collections'));
     await mkdir(path.join(root, '.config/sources'), { recursive: true });
     await writeFile(path.join(root, 'test.prompt.md'), 'Test prompt');
-    await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: shared\nname: Shared\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+    await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: shared\nname: Shared\ndescription: Shared collection\nauthor: Test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });

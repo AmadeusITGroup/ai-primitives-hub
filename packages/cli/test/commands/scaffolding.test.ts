@@ -50,6 +50,9 @@ import {
   AgentCreateCommand,
 } from '../../src/commands/agent-create';
 import {
+  CollectionCreateCommand,
+} from '../../src/commands/collection-create';
+import {
   CollectionValidateCommand,
 } from '../../src/commands/collection-validate';
 import {
@@ -78,6 +81,7 @@ const COMMAND_CLASSES = [
   SkillCreateCommand,
   PluginCreateCommand,
   HookCreateCommand,
+  CollectionCreateCommand,
   CollectionValidateCommand
 ];
 
@@ -121,7 +125,7 @@ describe('scaffolding generator commands', () => {
   beforeEach(async () => {
     workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-scaffold-test-'));
     await mkdir(path.join(workspace, 'collections'), { recursive: true });
-    await writeFile(path.join(workspace, 'collections', 'foo.collection.yml'), 'id: foo\nname: Foo\nitems: []\n');
+    await writeFile(path.join(workspace, 'collections', 'foo.collection.yml'), 'id: foo\nname: Foo\ndescription: Foo collection\nitems: []\n');
   });
 
   afterEach(async () => {
@@ -151,6 +155,15 @@ describe('scaffolding generator commands', () => {
       expect(result.exitCode).toBe(0);
       const collectionContent = await readFile(path.join(workspace, 'collections', 'foo.collection.yml'), 'utf8');
       expect(collectionContent).toContain('my-thing');
+      const collection = yaml.load(collectionContent) as { items: Record<string, unknown>[] };
+      expect(collection.items).toHaveLength(1);
+      const item = collection.items[0];
+      expect(item).not.toHaveProperty('name');
+      if (spec.label === 'plugin') {
+        expect(item).toEqual({ path: 'plugins/my-thing/plugin.json', kind: 'plugin' });
+      } else {
+        expect(item).toMatchObject({ kind: spec.label, title: 'my-thing' });
+      }
     });
 
     it('fails with exit 1 when --collection points to a nonexistent collection', async () => {
@@ -158,9 +171,40 @@ describe('scaffolding generator commands', () => {
       expect(result.exitCode).toBe(1);
     });
 
+    it('fails with exit 1 and keeps the collection when its items is not a list', async () => {
+      const collectionFile = path.join(workspace, 'collections', 'foo.collection.yml');
+      const original = 'id: foo\nname: Foo\ndescription: Foo collection\nitems:\n  prompts/a.prompt.md: prompt\n';
+      await writeFile(collectionFile, original);
+      const result = await run([...spec.createArgs, 'my-thing', '--collection', 'foo', '-o', 'json']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout + result.stderr).toContain('Collection items must be an array');
+      expect(await readFile(collectionFile, 'utf8')).toBe(original);
+    });
+
     it('fails with a clipanion usage error (exit 64) when <name> is omitted', async () => {
       const result = await run([...spec.createArgs, '-o', 'json']);
       expect(result.exitCode).toBe(64);
+    });
+  });
+
+  describe('collection create', () => {
+    it('scaffolds a collection that passes collection validate', async () => {
+      expect((await run(['collection', 'create', 'demo', '--author', 'Jane Doe'])).exitCode).toBe(0);
+      const collection = yaml.load(await readFile(path.join(workspace, 'collections', 'demo.collection.yml'), 'utf8')) as Record<string, unknown>;
+      expect(collection.items).toEqual([]);
+      expect(collection.description).toBe('A new package');
+      const validate = await run(['collection', 'validate', '-o', 'json']);
+      expect(validate.stdout).not.toContain('Missing required field: items');
+      expect(validate.exitCode).toBe(0);
+    });
+
+    it('passes collection validate after plugin create --collection adds a plugin', async () => {
+      expect((await run(['collection', 'create', 'demo', '--author', 'Jane Doe'])).exitCode).toBe(0);
+      expect((await run(['plugin', 'create', 'demo-plugin', '--author', 'Jane Doe', '--collection', 'demo'])).exitCode).toBe(0);
+      const validate = await run(['collection', 'validate', '-o', 'json']);
+      expect(validate.exitCode).toBe(0);
+      const envelope = parseJson<{ errors: string[] }>(validate.stdout);
+      expect(envelope.data.errors).toEqual([]);
     });
   });
 

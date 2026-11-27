@@ -17,6 +17,7 @@ import {
 } from 'node:fs';
 import * as path from 'node:path';
 import {
+  addCollectionItem,
   createPlugin,
   type CreatePluginErrorCode,
   readCollection,
@@ -25,7 +26,6 @@ import {
 import {
   AGENT_PLUGIN_NAME_MAX_LENGTH,
   type Collection,
-  type CollectionItem,
 } from '@ai-primitives-hub/core';
 import {
   Command,
@@ -139,14 +139,12 @@ export class PluginCreateCommand extends Command {
           // Repo-root relative path to the plugin's root plugin.json
           const relativePath = path.relative(ctx.cwd(), result.manifestPath).replace(/\\/g, '/');
 
-          const newItem: CollectionItem = {
+          // No title: the plugin name is its directory.
+          addCollectionItem(collection, {
             path: relativePath,
             kind: 'plugin',
-            name: this.name,
             description: this.description
-          };
-
-          collection.items.push(newItem);
+          });
           writeCollection(ctx.cwd(), collectionFile, collection);
         } catch (error) {
           // Remove only the files this run created, so a rerun is not blocked

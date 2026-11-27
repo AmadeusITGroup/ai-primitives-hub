@@ -1,0 +1,9 @@
+id: mcp-input-missing-type
+name: MCP Input Missing Type Collection
+description: This collection has an MCP input without a type
+mcp:
+  inputs:
+    - id: api-token
+items:
+  - path: prompts/test.prompt.md
+    kind: prompt

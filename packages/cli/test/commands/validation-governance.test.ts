@@ -84,7 +84,7 @@ profiles: []
   it('keeps legacy collection flags and adds governance through the same command', async () => {
     await mkdir(path.join(root, 'collections'));
     await writeFile(path.join(root, 'test.prompt.md'), 'Test prompt');
-    await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: test\nname: Test\nauthor: test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
+    await writeFile(path.join(root, 'collections/test.collection.yml'), 'id: test\nname: Test\ndescription: Test collection\nauthor: test\nitems:\n  - path: test.prompt.md\n    kind: prompt\n');
     const legacy = await run(['collection', 'validate', '--markdown-path', 'legacy.md', '-o', 'json']);
     expect(legacy.exitCode).toBe(0);
     expect(JSON.parse(legacy.stdout).data).toMatchObject({ ok: true, totalFiles: 1 });
