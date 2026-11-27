@@ -36,6 +36,7 @@
 import {
   type Bundle,
   type Clock,
+  getSkillName,
   type GitHubApi,
   parseGitHubOwnerRepo,
   type RegistrySource,
@@ -287,8 +288,7 @@ export class AwesomeCopilotAdapter extends BaseSourceAdapter {
   private createDeploymentManifest(collection: CollectionManifest): Record<string, unknown> {
     const prompts = collection.items.map((item) => {
       if (item.kind === 'skill') {
-        const skillMatch = /skills\/([^/]+)\/SKILL\.md/.exec(item.path);
-        const skillName = skillMatch ? skillMatch[1] : 'unknown-skill';
+        const skillName = getSkillName(item.path) ?? 'unknown-skill';
         return {
           id: skillName,
           name: titleCase(skillName.replace(/-/g, ' ')),

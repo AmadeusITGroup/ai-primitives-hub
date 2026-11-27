@@ -595,6 +595,31 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
     });
     expect(await fs.exists(localPath('/ws', '.github', 'skills', 'foo', 'bar', 'SKILL.md'))).toBe(false);
   });
+
+  it('copies only its own directory for each sibling skill nested below a shared group', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env: {} });
+    const files = new Map<string, Uint8Array>([
+      ['skills/group/alpha/SKILL.md', new TextEncoder().encode('# Alpha')],
+      ['skills/group/alpha/scripts/run.sh', new TextEncoder().encode('#!/bin/sh')],
+      ['skills/group/beta/SKILL.md', new TextEncoder().encode('# Beta')]
+    ]);
+    const items: ManifestPlacementItem[] = [
+      { id: 'alpha', file: 'skills/group/alpha/SKILL.md', type: 'skill' },
+      { id: 'beta', file: 'skills/group/beta/SKILL.md', type: 'skill' }
+    ];
+
+    const plan = await writer.preflightManifestItems(repoTarget, files, items);
+    const result = await writer.writeManifestItems(repoTarget, files, items);
+
+    expect(plan.skipped).toEqual([]);
+    expect(result.installedPaths).toEqual({
+      'skills/group/alpha/SKILL.md': 'skills/alpha/SKILL.md',
+      'skills/group/alpha/scripts/run.sh': 'skills/alpha/scripts/run.sh',
+      'skills/group/beta/SKILL.md': 'skills/beta/SKILL.md'
+    });
+    expect(await fs.readFile(localPath('/ws', '.github', 'skills', 'beta', 'SKILL.md'))).toBe('# Beta');
+  });
 });
 
 describe('FileTreeTargetWriter manifest placement on a Kiro target', () => {

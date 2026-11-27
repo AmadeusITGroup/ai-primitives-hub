@@ -468,3 +468,84 @@ profiles:
     expect(await listFiles(kiroDir)).toEqual([]);
   });
 });
+
+/**
+ * Skills nested below a shared group directory (`skills/<group>/<skill>/`,
+ * issue #701) each install under their own name, and uninstall removes them.
+ */
+describe('manifest-driven placement of nested skills', () => {
+  const NESTED_FILES: Record<string, string> = {
+    'deployment-manifest.yml': `id: nested-skills
+version: 1.0.0
+name: Nested Skills
+prompts:
+  - id: alpha
+    name: Alpha
+    file: skills/group/alpha/SKILL.md
+    type: skill
+  - id: beta
+    name: Beta
+    file: skills/group/beta/SKILL.md
+    type: skill
+`,
+    'skills/group/alpha/SKILL.md': '# Alpha\n',
+    'skills/group/alpha/scripts/run.sh': '#!/bin/sh\n',
+    'skills/group/beta/SKILL.md': '# Beta\n'
+  };
+  const SKILL_PATHS = ['alpha/SKILL.md', 'alpha/scripts/run.sh', 'beta/SKILL.md'];
+
+  let workspace: string;
+  let bundleDir: string;
+
+  const run = async (argv: string[]): Promise<{ exitCode: number; stdout: string }> => {
+    const ctx = createTestContext({
+      cwd: workspace,
+      fs: new NodeFileSystem(),
+      env: { HOME: workspace, USERPROFILE: workspace, XDG_CONFIG_HOME: path.join(workspace, 'xdg-config') }
+    });
+    const exitCode = await runCli(argv, {
+      ctx,
+      tokens: { getToken: async () => undefined },
+      commandClasses: [TargetAddCommand, InstallCommand, UninstallCommand],
+      commands: [],
+      name: 'test',
+      version: 'test'
+    });
+    return { exitCode, stdout: ctx.stdout.captured() };
+  };
+
+  beforeEach(async () => {
+    workspace = await mkdtemp(path.join(os.tmpdir(), 'cli-nested-skills-test-'));
+    bundleDir = path.join(workspace, 'bundle');
+    for (const [filePath, content] of Object.entries(NESTED_FILES)) {
+      await mkdir(path.dirname(path.join(bundleDir, filePath)), { recursive: true });
+      await writeFile(path.join(bundleDir, filePath), content);
+    }
+  });
+
+  afterEach(async () => {
+    await rm(workspace, { recursive: true, force: true });
+  });
+
+  it.each([
+    { scope: 'user', skillsDir: (): string => path.join(workspace, '.copilot', 'skills') },
+    { scope: 'repository', skillsDir: (): string => path.join(workspace, 'project', '.github', 'skills') }
+  ])('installs each skill under its own name on a VS Code $scope target and uninstall removes them', async ({ scope, skillsDir }) => {
+    const project = path.join(workspace, 'project');
+    await mkdir(project, { recursive: true });
+    const added = await run(['target', 'add', 'vsc', '--type', 'vscode', '--scope', scope,
+      ...(scope === 'repository' ? ['--workspace-root', project] : []), '-o', 'json']);
+    expect(added.exitCode, added.stdout).toBe(0);
+
+    const installed = await run(['install', '--from', bundleDir, '--target', 'vsc', '-o', 'json']);
+
+    expect(installed.exitCode, installed.stdout).toBe(0);
+    expect(await listFiles(skillsDir())).toEqual(SKILL_PATHS);
+    expect(await readFile(path.join(skillsDir(), 'beta', 'SKILL.md'), 'utf8')).toBe('# Beta\n');
+
+    const removed = await run(['uninstall', '--bundle', 'nested-skills', '--target', 'vsc', '-o', 'json']);
+
+    expect(removed.exitCode, removed.stdout).toBe(0);
+    expect(await listFiles(skillsDir())).toEqual([]);
+  });
+});

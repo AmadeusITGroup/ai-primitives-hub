@@ -408,6 +408,80 @@ prompts:
     expect(await fs.exists(skillDir)).toBe(false);
   });
 
+  it('installs and removes legacy nested skills under the directory holding their SKILL.md', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = {
+      id: 'test-bundle',
+      skills: [
+        { id: 'Alpha', file: 'skills/group/alpha/SKILL.md', type: 'skill' },
+        { id: 'Beta', file: 'skills/group/beta/SKILL.md', type: 'skill' }
+      ]
+    };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(JSON.stringify(manifest))],
+      ['skills/group/alpha/SKILL.md', new TextEncoder().encode('# Alpha')],
+      ['skills/group/beta/SKILL.md', new TextEncoder().encode('# Beta')]
+    ]);
+    const skillsDir = path.join(WORKSPACE_ROOT, '.github', 'skills');
+
+    const result = await writer.write(files);
+    const installed = await fs.readFile(path.join(skillsDir, 'beta', 'SKILL.md'));
+    await writer.remove('test-bundle', manifest);
+
+    expect(result.skillDirs).toEqual([path.join(skillsDir, 'alpha'), path.join(skillsDir, 'beta')]);
+    expect(installed).toBe('# Beta');
+    expect(await fs.exists(path.join(skillsDir, 'alpha'))).toBe(false);
+    expect(await fs.exists(path.join(skillsDir, 'beta'))).toBe(false);
+  });
+
+  it('skips a skill whose destination directory an earlier skill already takes', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = {
+      id: 'test-bundle',
+      skills: [
+        { id: 'a', file: 'skills/team-a/checks/SKILL.md', type: 'skill' },
+        { id: 'b', file: 'skills/team-b/checks/SKILL.md', type: 'skill' }
+      ]
+    };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(JSON.stringify(manifest))],
+      ['skills/team-a/checks/SKILL.md', new TextEncoder().encode('# A')],
+      ['skills/team-b/checks/SKILL.md', new TextEncoder().encode('# B')]
+    ]);
+
+    const plan = await writer.preflight(files);
+    const result = await writer.write(files);
+
+    expect(plan).toEqual({ writable: ['skills/team-a/checks/SKILL.md'], skipped: ['skills/team-b/checks/SKILL.md'] });
+    expect(result.skipped).toEqual(['skills/team-b/checks/SKILL.md']);
+    expect(result.installedPaths).toEqual({ 'skills/team-a/checks/SKILL.md': 'skills/checks/SKILL.md' });
+    expect(await fs.readFile(path.join(WORKSPACE_ROOT, '.github', 'skills', 'checks', 'SKILL.md'))).toBe('# A');
+  });
+
+  it('lets a later skill take a destination when the earlier skill has no files', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' });
+    const manifest = {
+      id: 'test-bundle',
+      skills: [
+        { id: 'a', file: 'skills/team-a/checks/SKILL.md', type: 'skill' },
+        { id: 'b', file: 'skills/team-b/checks/SKILL.md', type: 'skill' }
+      ]
+    };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(JSON.stringify(manifest))],
+      ['skills/team-b/checks/SKILL.md', new TextEncoder().encode('# B')]
+    ]);
+
+    const plan = await writer.preflight(files);
+    const result = await writer.write(files);
+
+    expect(plan).toEqual({ writable: ['skills/team-b/checks/SKILL.md'], skipped: ['skills/team-a/checks/SKILL.md'] });
+    expect(result.installedPaths).toEqual({ 'skills/team-b/checks/SKILL.md': 'skills/checks/SKILL.md' });
+  });
+
   it('removes from .git/info/exclude in local-only mode', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'local-only' });
@@ -663,6 +737,50 @@ describe('RepositoryScopeWriterAdapter', () => {
     const adapter = new RepositoryScopeWriterAdapter(writer);
 
     await expect(adapter.remove(dummyTarget, 'copilot/prompts/nonexistent.md')).resolves.not.toThrow();
+  });
+
+  it('records where nested skills land and removes them from there', async () => {
+    const fs = new InMemoryFileSystem();
+    const adapter = new RepositoryScopeWriterAdapter(
+      new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' })
+    );
+    const manifest = `id: nested
+prompts:
+  - id: alpha
+    file: skills/group/alpha/SKILL.md
+    type: skill
+  - id: beta
+    file: skills/group/beta/SKILL.md
+    type: skill`;
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', new TextEncoder().encode(manifest)],
+      ['skills/group/alpha/SKILL.md', new TextEncoder().encode('# Alpha')],
+      ['skills/group/beta/SKILL.md', new TextEncoder().encode('# Beta')]
+    ]);
+
+    const result = await adapter.write(dummyTarget, files);
+    for (const [bundlePath, installedPath] of Object.entries(result.installedPaths ?? {})) {
+      await adapter.remove(dummyTarget, bundlePath, installedPath);
+    }
+
+    expect(result.installedPaths).toEqual({
+      'skills/group/alpha/SKILL.md': 'skills/alpha/SKILL.md',
+      'skills/group/beta/SKILL.md': 'skills/beta/SKILL.md'
+    });
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'skills', 'alpha', 'SKILL.md'))).toBe(false);
+    expect(await fs.exists(path.join(WORKSPACE_ROOT, '.github', 'skills', 'beta', 'SKILL.md'))).toBe(false);
+  });
+
+  it('refuses to remove a recorded installed path outside the .github directory', async () => {
+    const fs = new InMemoryFileSystem();
+    const adapter = new RepositoryScopeWriterAdapter(
+      new RepositoryScopeWriter({ fs, workspaceRoot: WORKSPACE_ROOT, commitMode: 'commit' })
+    );
+    const outside = path.join(WORKSPACE_ROOT, 'README.md');
+    fs.seed(outside, '# Keep');
+
+    await expect(adapter.remove(dummyTarget, 'skills/x/SKILL.md', '../README.md')).rejects.toThrow(/outside/);
+    expect(await fs.exists(outside)).toBe(true);
   });
 });
 

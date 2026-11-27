@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import type {
   RegistrySource,
 } from '@ai-primitives-hub/core';
+import * as yaml from 'js-yaml';
 import {
   describe,
   expect,
@@ -251,6 +252,33 @@ describe('LocalAwesomeCopilotAdapter', () => {
       expect(createHash('sha256').update(archivedWheel!).digest('hex')).toBe(createHash('sha256').update(wheel).digest('hex'));
       expect(Buffer.from(files.get(skillPath)!)).toEqual(text);
       expect(Buffer.from(files.get(promptPath)!)).toEqual(text);
+    });
+
+    it('names each nested skill in the deployment manifest after the directory holding its SKILL.md', async () => {
+      const fs = new InMemoryFileSystem();
+      fs.seed(
+        '/collections-root/collections/my-collection.collection.yml',
+        collectionYaml({
+          items: [
+            { path: 'skills/group/alpha/SKILL.md', kind: 'skill' },
+            { path: 'skills/group/beta/SKILL.md', kind: 'skill' }
+          ]
+        })
+      );
+      fs.seed('/collections-root/skills/group/alpha/SKILL.md', '# Alpha');
+      fs.seed('/collections-root/skills/group/beta/SKILL.md', '# Beta');
+
+      const adapter = new LocalAwesomeCopilotAdapter(makeSource(), fs);
+      const [bundle] = await adapter.fetchBundles();
+      const files = await new ZipBundleExtractor().extract(await adapter.downloadBundle(bundle));
+      const manifest = yaml.load(new TextDecoder().decode(files.get('deployment-manifest.yml'))) as {
+        prompts: { id: string; file: string }[];
+      };
+
+      expect(manifest.prompts.map(({ id, file }) => [id, file])).toEqual([
+        ['alpha', 'skills/group/alpha/SKILL.md'],
+        ['beta', 'skills/group/beta/SKILL.md']
+      ]);
     });
 
     it('wraps a download failure with a descriptive error', async () => {

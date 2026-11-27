@@ -78,24 +78,44 @@ export function isSkillDirectory(filePath: string): boolean {
 }
 
 /**
- * Extract the skill name from a skill directory path.
+ * Resolve the skill directory a path belongs to, using forward slashes.
  *
- * Given a path like 'skills/my-skill' or 'path/to/skills/my-skill',
- * returns 'my-skill'.
- * @param skillPath - The path to the skill directory
+ * A `SKILL.md` path resolves to the directory holding it, so skills grouped
+ * below `skills/` (e.g. 'skills/group/my-skill/SKILL.md') resolve to their own
+ * directory ('skills/group/my-skill'). Any other path resolves to the first
+ * directory below `skills/` (e.g. 'skills/my-skill/src/index.js' resolves to
+ * 'skills/my-skill').
+ * @param skillPath - A skill directory, its SKILL.md, or a file inside it
+ * @returns The skill directory, or null if the path is not below a skill directory
+ */
+export function getSkillDirectory(skillPath: string): string | null {
+  const normalizedPath = skillPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const match = normalizedPath.match(/(?:^|\/)skills\/[^/]+/i);
+  if (!match) {
+    return null;
+  }
+  const firstLevelDirectory = normalizedPath.slice(0, (match.index ?? 0) + match[0].length);
+
+  const lastSlash = normalizedPath.lastIndexOf('/');
+  if (normalizedPath.slice(lastSlash + 1).toLowerCase() !== 'skill.md') {
+    return firstLevelDirectory;
+  }
+  const parent = normalizedPath.slice(0, lastSlash);
+  return parent.length >= firstLevelDirectory.length ? parent : null;
+}
+
+/**
+ * Extract the skill name from a skill path: the name of the directory
+ * returned by {@link getSkillDirectory}.
+ *
+ * Given 'skills/my-skill', 'path/to/skills/my-skill/SKILL.md' or
+ * 'skills/group/my-skill/SKILL.md', returns 'my-skill'.
+ * @param skillPath - A skill directory, its SKILL.md, or a file inside it
  * @returns The skill name, or null if not a valid skill path
  */
 export function getSkillName(skillPath: string): string | null {
-  const normalizedPath = skillPath.replace(/\\/g, '/');
-
-  // Match patterns like 'skills/skill-name' or 'path/skills/skill-name'
-  const match = normalizedPath.match(/(?:^|[/\\])skills[/\\]([^/\\]+)(?:[/\\]|$)/i);
-
-  if (match && match[1]) {
-    return match[1];
-  }
-
-  return null;
+  const skillDirectory = getSkillDirectory(skillPath);
+  return skillDirectory ? skillDirectory.slice(skillDirectory.lastIndexOf('/') + 1) : null;
 }
 
 /**
