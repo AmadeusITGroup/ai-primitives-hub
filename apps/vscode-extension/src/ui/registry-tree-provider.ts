@@ -3,6 +3,9 @@
  * Displays sources, profiles, bundles, and discovery options in sidebar
  */
 
+import {
+  countManifestItemsByKind,
+} from '@ai-primitives-hub/core';
 import * as vscode from 'vscode';
 import {
   HubManager,
@@ -28,6 +31,9 @@ import {
 import {
   Logger,
 } from '../utils/logger';
+import {
+  formatKindCounts,
+} from '../utils/primitive-kind-labels';
 
 /**
  * Tree item types
@@ -147,7 +153,9 @@ export class RegistryTreeItem extends vscode.TreeItem {
 
       case TreeItemType.INSTALLED_BUNDLE: {
         const installed = this.data as InstalledBundle;
-        return `Version ${installed.version}\nInstalled: ${new Date(installed.installedAt).toLocaleDateString()}`;
+        const tooltip = `Version ${installed.version}\nInstalled: ${new Date(installed.installedAt).toLocaleDateString()}`;
+        const contents = formatKindCounts(countManifestItemsByKind(installed.manifest));
+        return contents ? `${tooltip}\nContains: ${contents}` : tooltip;
       }
 
       case TreeItemType.SOURCE: {

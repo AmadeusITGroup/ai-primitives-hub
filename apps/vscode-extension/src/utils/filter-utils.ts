@@ -4,6 +4,9 @@
  * and the compact relevance-ranked search syntax used by the marketplace.
  */
 
+import type {
+  PrimitiveKind,
+} from '@ai-primitives-hub/core';
 import {
   Bundle,
   RegistrySource,
@@ -19,7 +22,7 @@ export interface SourceWithCount extends RegistrySource {
 /**
  * Content types that can be used for filtering
  */
-export type ContentTypeFilter = 'agents' | 'skills' | 'prompts' | 'mcpServers' | 'instructions';
+export type ContentTypeFilter = 'agents' | 'skills' | 'prompts' | 'mcpServers' | 'instructions' | 'plugins';
 
 /**
  * Content breakdown showing count of each resource type in a bundle
@@ -30,7 +33,49 @@ export interface ContentBreakdown {
   chatmodes: number;
   agents: number;
   skills: number;
+  plugins: number;
   mcpServers: number;
+}
+
+/**
+ * The breakdown field that shows each primitive kind. Kinds without a field
+ * are not shown in the marketplace breakdown.
+ */
+const BREAKDOWN_FIELD_BY_KIND: Partial<Record<PrimitiveKind, Exclude<keyof ContentBreakdown, 'mcpServers'>>> = {
+  prompt: 'prompts',
+  instruction: 'instructions',
+  'chat-mode': 'chatmodes',
+  agent: 'agents',
+  skill: 'skills',
+  plugin: 'plugins'
+};
+
+/**
+ * Build the marketplace content breakdown from per-kind item counts.
+ * @param counts - Item counts by primitive kind (see core `countManifestItemsByKind`).
+ * @param mcpServers - Number of MCP servers the bundle declares.
+ * @returns The breakdown, with zero for every field without items.
+ */
+export function contentBreakdownFromKindCounts(
+  counts: Partial<Record<PrimitiveKind, number>>,
+  mcpServers: number
+): ContentBreakdown {
+  const breakdown: ContentBreakdown = {
+    prompts: 0,
+    instructions: 0,
+    chatmodes: 0,
+    agents: 0,
+    skills: 0,
+    plugins: 0,
+    mcpServers
+  };
+  for (const [kind, count] of Object.entries(counts) as [PrimitiveKind, number][]) {
+    const field = BREAKDOWN_FIELD_BY_KIND[kind];
+    if (field) {
+      breakdown[field] += count;
+    }
+  }
+  return breakdown;
 }
 
 type SearchField = 'id' | 'name' | 'description' | 'tag' | 'author' | 'env' | 'source';

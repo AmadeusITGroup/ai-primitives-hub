@@ -101,7 +101,18 @@ const windowState = {
   showTextDocument: () => Promise.resolve(),
   createTextEditorDecorationType: () => ({ key: 'mock-decoration', dispose: () => {} }),
   registerCustomEditorProvider: () => ({ dispose: () => {} }),
-  createTreeView: () => ({ dispose: () => {} })
+  createTreeView: () => ({ dispose: () => {} }),
+  createWebviewPanel: () => ({
+    webview: {
+      html: '',
+      cspSource: "'self'",
+      asWebviewUri: (uri) => uri,
+      onDidReceiveMessage: () => ({ dispose: () => {} }),
+      postMessage: () => Promise.resolve(true)
+    },
+    onDidDispose: () => ({ dispose: () => {} }),
+    dispose: () => {}
+  })
 };
 
 const windowProxy = new Proxy(windowState, {
