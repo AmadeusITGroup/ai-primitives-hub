@@ -64,7 +64,7 @@ const copilotManifest = (): ValidatedManifest => ({
 });
 
 describe('manifestPlacementItems', () => {
-  it('keeps file-backed Copilot items and drops entries without a file or with a non-Copilot type', () => {
+  it('keeps file-backed items, including non-Copilot kinds, and drops entries without a file', () => {
     const items = manifestPlacementItems({
       id: 'sample-skills',
       version: '1.0.0',
@@ -79,6 +79,7 @@ describe('manifestPlacementItems', () => {
 
     expect(items).toEqual([
       { id: 'a', file: 'prompts/a.prompt.md', type: 'prompt' },
+      { id: 'b', file: 'hooks/b.json', type: 'hook' },
       { id: '42', file: 'prompts/42.md' }
     ]);
   });
@@ -95,6 +96,55 @@ describe('manifestPlacementItems', () => {
 });
 
 describe('writeBundleSafely', () => {
+  it('places a declared hook through the target hook route, regardless of its source folder', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/guard.prompt.md', text('{"hooks":{}}\n')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'guard', file: 'prompts/guard.prompt.md', type: 'hook' }]
+    };
+
+    const { result } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect(result.written).toEqual([localPath('/ws', '.github', 'hooks', 'guard.prompt.md')]);
+    expect(result.installedPaths?.['prompts/guard.prompt.md']).toBe('hooks/guard.prompt.md');
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'guard.prompt.md'))).toBe('{"hooks":{}}\n');
+    expect(await fs.exists(localPath('/ws', '.github', 'prompts', 'guard.prompt.md'))).toBe(false);
+  });
+
+  it('reports a declared hook and other unrouted files before rejecting the bundle', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'kiro-repo', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/guard.prompt.md', text('{"hooks":{}}\n')],
+      ['.claude/commands/deploy.md', text('# Deploy')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'guard', file: 'prompts/guard.prompt.md', type: 'hook' }]
+    };
+
+    const error = await writeBundleSafely(writer, target, files, manifest).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped.toSorted()).toEqual([
+      '.claude/commands/deploy.md',
+      'prompts/guard.prompt.md'
+    ]);
+    expect(await fs.exists(localPath('/ws', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
+  });
+
   it('installs a generated governed dual-layout archive once from its preserved Hub paths', async () => {
     const original = createGovernedReleaseArchive();
     const originalManifest = validateManifest(original, {});

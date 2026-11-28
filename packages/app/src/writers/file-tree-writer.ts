@@ -86,21 +86,18 @@ export interface WriterFs {
 
 /**
  * A manifest-driven placement instruction: "this bundle-relative source
- * file/directory is primitive `id` of Copilot type `type`". Used by
- * `FileTreeTargetWriter.writeManifestItems` for targets/scopes (e.g. the
- * VS Code extension's user/repository scopes) whose real on-disk
- * convention renames every file to `{id}.{type-extension}` rather than
- * preserving the bundle's own directory layout — see migration plan
- * §7.5 item 2 for why this is a separate mode from `write()`'s
- * prefix-preserving routing.
+ * file/directory is primitive `id` of declared kind `type`". Used by
+ * `FileTreeTargetWriter.writeManifestItems` when placement follows the
+ * declared kind rather than the source path. Copilot types are renamed to
+ * `{id}.{type-extension}`; other file kinds retain their source filename.
  */
 export interface ManifestPlacementItem {
   /** Manifest item id; used to compute the renamed on-disk file name. */
   id: string;
   /** Bundle-relative source path (looked up in the `ExtractedFiles` map). */
   file: string;
-  /** Copilot file type; auto-detected from `file`/`tags` when omitted. */
-  type?: CopilotFileType;
+  /** Declared kind, or a Copilot file type auto-detected from `file`/`tags`. */
+  type?: string;
   tags?: string[];
 }
 
@@ -553,7 +550,7 @@ export class FileTreeTargetWriter implements TargetWriter {
  * with its path below that directory.
  */
 interface ManifestItemPlacement {
-  type: CopilotFileType;
+  type?: CopilotFileType;
   outDir: string;
   sources: { bundlePath: string; tail: string }[];
 }
@@ -568,10 +565,9 @@ const allowedKindSet = (target: Target): Set<string> | null =>
  * cannot place it: its kind is excluded by `allowedKinds`, the layout has
  * no route for its type, a skill item does not point into a `skills/`
  * directory or that directory has no files, or the item's file is missing.
- * The type (explicit or auto-detected from `file`/`tags`) selects the
- * layout route via {@link KIND_TO_ROUTE_KEY}. Non-skill files are renamed
- * to `{id}.{type-extension}`; a skill's whole source directory is copied
- * into `{route}/{normalizedId}/`.
+ * Copilot types use {@link KIND_TO_ROUTE_KEY} and canonical filenames.
+ * Hook items use a matching layout route and keep their source filename;
+ * other non-Copilot kinds need their dedicated placement semantics.
  * @param item - Manifest placement item.
  * @param files - Extracted bundle files.
  * @param layout - Resolved target layout.
@@ -584,7 +580,24 @@ const placeManifestItem = (
   layout: TargetLayout,
   allowed: Set<string> | null
 ): ManifestItemPlacement | null => {
-  const type = item.type ?? determineFileType(item.file, item.tags);
+  const declaredType = item.type ?? determineFileType(item.file, item.tags);
+  const copilotType = Object.hasOwn(KIND_TO_ROUTE_KEY, declaredType)
+    ? declaredType as CopilotFileType
+    : undefined;
+  if (copilotType === undefined) {
+    const kind = normalizePrimitiveKind(declaredType);
+    if (kind !== 'hook' || (allowed !== null && !allowed.has(kind))) {
+      return null;
+    }
+    const route = Object.entries(layout.kindRoutes).find(([prefix]) => routeKindOf(prefix) === kind);
+    const tail = path.posix.basename(item.file);
+    if (route === undefined || !files.has(item.file) || !isPlainFileName(tail)) {
+      return null;
+    }
+    return staysInside({ outDir: route[1], sources: [{ bundlePath: item.file, tail }] });
+  }
+
+  const type = copilotType;
   if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
     return null;
   }
