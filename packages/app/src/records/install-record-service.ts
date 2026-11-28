@@ -670,7 +670,9 @@ export class InstallRecordService {
     const changedOrMissing = await findModifiedFiles(this.fs, root, recorded.filter((file) => candidates.has(file.path)));
     const kept: string[] = [];
     for (const recordedPath of changedOrMissing) {
-      if (await this.fs.lstat(path.join(root, ...recordedPath.split('/'))).catch(() => undefined) !== undefined) {
+      // Only a path known to be missing stays for removal; one that cannot be checked is kept.
+      const missing = await this.fs.lstat(path.join(root, ...recordedPath.split('/'))).then((stat) => stat === undefined, () => false);
+      if (!missing) {
         deletedFiles.splice(deletedFiles.indexOf(recordedPath), 1);
         kept.push(recordedPath);
       }

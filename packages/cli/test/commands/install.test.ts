@@ -111,6 +111,7 @@ interface JsonEnvelope<T> {
   status: string;
   data: T;
   errors?: { code: string; context?: Record<string, unknown> }[];
+  warnings?: string[];
 }
 
 describe('install command (local --from mode)', () => {

@@ -1,8 +1,8 @@
 /**
  * Locally modified installed files: content that no longer matches the
  * recorded checksum, or a missing file. Callers keep them instead of deleting.
- * A path that fails confinement, is not a regular file or has no checksum
- * counts as modified, so it is kept. A symlink is compared by the content of
+ * A path that fails confinement, cannot be inspected, is not a regular file or
+ * has no checksum counts as modified, so it is kept. A symlink is compared by the content of
  * the file it resolves to.
  * @module records/modified-files
  */
@@ -47,18 +47,15 @@ const contentFile = async (fs: RecordFs, leaf: string): Promise<string | undefin
 };
 
 const isModified = async (fs: RecordFs, root: string, file: RecordedFileCheck): Promise<boolean> => {
-  const target = await resolveDeleteTarget(fs, root, file.path);
-  if (target.status !== 'delete' || file.checksum === undefined) {
-    return true;
-  }
-  const content = await contentFile(fs, target.absolute);
-  if (content === undefined) {
-    return true;
-  }
   try {
-    return (await fs.hashFile(content)) !== toRecordChecksum(file.checksum);
+    const target = await resolveDeleteTarget(fs, root, file.path);
+    if (target.status !== 'delete' || file.checksum === undefined) {
+      return true;
+    }
+    const content = await contentFile(fs, target.absolute);
+    return content === undefined || (await fs.hashFile(content)) !== toRecordChecksum(file.checksum);
   } catch {
-    // A file that cannot be read cannot be shown to be unchanged: keep it.
+    // A file that cannot be inspected or read cannot be shown to be unchanged: keep it.
     return true;
   }
 };

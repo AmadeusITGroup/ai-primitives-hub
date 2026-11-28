@@ -227,6 +227,25 @@ describe('repository install record', () => {
     expect(filesOf(committed, 'vscode')).toEqual(['docs/new.md']);
   });
 
+  it('reinstall keeps and reports a superseded file it cannot inspect, and still saves the record', async () => {
+    await install('vscode', ['docs/old.md']);
+    const blocked = path.join(root, 'docs', 'old.md');
+    await build(new (class extends NodeRecordFs {
+      public override async lstat(file: string): ReturnType<NodeRecordFs['lstat']> {
+        if (file === blocked) {
+          throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+        }
+        return super.lstat(file);
+      }
+    })());
+
+    const change = await install('vscode', ['docs/new.md']);
+
+    expect(change).toMatchObject({ deletedFiles: [], keptModifiedFiles: ['docs/old.md'] });
+    expect(fs.existsSync(blocked)).toBe(true);
+    expect(filesOf(committed, 'vscode')).toEqual(['docs/new.md']);
+  });
+
   it('moves the entry to the other file when the commit mode changes, leaving it in one file', async () => {
     await install('vscode', ['.github/prompts/a.prompt.md']);
 
