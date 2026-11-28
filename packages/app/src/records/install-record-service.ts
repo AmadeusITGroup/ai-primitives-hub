@@ -657,6 +657,30 @@ export class InstallRecordService {
   }
 
   /**
+   * Take out of `deletedFiles` the superseded files changed since the install,
+   * so a reinstall keeps local edits as uninstall does. Missing files stay in
+   * `deletedFiles`; their removal is a no-op.
+   * @param root - Level root the paths are relative to.
+   * @param deletedFiles - Superseded paths, changed in place.
+   * @param recorded - The replaced entries' files, with their checksums.
+   * @returns The kept paths, sorted.
+   */
+  private async keepModified(root: string, deletedFiles: string[], recorded: readonly RecordedFile[]): Promise<string[]> {
+    const candidates = new Set(deletedFiles);
+    const changedOrMissing = await findModifiedFiles(this.fs, root, recorded.filter((file) => candidates.has(file.path)));
+    const kept: string[] = [];
+    for (const recordedPath of changedOrMissing) {
+      // Only a path known to be missing stays for removal; one that cannot be checked is kept.
+      const missing = await this.fs.lstat(path.join(root, ...recordedPath.split('/'))).then((stat) => stat === undefined, () => false);
+      if (!missing) {
+        deletedFiles.splice(deletedFiles.indexOf(recordedPath), 1);
+        kept.push(recordedPath);
+      }
+    }
+    return kept.toSorted(compareCodeUnits);
+  }
+
+  /**
    * The paths to delete that another entry lists through an aliased parent
    * folder: both name the same file, so it is still owned. Parent folders are
    * resolved and the leaf name kept; an unresolvable parent compares as written.
@@ -1096,6 +1120,7 @@ export class InstallRecordService {
       deletedFiles.splice(deletedFiles.indexOf(aliased), 1);
       keptSharedFiles.push(aliased);
     }
+    const keptModifiedFiles = await this.keepModified(location.root, deletedFiles, previous.flatMap((prior) => prior.files));
 
     const stillListedMcp = listedMcpServers(loaded.map((file) => file.record));
     const removedMcpServers = uniqueMcpServers(previousMcp.filter((server) => !stillListedMcp.has(mcpServerKeyOf(server))));
@@ -1104,7 +1129,10 @@ export class InstallRecordService {
     const clearedOther = other !== undefined && this.clearUnknown(other.record, bundleId, identity);
     this.clearUnknown(target.record, bundleId, identity);
 
-    const warnings = [...(await this.save(location, target.record)).warnings];
+    const warnings = [
+      ...(await this.save(location, target.record)).warnings,
+      ...keptModifiedFiles.map((file) => `Did not remove ${file}: it was changed after install.`)
+    ];
     if (other !== undefined && (moved.length > 0 || clearedOther || sync.changed.has(other))) {
       warnings.push(...(await this.saveOther(other)));
     }
@@ -1113,6 +1141,7 @@ export class InstallRecordService {
       changedEntries: [{ bundleId, tool }, ...synced.map((sibling) => ({ bundleId, tool: sibling.tool }))],
       deletedFiles: deletedFiles.toSorted(compareCodeUnits),
       keptSharedFiles: keptSharedFiles.toSorted(compareCodeUnits),
+      ...(keptModifiedFiles.length > 0 ? { keptModifiedFiles } : {}),
       ...(removedMcpServers.length > 0 ? { removedMcpServers } : {}),
       location,
       warnings,
