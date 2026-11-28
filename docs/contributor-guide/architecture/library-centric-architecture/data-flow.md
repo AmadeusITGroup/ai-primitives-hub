@@ -232,7 +232,7 @@ sequenceDiagram
     CLI-->>User: ✓ Installed to my-vscode (Record: level and path)
 ```
 
-Text version: the CLI loads the target and the install record for its level (migrating older files first), resolves and writes the bundle, records the tool's entry, saves the record atomically, and deletes files the new install no longer writes.
+Text version: the CLI loads the target and the install record for its level (migrating older files first), resolves and writes the bundle, records the tool's entry, saves the record atomically, and deletes files the new install no longer writes, keeping those edited since the install.
 
 ## 6. Profile Publish Flow
 

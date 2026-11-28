@@ -1301,6 +1301,35 @@ agents:
     });
 
     it.each([
+      { target: 'repo-vscode', agentFile: () => path.join(workspace, '.github', 'agents', 'hello.agent.md') },
+      { target: 'copilot', agentFile: () => path.join(targetDir, 'agents', 'hello.agent.md') }
+    ])('keeps a file the reinstall no longer writes when it was changed since the install, for $target', async ({ target, agentFile }) => {
+      const writeBundle = async (version: string, withAgent: boolean): Promise<void> => {
+        await rm(bundleDir, { recursive: true, force: true });
+        await writeReleaseArchive(bundleDir, new Map([
+          ['deployment-manifest.yml', new TextEncoder().encode([
+            'id: local-foo', `version: ${version}`, 'name: Local Bundle', 'prompts:',
+            '  - id: hello', '    file: prompts/hello.prompt.md', '    type: prompt',
+            ...(withAgent ? ['agents:', '  - id: hello-agent', '    file: agents/hello.agent.md', '    type: agent'] : [])
+          ].join('\n'))],
+          ['prompts/hello.prompt.md', new TextEncoder().encode('# Hello Prompt\n')],
+          ...(withAgent ? [['agents/hello.agent.md', new TextEncoder().encode('# Hello Agent\n')] as [string, Uint8Array]] : [])
+        ]));
+      };
+      const install = (): ReturnType<typeof runCommand> => run(['install', 'local-foo', '--from', bundleDir, '--target', target, '-o', 'json']);
+      await writeBundle('1.0.0', true);
+      expect((await install()).exitCode).toBe(0);
+      await writeFile(agentFile(), '# Hello Agent\nmy notes\n');
+
+      await writeBundle('2.0.0', false);
+      const result = await install();
+
+      expect(result.exitCode, result.stdout).toBe(0);
+      await expect(readFile(agentFile(), 'utf8')).resolves.toBe('# Hello Agent\nmy notes\n');
+      expect(parseJson<unknown>(result.stdout).warnings).toContainEqual(expect.stringContaining('agents/hello.agent.md'));
+    });
+
+    it.each([
       { target: 'repo-vscode', tool: 'vscode', read: () => readRecord(workspace) },
       { target: 'copilot', tool: 'copilot-cli', read: () => readInstallRecord(userRecordPath(workspaceEnv(workspace))) }
     ])('keeps one entry when a versioned bundle id is upgraded and downgraded for $target', async ({ target, tool, read }) => {
