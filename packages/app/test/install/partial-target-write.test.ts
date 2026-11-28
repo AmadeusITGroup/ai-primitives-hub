@@ -217,6 +217,38 @@ describe('writeBundleForInstall (skipUnsupported)', () => {
     expect(outcome.result.writtenBundlePaths).toEqual(['instructions/alpha.md']);
   });
 
+  it('skips a path-routed file colliding with a manifest item and keeps distinct writes', async () => {
+    const fs = new ListingFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env, caseSensitivePaths: false });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/Guard.prompt.md', text('{"hooks":{"declared":true}}\n')],
+      ['hooks/guard.prompt.md', text('{"hooks":{"remaining":true}}\n')],
+      ['prompts/hello.prompt.md', text('# Hello')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'Guard', file: 'prompts/Guard.prompt.md', type: 'hook' }]
+    };
+
+    const outcome = await writeBundleForInstall(writer, target, files, manifest, skip);
+
+    expect(fs.list('/ws')).toEqual([
+      '.github/hooks/Guard.prompt.md',
+      '.github/prompts/hello.prompt.md'
+    ]);
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'Guard.prompt.md')))
+      .toBe('{"hooks":{"declared":true}}\n');
+    expect(outcome.skipped.map((item) => item.path)).toEqual(['hooks/guard.prompt.md']);
+    expect(outcome.result.writtenBundlePaths).toEqual([
+      'prompts/Guard.prompt.md',
+      'prompts/hello.prompt.md'
+    ]);
+  });
+
   it('rejects and writes nothing when the target supports none of the content', async () => {
     const fs = new ListingFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env });

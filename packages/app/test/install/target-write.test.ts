@@ -2,6 +2,9 @@
  * Tests for manifest-driven bundle placement (`writeBundleSafely`,
  * `manifestPlacementItems`).
  */
+import {
+  createHash,
+} from 'node:crypto';
 import * as path from 'node:path';
 import type {
   Target,
@@ -14,6 +17,10 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  dump,
+  load,
+} from 'js-yaml';
+import {
   describe,
   expect,
   it,
@@ -21,6 +28,9 @@ import {
 import {
   createGovernedReleaseArchive,
 } from '../../../core/test/fixtures/release-archives';
+import {
+  writeBundleForInstall,
+} from '../../src/install/partial-target-write';
 import {
   manifestPlacementItems,
   TargetWriteRejectedError,
@@ -36,6 +46,31 @@ import {
 const localPath = (...segments: string[]): string => path.join(...segments);
 const text = (value: string): Uint8Array => new TextEncoder().encode(value);
 const env = { HOME: '/home/u' };
+
+const governedHookBundle = (): { files: Map<string, Uint8Array>; manifest: ValidatedManifest } => {
+  const files = createGovernedReleaseArchive();
+  const manifestBytes = files.get('deployment-manifest.yml');
+  if (manifestBytes === undefined) {
+    throw new Error('Missing governed release manifest.');
+  }
+  const manifest = load(new TextDecoder().decode(manifestBytes)) as Record<string, unknown>;
+  const hookPath = 'prompts/guard.prompt.md';
+  const hookBytes = text('{"hooks":{}}\n');
+  const items = manifest.items as Record<string, unknown>[];
+  items.push({ id: 'guard', path: hookPath, kind: 'hook' });
+  const inventory = manifest.files as Record<string, unknown>[];
+  inventory.push({
+    path: hookPath,
+    role: 'installable',
+    size: hookBytes.byteLength,
+    sha256: `sha256:${createHash('sha256').update(hookBytes).digest('hex')}`
+  });
+  delete manifest.prompts;
+  files.set(hookPath, hookBytes);
+  files.set('deployment-manifest.yml', text(dump(manifest, { lineWidth: -1 })));
+
+  return { files, manifest: validateManifest(files, {}) };
+};
 
 /** A Copilot-layout bundle: every file lives under `.github/`. */
 const copilotBundle = (): Map<string, Uint8Array> => new Map([
@@ -64,7 +99,7 @@ const copilotManifest = (): ValidatedManifest => ({
 });
 
 describe('manifestPlacementItems', () => {
-  it('keeps file-backed Copilot items and drops entries without a file or with a non-Copilot type', () => {
+  it('keeps file-backed items, including non-Copilot kinds, and drops entries without a file', () => {
     const items = manifestPlacementItems({
       id: 'sample-skills',
       version: '1.0.0',
@@ -79,6 +114,7 @@ describe('manifestPlacementItems', () => {
 
     expect(items).toEqual([
       { id: 'a', file: 'prompts/a.prompt.md', type: 'prompt' },
+      { id: 'b', file: 'hooks/b.json', type: 'hook' },
       { id: '42', file: 'prompts/42.md' }
     ]);
   });
@@ -95,6 +131,132 @@ describe('manifestPlacementItems', () => {
 });
 
 describe('writeBundleSafely', () => {
+  it('places a declared hook through the target hook route, regardless of its source folder', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/guard.prompt.md', text('{"hooks":{}}\n')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'guard', file: 'prompts/guard.prompt.md', type: 'hook' }]
+    };
+
+    const { result } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect(result.written).toEqual([localPath('/ws', '.github', 'hooks', 'guard.prompt.md')]);
+    expect(result.installedPaths?.['prompts/guard.prompt.md']).toBe('hooks/guard.prompt.md');
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'guard.prompt.md'))).toBe('{"hooks":{}}\n');
+    expect(await fs.exists(localPath('/ws', '.github', 'prompts', 'guard.prompt.md'))).toBe(false);
+  });
+
+  it('rejects a remaining file that collides with a manifest item destination', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env, caseSensitivePaths: false });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/Guard.prompt.md', text('{"hooks":{"declared":true}}\n')],
+      ['hooks/guard.prompt.md', text('{"hooks":{"remaining":true}}\n')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'Guard', file: 'prompts/Guard.prompt.md', type: 'hook' }]
+    };
+
+    const error = await writeBundleSafely(writer, target, files, manifest).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped).toContain('hooks/guard.prompt.md');
+    expect(await fs.exists(localPath('/ws', '.github', 'hooks', 'guard.prompt.md'))).toBe(false);
+  });
+
+  it('keeps case-distinct destinations on case-sensitive targets', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env, caseSensitivePaths: true });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/Guard.prompt.md', text('{"hooks":{"declared":true}}\n')],
+      ['hooks/guard.prompt.md', text('{"hooks":{"remaining":true}}\n')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'Guard', file: 'prompts/Guard.prompt.md', type: 'hook' }]
+    };
+
+    const { result } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect(result.skipped).toEqual([]);
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'Guard.prompt.md')))
+      .toBe('{"hooks":{"declared":true}}\n');
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'guard.prompt.md')))
+      .toBe('{"hooks":{"remaining":true}}\n');
+  });
+
+  it('reports a declared hook and other unrouted files before rejecting the bundle', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env });
+    const target: Target = { name: 'kiro-repo', type: 'kiro', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/guard.prompt.md', text('{"hooks":{}}\n')],
+      ['.claude/commands/deploy.md', text('# Deploy')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'guard', file: 'prompts/guard.prompt.md', type: 'hook' }]
+    };
+
+    const error = await writeBundleSafely(writer, target, files, manifest).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped.toSorted()).toEqual([
+      '.claude/commands/deploy.md',
+      'prompts/guard.prompt.md'
+    ]);
+    expect(await fs.exists(localPath('/ws', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
+  });
+
+  it('honors governed hook items when the legacy prompts projection is absent', async () => {
+    const { files, manifest } = governedHookBundle();
+    const target: Target = { name: 'kiro-ide', type: 'kiro', scope: 'user' };
+    const defaultFs = new InMemoryFileSystem();
+    const defaultWriter = new FileTreeTargetWriter({ fs: defaultFs, env });
+
+    const error = await writeBundleSafely(defaultWriter, target, files, manifest)
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped).toContain('prompts/guard.prompt.md');
+    expect(await defaultFs.exists(localPath('/home/u', '.kiro', 'steering', 'hello.prompt.md'))).toBe(false);
+    expect(await defaultFs.exists(localPath('/home/u', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
+
+    const partialFs = new InMemoryFileSystem();
+    const partialWriter = new FileTreeTargetWriter({ fs: partialFs, env });
+    const outcome = await writeBundleForInstall(
+      partialWriter,
+      target,
+      files,
+      manifest,
+      { skipUnsupported: true }
+    );
+
+    expect(outcome.skipped.map((item) => item.path)).toEqual(['prompts/guard.prompt.md']);
+    expect(outcome.result.written).toEqual([localPath('/home/u', '.kiro', 'steering', 'hello.prompt.md')]);
+    expect(await partialFs.exists(localPath('/home/u', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
+  });
+
   it('installs a generated governed dual-layout archive once from its preserved Hub paths', async () => {
     const original = createGovernedReleaseArchive();
     const originalManifest = validateManifest(original, {});

@@ -69,6 +69,21 @@ const PROMPT_ONLY_FILES: Record<string, string> = {
   'deployment-manifest.yml': MIXED_FILES['deployment-manifest.yml'],
   'prompts/hello.prompt.md': MIXED_FILES['prompts/hello.prompt.md']
 };
+const DECLARED_HOOK_FILES: Record<string, string> = {
+  'deployment-manifest.yml': `id: sample-declared-hook
+version: 1.0.0
+name: Sample Declared Hook
+prompts:
+  - id: hello
+    file: prompts/hello.prompt.md
+    type: prompt
+  - id: guard
+    file: prompts/guard.prompt.md
+    type: hook
+`,
+  'prompts/hello.prompt.md': '# Hello\n',
+  'prompts/guard.prompt.md': '{"hooks":{}}\n'
+};
 const REPO_FILES: Record<string, string> = {
   'deployment-manifest.yml': `id: sample-repo
 version: 1.0.0
@@ -187,6 +202,20 @@ describe('install --skip-unsupported', () => {
   });
 
   describe('without the flag (unchanged default)', () => {
+    it('rejects a declared kind with no target route without path-routing it', async () => {
+      const declaredBundleDir = path.join(workspace, 'declared-hook-bundle');
+      await writeBundle(declaredBundleDir, DECLARED_HOOK_FILES);
+
+      const result = await run([
+        'install', '--from', declaredBundleDir, '--target', 'kiro-ide', '-o', 'json'
+      ]);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain('BUNDLE.UNSUPPORTED_CONTENT');
+      expect(result.stdout).toContain('prompts/guard.prompt.md');
+      expect(await listFiles(kiroDir)).toEqual([]);
+    });
+
     it('rejects a bundle with unsupported content and writes nothing', async () => {
       const result = await run(['install', '--from', bundleDir, '--target', 'kiro-ide', '-o', 'json']);
 
@@ -223,6 +252,28 @@ describe('install --skip-unsupported', () => {
       );
       expect(result.stderr).toBe('');
     });
+  });
+
+  it('skips and reports a declared kind with no route without path-routing it', async () => {
+    const declaredBundleDir = path.join(workspace, 'declared-hook-bundle');
+    await writeBundle(declaredBundleDir, DECLARED_HOOK_FILES);
+
+    const result = await run([
+      'install', '--from', declaredBundleDir, '--target', 'kiro-ide', '--skip-unsupported', '-o', 'json'
+    ]);
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    const envelope = parseJson<InstallData>(result.stdout);
+    expect(envelope.status).toBe('warning');
+    expect(envelope.data.skipped).toEqual([{
+      path: 'prompts/guard.prompt.md',
+      code: 'BUNDLE.UNSUPPORTED_CONTENT',
+      reason: KIRO_REASON
+    }]);
+    expect(envelope.data.written).toEqual([path.join(kiroDir, 'steering', 'hello.prompt.md')]);
+    expect(await listFiles(kiroDir)).toEqual(['steering/hello.prompt.md']);
+    const entry = (await readInstallRecord(envelope.data.lockfile)).bundles['sample-declared-hook'].tools.kiro;
+    expect(entry.files.map((file) => file.path)).toEqual(['.kiro/steering/hello.prompt.md']);
   });
 
   it('installs the supported items and reports the skipped ones in JSON', async () => {

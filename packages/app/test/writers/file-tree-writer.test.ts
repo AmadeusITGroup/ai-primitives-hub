@@ -562,7 +562,11 @@ describe('FileTreeTargetWriter.writeManifestItems', () => {
     const plan = await writer.preflightManifestItems(repoTarget, files, items);
     const result = await writer.writeManifestItems(repoTarget, files, items);
 
-    expect(plan).toEqual({ writable: ['instructions/alpha.md'], skipped: ['instructions/alpha-copy.md'] });
+    expect(plan).toEqual({
+      writable: ['instructions/alpha.md'],
+      skipped: ['instructions/alpha-copy.md'],
+      destinations: [localPath('instructions', 'alpha.instructions.md')]
+    });
     expect(result.skipped).toEqual(['instructions/alpha-copy.md']);
     expect(Object.keys(result.installedPaths ?? {})).toEqual(['instructions/alpha.md']);
     expect(await fs.readFile(localPath('/ws', '.github', 'instructions', 'alpha.instructions.md'))).toBe('# First');

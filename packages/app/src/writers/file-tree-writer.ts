@@ -86,21 +86,18 @@ export interface WriterFs {
 
 /**
  * A manifest-driven placement instruction: "this bundle-relative source
- * file/directory is primitive `id` of Copilot type `type`". Used by
- * `FileTreeTargetWriter.writeManifestItems` for targets/scopes (e.g. the
- * VS Code extension's user/repository scopes) whose real on-disk
- * convention renames every file to `{id}.{type-extension}` rather than
- * preserving the bundle's own directory layout — see migration plan
- * §7.5 item 2 for why this is a separate mode from `write()`'s
- * prefix-preserving routing.
+ * file/directory is primitive `id` of declared kind `type`". Used by
+ * `FileTreeTargetWriter.writeManifestItems` when placement follows the
+ * declared kind rather than the source path. Copilot types are renamed to
+ * `{id}.{type-extension}`; other file kinds retain their source filename.
  */
 export interface ManifestPlacementItem {
   /** Manifest item id; used to compute the renamed on-disk file name. */
   id: string;
   /** Bundle-relative source path (looked up in the `ExtractedFiles` map). */
   file: string;
-  /** Copilot file type; auto-detected from `file`/`tags` when omitted. */
-  type?: CopilotFileType;
+  /** Declared kind, or a Copilot file type auto-detected from `file`/`tags`. */
+  type?: string;
   tags?: string[];
 }
 
@@ -186,6 +183,8 @@ export interface FileTreeTargetWriterOptions {
   fs: WriterFs;
   /** Process env, used for ${VAR} expansion. */
   env: Record<string, string | undefined>;
+  /** Override the host's default path case sensitivity for unusual filesystems. */
+  caseSensitivePaths?: boolean;
   /** Optional resource transformer for target-specific content transformations. */
   transformer?: ResourceTransformer;
   /** Optional hierarchical layout loader; built-in defaults are used when omitted. */
@@ -198,20 +197,30 @@ export interface FileTreeTargetWriterOptions {
  */
 /* eslint-disable @typescript-eslint/member-ordering -- public API kept above helpers. */
 export class FileTreeTargetWriter implements TargetWriter {
+  private readonly caseSensitivePaths: boolean;
+
   /**
    * Construct a FileTreeTargetWriter.
    * @param opts Writer options including filesystem and environment.
    */
-  public constructor(private readonly opts: FileTreeTargetWriterOptions) {}
+  public constructor(private readonly opts: FileTreeTargetWriterOptions) {
+    this.caseSensitivePaths = opts.caseSensitivePaths
+      ?? (process.platform !== 'win32' && process.platform !== 'darwin');
+  }
 
   /**
    * Determine which extracted bundle files this writer can place without
    * changing the target filesystem.
    * @param target - Target chosen via `--target <name>`.
    * @param files - Extracted bundle files.
+   * @param reservedDestinationKeys - Layout-relative destinations already claimed by manifest items.
    * @returns Deterministic writable/skipped bundle-relative paths.
    */
-  public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
+  public async preflight(
+    target: Target,
+    files: ExtractedFiles,
+    reservedDestinationKeys: ReadonlySet<string> = new Set()
+  ): Promise<TargetWritePlan> {
     const layout = await this.resolveLayout(target);
     const skip = new Set(layout.skipPaths);
     const allowed = target.allowedKinds === undefined
@@ -231,6 +240,10 @@ export class FileTreeTargetWriter implements TargetWriter {
       }
       const routeKind = routeKindOf(route.prefix);
       if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
+        skipped.push(bundlePath);
+        continue;
+      }
+      if (reservedDestinationKeys.has(this.destinationKey(path.join(route.outPrefix, route.tail)))) {
         skipped.push(bundlePath);
         continue;
       }
@@ -422,7 +435,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       for (const item of items) {
         const placement = placeManifestItem(item, files, layout, allowed);
         // Never let a later item silently overwrite an earlier item's file.
-        if (placement === null || !claimDestinations(placement, taken)) {
+        if (placement === null || !claimDestinations(placement, taken, (destination) => this.destinationKey(destination))) {
           skipped.push(item.file);
           continue;
         }
@@ -464,29 +477,32 @@ export class FileTreeTargetWriter implements TargetWriter {
    * @returns `writable` lists every bundle path the items would write
    *   (a skill item contributes every file of its directory); `skipped`
    *   lists the `file` of each item that cannot be placed, including an
-   *   item whose destination an earlier item already takes.
+   *   item whose destination an earlier item already takes. `destinations`
+   *   lists each output path relative to the layout base directory.
    */
   public async preflightManifestItems(
     target: Target,
     files: ExtractedFiles,
     items: readonly ManifestPlacementItem[]
-  ): Promise<TargetWritePlan> {
+  ): Promise<ManifestItemWritePlan> {
     const layout = await this.resolveLayout(target);
     const allowed = allowedKindSet(target);
     const writable: string[] = [];
     const skipped: string[] = [];
+    const destinations: string[] = [];
     const taken = new Set<string>();
     for (const item of items) {
       const placement = placeManifestItem(item, files, layout, allowed);
       // Two items mapping to one destination (e.g. ids `alpha` and
       // `alpha.instructions`) would overwrite each other: skip the later one.
-      if (placement === null || !claimDestinations(placement, taken)) {
+      if (placement === null || !claimDestinations(placement, taken, (destination) => this.destinationKey(destination))) {
         skipped.push(item.file);
         continue;
       }
       writable.push(...placement.sources.map((source) => source.bundlePath));
+      destinations.push(...placement.sources.map(({ tail }) => this.destinationKey(path.join(placement.outDir, tail))));
     }
-    return { writable, skipped };
+    return { writable, skipped, destinations };
   }
 
   private async resolveLayout(target: Target): Promise<TargetLayout> {
@@ -494,6 +510,11 @@ export class FileTreeTargetWriter implements TargetWriter {
       return resolveLayout(target);
     }
     return await resolveLayoutAsync(target, this.opts.layoutLoader);
+  }
+
+  private destinationKey(destination: string): string {
+    const normalized = path.normalize(destination);
+    return this.caseSensitivePaths ? normalized : normalized.toLowerCase();
   }
 
   /**
@@ -553,9 +574,14 @@ export class FileTreeTargetWriter implements TargetWriter {
  * with its path below that directory.
  */
 interface ManifestItemPlacement {
-  type: CopilotFileType;
+  type?: CopilotFileType;
   outDir: string;
   sources: { bundlePath: string; tail: string }[];
+}
+
+interface ManifestItemWritePlan extends TargetWritePlan {
+  /** Normalized destination keys for writable items, relative to the layout base directory. */
+  destinations: string[];
 }
 
 const allowedKindSet = (target: Target): Set<string> | null =>
@@ -568,10 +594,9 @@ const allowedKindSet = (target: Target): Set<string> | null =>
  * cannot place it: its kind is excluded by `allowedKinds`, the layout has
  * no route for its type, a skill item does not point into a `skills/`
  * directory or that directory has no files, or the item's file is missing.
- * The type (explicit or auto-detected from `file`/`tags`) selects the
- * layout route via {@link KIND_TO_ROUTE_KEY}. Non-skill files are renamed
- * to `{id}.{type-extension}`; a skill's whole source directory is copied
- * into `{route}/{normalizedId}/`.
+ * Copilot types use {@link KIND_TO_ROUTE_KEY} and canonical filenames.
+ * Hook items use a matching layout route and keep their source filename;
+ * other non-Copilot kinds need their dedicated placement semantics.
  * @param item - Manifest placement item.
  * @param files - Extracted bundle files.
  * @param layout - Resolved target layout.
@@ -584,7 +609,24 @@ const placeManifestItem = (
   layout: TargetLayout,
   allowed: Set<string> | null
 ): ManifestItemPlacement | null => {
-  const type = item.type ?? determineFileType(item.file, item.tags);
+  const declaredType = item.type ?? determineFileType(item.file, item.tags);
+  const copilotType = Object.hasOwn(KIND_TO_ROUTE_KEY, declaredType)
+    ? declaredType as CopilotFileType
+    : undefined;
+  if (copilotType === undefined) {
+    const kind = normalizePrimitiveKind(declaredType);
+    if (kind !== 'hook' || (allowed !== null && !allowed.has(kind))) {
+      return null;
+    }
+    const route = Object.entries(layout.kindRoutes).find(([prefix]) => routeKindOf(prefix) === kind);
+    const tail = path.posix.basename(item.file);
+    if (route === undefined || !files.has(item.file) || !isPlainFileName(tail)) {
+      return null;
+    }
+    return staysInside({ outDir: route[1], sources: [{ bundlePath: item.file, tail }] });
+  }
+
+  const type = copilotType;
   if (allowed !== null && !allowed.has(copilotTypeToPrimitiveKind(type))) {
     return null;
   }
@@ -663,10 +705,15 @@ export const skillSourcePrefix = (file: string): string | null => {
  * directory), unless one is already reserved by an earlier item.
  * @param placement - Placement to reserve.
  * @param taken - Destinations reserved so far; updated on success.
+ * @param destinationKey
  * @returns `false` (reserving nothing) when any destination is taken.
  */
-const claimDestinations = (placement: ManifestItemPlacement, taken: Set<string>): boolean => {
-  const destinations = placement.sources.map(({ tail }) => path.join(placement.outDir, tail));
+const claimDestinations = (
+  placement: ManifestItemPlacement,
+  taken: Set<string>,
+  destinationKey: (destination: string) => string
+): boolean => {
+  const destinations = placement.sources.map(({ tail }) => destinationKey(path.join(placement.outDir, tail)));
   if (destinations.some((destination) => taken.has(destination))) {
     return false;
   }

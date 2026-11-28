@@ -185,15 +185,17 @@ async function writeItemsSkipping(
   });
   const rest: ExtractedFiles = new Map([...installableFiles]
     .filter(([bundlePath]) => !covered.has(bundlePath) && !belongsToSkippedItem(bundlePath)));
-  const restPlan = await writer.preflight(target, rest);
+  const restPlan = await writer.preflight(target, rest, new Set(itemPlan.destinations));
   if (covered.size + restPlan.writable.length === 0) {
     throw new TargetWriteRejectedError([...itemPlan.skipped, ...restPlan.skipped]);
   }
 
+  const skippedRest = new Set(restPlan.skipped);
+  const writableRest = new Map([...rest].filter(([bundlePath]) => !skippedRest.has(bundlePath)));
   const itemResult = await writer.writeManifestItems(target, installableFiles, items);
   let restResult: TargetWriteResult;
   try {
-    restResult = await writer.write(target, rest);
+    restResult = await writer.write(target, writableRest);
   } catch (cause) {
     await writer.rollback(target, itemResult.written);
     throw cause;

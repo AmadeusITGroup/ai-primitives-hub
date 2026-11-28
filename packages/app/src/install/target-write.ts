@@ -19,6 +19,7 @@ import {
   determineFileType,
   getFileExtension,
   getInstallableBundleFiles,
+  isReleaseDeploymentManifest,
 } from '@ai-primitives-hub/core';
 import {
   FileTreeTargetWriter,
@@ -81,25 +82,48 @@ const COPILOT_FILE_TYPES: ReadonlySet<string> = new Set<CopilotFileType>([
 ]);
 
 /**
- * Turn a validated manifest's `prompts:` list into placement items for
- * {@link FileTreeTargetWriter.writeManifestItems}.
+ * Turn a validated manifest's file-backed prompt entries and governed hook
+ * items into placement items for {@link FileTreeTargetWriter.writeManifestItems}.
  *
  * Only file-backed entries count: an entry needs an `id` and a `file`.
- * An entry without `type` has its type auto-detected from `file`/`tags`;
- * an entry whose `type` is not a Copilot file type (prompt, instructions,
- * chatmode, agent, skill) is left out, so its file keeps today's path
- * routing. MCP servers live under `mcpServers`, not `prompts`, and are
- * never placement items.
+ * An entry without `type` has its type auto-detected from `file`/`tags`.
+ * Copilot types and explicit hooks are retained for manifest placement;
+ * other non-Copilot types keep their existing path-based behavior. MCP
+ * servers live under `mcpServers`, not `prompts`, and are never placement
+ * items.
  * @param manifest Validated deployment manifest.
  * @returns Placement items in manifest order.
  */
 export function manifestPlacementItems(manifest: ValidatedManifest): ManifestPlacementItem[] {
   const prompts = (manifest as { prompts?: unknown }).prompts;
-  if (!Array.isArray(prompts)) {
+  const governedHooks: ManifestPlacementItem[] = isReleaseDeploymentManifest(manifest)
+    ? manifest.items
+      .filter((item) => item.kind === 'hook')
+      .map(({ id, path: file, kind, tags }) => ({
+        id,
+        file,
+        type: kind,
+        ...(tags === undefined ? {} : { tags })
+      }))
+    : [];
+  const governedHookIds = new Set(governedHooks.map((item) => item.id));
+  const governedHookFiles = new Set(governedHooks.map((item) => item.file));
+  const promptEntries: unknown[] = Array.isArray(prompts)
+    ? (prompts as unknown[]).filter((entry) => {
+      if (entry === null || typeof entry !== 'object') {
+        return true;
+      }
+      const { id, file } = entry as Record<string, unknown>;
+      const itemId = typeof id === 'number' ? String(id) : id;
+      return !(typeof itemId === 'string' && governedHookIds.has(itemId))
+        && !(typeof file === 'string' && governedHookFiles.has(file));
+    })
+    : [];
+  if (promptEntries.length === 0 && governedHooks.length === 0) {
     return [];
   }
   const items: ManifestPlacementItem[] = [];
-  for (const entry of prompts as unknown[]) {
+  for (const entry of [...promptEntries, ...governedHooks]) {
     if (entry === null || typeof entry !== 'object') {
       continue;
     }
@@ -109,15 +133,21 @@ export function manifestPlacementItems(manifest: ValidatedManifest): ManifestPla
     if (typeof itemId !== 'string' || itemId.length === 0 || typeof file !== 'string' || file.length === 0) {
       continue;
     }
-    if (type !== undefined && (typeof type !== 'string' || !COPILOT_FILE_TYPES.has(type))) {
+    if (type !== undefined && typeof type !== 'string') {
+      items.push({ id: itemId, file, type: '' });
+      continue;
+    }
+    if (type !== undefined && !COPILOT_FILE_TYPES.has(type) && type !== 'hook') {
       continue;
     }
     const itemTags = Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string') : undefined;
-    const effectiveType = (type as CopilotFileType | undefined) ?? determineFileType(file, itemTags);
+    const effectiveType = type === undefined
+      ? determineFileType(file, itemTags)
+      : (COPILOT_FILE_TYPES.has(type) ? type as CopilotFileType : undefined);
     items.push({
-      id: stripTypeSuffix(itemId, effectiveType),
+      id: effectiveType === undefined ? itemId : stripTypeSuffix(itemId, effectiveType),
       file,
-      ...(type === undefined ? {} : { type: type as CopilotFileType }),
+      ...(type === undefined ? {} : { type }),
       ...(itemTags === undefined ? {} : { tags: itemTags })
     });
   }
@@ -208,14 +238,12 @@ export async function writeBundleSafely(
   }
 
   const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
-  if (itemPlan.skipped.length > 0) {
-    throw new TargetWriteRejectedError(itemPlan.skipped);
-  }
   const covered = new Set(itemPlan.writable);
   const rest: ExtractedFiles = new Map([...installableFiles].filter(([bundlePath]) => !covered.has(bundlePath)));
-  const restPlan = await writer.preflight(target, rest);
-  if (restPlan.skipped.length > 0) {
-    throw new TargetWriteRejectedError(restPlan.skipped);
+  const restPlan = await writer.preflight(target, rest, new Set(itemPlan.destinations));
+  const skipped = [...new Set([...itemPlan.skipped, ...restPlan.skipped])];
+  if (skipped.length > 0) {
+    throw new TargetWriteRejectedError(skipped);
   }
 
   const itemResult = await writer.writeManifestItems(target, installableFiles, items);
