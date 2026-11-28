@@ -19,6 +19,7 @@ import {
   determineFileType,
   getFileExtension,
   getInstallableBundleFiles,
+  isReleaseDeploymentManifest,
 } from '@ai-primitives-hub/core';
 import {
   FileTreeTargetWriter,
@@ -81,8 +82,8 @@ const COPILOT_FILE_TYPES: ReadonlySet<string> = new Set<CopilotFileType>([
 ]);
 
 /**
- * Turn a validated manifest's `prompts:` list into placement items for
- * {@link FileTreeTargetWriter.writeManifestItems}.
+ * Turn a validated manifest's file-backed prompt entries and governed hook
+ * items into placement items for {@link FileTreeTargetWriter.writeManifestItems}.
  *
  * Only file-backed entries count: an entry needs an `id` and a `file`.
  * An entry without `type` has its type auto-detected from `file`/`tags`.
@@ -95,11 +96,34 @@ const COPILOT_FILE_TYPES: ReadonlySet<string> = new Set<CopilotFileType>([
  */
 export function manifestPlacementItems(manifest: ValidatedManifest): ManifestPlacementItem[] {
   const prompts = (manifest as { prompts?: unknown }).prompts;
-  if (!Array.isArray(prompts)) {
+  const governedHooks: ManifestPlacementItem[] = isReleaseDeploymentManifest(manifest)
+    ? manifest.items
+      .filter((item) => item.kind === 'hook')
+      .map(({ id, path: file, kind, tags }) => ({
+        id,
+        file,
+        type: kind,
+        ...(tags === undefined ? {} : { tags })
+      }))
+    : [];
+  const governedHookIds = new Set(governedHooks.map((item) => item.id));
+  const governedHookFiles = new Set(governedHooks.map((item) => item.file));
+  const promptEntries: unknown[] = Array.isArray(prompts)
+    ? (prompts as unknown[]).filter((entry) => {
+      if (entry === null || typeof entry !== 'object') {
+        return true;
+      }
+      const { id, file } = entry as Record<string, unknown>;
+      const itemId = typeof id === 'number' ? String(id) : id;
+      return !(typeof itemId === 'string' && governedHookIds.has(itemId))
+        && !(typeof file === 'string' && governedHookFiles.has(file));
+    })
+    : [];
+  if (promptEntries.length === 0 && governedHooks.length === 0) {
     return [];
   }
   const items: ManifestPlacementItem[] = [];
-  for (const entry of prompts as unknown[]) {
+  for (const entry of [...promptEntries, ...governedHooks]) {
     if (entry === null || typeof entry !== 'object') {
       continue;
     }

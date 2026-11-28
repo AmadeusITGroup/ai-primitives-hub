@@ -2,6 +2,9 @@
  * Tests for manifest-driven bundle placement (`writeBundleSafely`,
  * `manifestPlacementItems`).
  */
+import {
+  createHash,
+} from 'node:crypto';
 import * as path from 'node:path';
 import type {
   Target,
@@ -14,6 +17,10 @@ import {
   validateManifest,
 } from '@ai-primitives-hub/core';
 import {
+  dump,
+  load,
+} from 'js-yaml';
+import {
   describe,
   expect,
   it,
@@ -21,6 +28,9 @@ import {
 import {
   createGovernedReleaseArchive,
 } from '../../../core/test/fixtures/release-archives';
+import {
+  writeBundleForInstall,
+} from '../../src/install/partial-target-write';
 import {
   manifestPlacementItems,
   TargetWriteRejectedError,
@@ -36,6 +46,31 @@ import {
 const localPath = (...segments: string[]): string => path.join(...segments);
 const text = (value: string): Uint8Array => new TextEncoder().encode(value);
 const env = { HOME: '/home/u' };
+
+const governedHookBundle = (): { files: Map<string, Uint8Array>; manifest: ValidatedManifest } => {
+  const files = createGovernedReleaseArchive();
+  const manifestBytes = files.get('deployment-manifest.yml');
+  if (manifestBytes === undefined) {
+    throw new Error('Missing governed release manifest.');
+  }
+  const manifest = load(new TextDecoder().decode(manifestBytes)) as Record<string, unknown>;
+  const hookPath = 'prompts/guard.prompt.md';
+  const hookBytes = text('{"hooks":{}}\n');
+  const items = manifest.items as Record<string, unknown>[];
+  items.push({ id: 'guard', path: hookPath, kind: 'hook' });
+  const inventory = manifest.files as Record<string, unknown>[];
+  inventory.push({
+    path: hookPath,
+    role: 'installable',
+    size: hookBytes.byteLength,
+    sha256: `sha256:${createHash('sha256').update(hookBytes).digest('hex')}`
+  });
+  delete manifest.prompts;
+  files.set(hookPath, hookBytes);
+  files.set('deployment-manifest.yml', text(dump(manifest, { lineWidth: -1 })));
+
+  return { files, manifest: validateManifest(files, {}) };
+};
 
 /** A Copilot-layout bundle: every file lives under `.github/`. */
 const copilotBundle = (): Map<string, Uint8Array> => new Map([
@@ -191,6 +226,35 @@ describe('writeBundleSafely', () => {
       'prompts/guard.prompt.md'
     ]);
     expect(await fs.exists(localPath('/ws', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
+  });
+
+  it('honors governed hook items when the legacy prompts projection is absent', async () => {
+    const { files, manifest } = governedHookBundle();
+    const target: Target = { name: 'kiro-ide', type: 'kiro', scope: 'user' };
+    const defaultFs = new InMemoryFileSystem();
+    const defaultWriter = new FileTreeTargetWriter({ fs: defaultFs, env });
+
+    const error = await writeBundleSafely(defaultWriter, target, files, manifest)
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped).toContain('prompts/guard.prompt.md');
+    expect(await defaultFs.exists(localPath('/home/u', '.kiro', 'steering', 'hello.prompt.md'))).toBe(false);
+    expect(await defaultFs.exists(localPath('/home/u', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
+
+    const partialFs = new InMemoryFileSystem();
+    const partialWriter = new FileTreeTargetWriter({ fs: partialFs, env });
+    const outcome = await writeBundleForInstall(
+      partialWriter,
+      target,
+      files,
+      manifest,
+      { skipUnsupported: true }
+    );
+
+    expect(outcome.skipped.map((item) => item.path)).toEqual(['prompts/guard.prompt.md']);
+    expect(outcome.result.written).toEqual([localPath('/home/u', '.kiro', 'steering', 'hello.prompt.md')]);
+    expect(await partialFs.exists(localPath('/home/u', '.kiro', 'steering', 'guard.prompt.md'))).toBe(false);
   });
 
   it('installs a generated governed dual-layout archive once from its preserved Hub paths', async () => {
