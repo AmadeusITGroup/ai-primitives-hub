@@ -45,6 +45,7 @@ Marketplace and registry for Copilot prompt bundles in VS Code.
   - [Validation](contributor-guide/architecture/validation.md)
   - [Security Scanner](contributor-guide/architecture/security-scanner.md)
   - [Architecture decisions](contributor-guide/architecture/adr/adr-index.md)
+    - [ADR-0009: Primitive Install Categories and Per-Target Plugin Semantics](contributor-guide/architecture/adr/0009-primitive-install-categories-and-per-target-plugin-semantics.md)
 - **[Core Flows](contributor-guide/core-flows.md)** — Key system flows
 - **[Testing](contributor-guide/testing.md)** — Testing strategy
 - **[Testing SSH Remote](contributor-guide/testing/ssh-remote.md)** — SSH testing

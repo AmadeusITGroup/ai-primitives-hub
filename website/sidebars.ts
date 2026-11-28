@@ -56,6 +56,7 @@ const sidebars: SidebarsConfig = {
             { type: "doc", id: "contributor-guide/architecture/scaffolding", label: "Scaffolding" },
             { type: "doc", id: "contributor-guide/architecture/validation", label: "Validation" },
             { type: "doc", id: "contributor-guide/architecture/security-scanner", label: "Security Scanner" },
+            { type: "doc", id: "contributor-guide/architecture/adr/primitive-install-categories-and-per-target-plugin-semantics", label: "ADR-0009: Primitive Install Categories and Per-Target Plugin Semantics" },
           ],
         },
         { type: "doc", id: "contributor-guide/core-flows", label: "Core Flows" },
