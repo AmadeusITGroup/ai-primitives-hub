@@ -119,6 +119,54 @@ describe('writeBundleSafely', () => {
     expect(await fs.exists(localPath('/ws', '.github', 'prompts', 'guard.prompt.md'))).toBe(false);
   });
 
+  it('rejects a remaining file that collides with a manifest item destination', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env, caseSensitivePaths: false });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/Guard.prompt.md', text('{"hooks":{"declared":true}}\n')],
+      ['hooks/guard.prompt.md', text('{"hooks":{"remaining":true}}\n')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'Guard', file: 'prompts/Guard.prompt.md', type: 'hook' }]
+    };
+
+    const error = await writeBundleSafely(writer, target, files, manifest).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(TargetWriteRejectedError);
+    expect((error as TargetWriteRejectedError).skipped).toContain('hooks/guard.prompt.md');
+    expect(await fs.exists(localPath('/ws', '.github', 'hooks', 'guard.prompt.md'))).toBe(false);
+  });
+
+  it('keeps case-distinct destinations on case-sensitive targets', async () => {
+    const fs = new InMemoryFileSystem();
+    const writer = new FileTreeTargetWriter({ fs, env, caseSensitivePaths: true });
+    const target: Target = { name: 'vsc-repo', type: 'vscode', scope: 'repository', rootPath: '/ws' };
+    const files = new Map<string, Uint8Array>([
+      ['deployment-manifest.yml', text('id: sample-hooks\n')],
+      ['prompts/Guard.prompt.md', text('{"hooks":{"declared":true}}\n')],
+      ['hooks/guard.prompt.md', text('{"hooks":{"remaining":true}}\n')]
+    ]);
+    const manifest: ValidatedManifest = {
+      id: 'sample-hooks',
+      version: '1.0.0',
+      name: 'Sample Hooks',
+      prompts: [{ id: 'Guard', file: 'prompts/Guard.prompt.md', type: 'hook' }]
+    };
+
+    const { result } = await writeBundleSafely(writer, target, files, manifest);
+
+    expect(result.skipped).toEqual([]);
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'Guard.prompt.md')))
+      .toBe('{"hooks":{"declared":true}}\n');
+    expect(await fs.readFile(localPath('/ws', '.github', 'hooks', 'guard.prompt.md')))
+      .toBe('{"hooks":{"remaining":true}}\n');
+  });
+
   it('reports a declared hook and other unrouted files before rejecting the bundle', async () => {
     const fs = new InMemoryFileSystem();
     const writer = new FileTreeTargetWriter({ fs, env });

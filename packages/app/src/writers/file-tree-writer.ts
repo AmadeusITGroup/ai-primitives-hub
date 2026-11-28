@@ -183,6 +183,8 @@ export interface FileTreeTargetWriterOptions {
   fs: WriterFs;
   /** Process env, used for ${VAR} expansion. */
   env: Record<string, string | undefined>;
+  /** Override the host's default path case sensitivity for unusual filesystems. */
+  caseSensitivePaths?: boolean;
   /** Optional resource transformer for target-specific content transformations. */
   transformer?: ResourceTransformer;
   /** Optional hierarchical layout loader; built-in defaults are used when omitted. */
@@ -195,20 +197,30 @@ export interface FileTreeTargetWriterOptions {
  */
 /* eslint-disable @typescript-eslint/member-ordering -- public API kept above helpers. */
 export class FileTreeTargetWriter implements TargetWriter {
+  private readonly caseSensitivePaths: boolean;
+
   /**
    * Construct a FileTreeTargetWriter.
    * @param opts Writer options including filesystem and environment.
    */
-  public constructor(private readonly opts: FileTreeTargetWriterOptions) {}
+  public constructor(private readonly opts: FileTreeTargetWriterOptions) {
+    this.caseSensitivePaths = opts.caseSensitivePaths
+      ?? (process.platform !== 'win32' && process.platform !== 'darwin');
+  }
 
   /**
    * Determine which extracted bundle files this writer can place without
    * changing the target filesystem.
    * @param target - Target chosen via `--target <name>`.
    * @param files - Extracted bundle files.
+   * @param reservedDestinationKeys - Layout-relative destinations already claimed by manifest items.
    * @returns Deterministic writable/skipped bundle-relative paths.
    */
-  public async preflight(target: Target, files: ExtractedFiles): Promise<TargetWritePlan> {
+  public async preflight(
+    target: Target,
+    files: ExtractedFiles,
+    reservedDestinationKeys: ReadonlySet<string> = new Set()
+  ): Promise<TargetWritePlan> {
     const layout = await this.resolveLayout(target);
     const skip = new Set(layout.skipPaths);
     const allowed = target.allowedKinds === undefined
@@ -228,6 +240,10 @@ export class FileTreeTargetWriter implements TargetWriter {
       }
       const routeKind = routeKindOf(route.prefix);
       if (allowed !== null && (routeKind === null || !allowed.has(routeKind))) {
+        skipped.push(bundlePath);
+        continue;
+      }
+      if (reservedDestinationKeys.has(this.destinationKey(path.join(route.outPrefix, route.tail)))) {
         skipped.push(bundlePath);
         continue;
       }
@@ -419,7 +435,7 @@ export class FileTreeTargetWriter implements TargetWriter {
       for (const item of items) {
         const placement = placeManifestItem(item, files, layout, allowed);
         // Never let a later item silently overwrite an earlier item's file.
-        if (placement === null || !claimDestinations(placement, taken)) {
+        if (placement === null || !claimDestinations(placement, taken, (destination) => this.destinationKey(destination))) {
           skipped.push(item.file);
           continue;
         }
@@ -461,29 +477,32 @@ export class FileTreeTargetWriter implements TargetWriter {
    * @returns `writable` lists every bundle path the items would write
    *   (a skill item contributes every file of its directory); `skipped`
    *   lists the `file` of each item that cannot be placed, including an
-   *   item whose destination an earlier item already takes.
+   *   item whose destination an earlier item already takes. `destinations`
+   *   lists each output path relative to the layout base directory.
    */
   public async preflightManifestItems(
     target: Target,
     files: ExtractedFiles,
     items: readonly ManifestPlacementItem[]
-  ): Promise<TargetWritePlan> {
+  ): Promise<ManifestItemWritePlan> {
     const layout = await this.resolveLayout(target);
     const allowed = allowedKindSet(target);
     const writable: string[] = [];
     const skipped: string[] = [];
+    const destinations: string[] = [];
     const taken = new Set<string>();
     for (const item of items) {
       const placement = placeManifestItem(item, files, layout, allowed);
       // Two items mapping to one destination (e.g. ids `alpha` and
       // `alpha.instructions`) would overwrite each other: skip the later one.
-      if (placement === null || !claimDestinations(placement, taken)) {
+      if (placement === null || !claimDestinations(placement, taken, (destination) => this.destinationKey(destination))) {
         skipped.push(item.file);
         continue;
       }
       writable.push(...placement.sources.map((source) => source.bundlePath));
+      destinations.push(...placement.sources.map(({ tail }) => this.destinationKey(path.join(placement.outDir, tail))));
     }
-    return { writable, skipped };
+    return { writable, skipped, destinations };
   }
 
   private async resolveLayout(target: Target): Promise<TargetLayout> {
@@ -491,6 +510,11 @@ export class FileTreeTargetWriter implements TargetWriter {
       return resolveLayout(target);
     }
     return await resolveLayoutAsync(target, this.opts.layoutLoader);
+  }
+
+  private destinationKey(destination: string): string {
+    const normalized = path.normalize(destination);
+    return this.caseSensitivePaths ? normalized : normalized.toLowerCase();
   }
 
   /**
@@ -553,6 +577,11 @@ interface ManifestItemPlacement {
   type?: CopilotFileType;
   outDir: string;
   sources: { bundlePath: string; tail: string }[];
+}
+
+interface ManifestItemWritePlan extends TargetWritePlan {
+  /** Normalized destination keys for writable items, relative to the layout base directory. */
+  destinations: string[];
 }
 
 const allowedKindSet = (target: Target): Set<string> | null =>
@@ -676,10 +705,15 @@ export const skillSourcePrefix = (file: string): string | null => {
  * directory), unless one is already reserved by an earlier item.
  * @param placement - Placement to reserve.
  * @param taken - Destinations reserved so far; updated on success.
+ * @param destinationKey
  * @returns `false` (reserving nothing) when any destination is taken.
  */
-const claimDestinations = (placement: ManifestItemPlacement, taken: Set<string>): boolean => {
-  const destinations = placement.sources.map(({ tail }) => path.join(placement.outDir, tail));
+const claimDestinations = (
+  placement: ManifestItemPlacement,
+  taken: Set<string>,
+  destinationKey: (destination: string) => string
+): boolean => {
+  const destinations = placement.sources.map(({ tail }) => destinationKey(path.join(placement.outDir, tail)));
   if (destinations.some((destination) => taken.has(destination))) {
     return false;
   }

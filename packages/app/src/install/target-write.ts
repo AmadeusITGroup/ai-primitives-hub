@@ -216,7 +216,7 @@ export async function writeBundleSafely(
   const itemPlan = await writer.preflightManifestItems(target, installableFiles, items);
   const covered = new Set(itemPlan.writable);
   const rest: ExtractedFiles = new Map([...installableFiles].filter(([bundlePath]) => !covered.has(bundlePath)));
-  const restPlan = await writer.preflight(target, rest);
+  const restPlan = await writer.preflight(target, rest, new Set(itemPlan.destinations));
   const skipped = [...new Set([...itemPlan.skipped, ...restPlan.skipped])];
   if (skipped.length > 0) {
     throw new TargetWriteRejectedError(skipped);
